@@ -18,7 +18,7 @@ namespace FASTER.test
             var v = tested.Enter();
             
             Assert.AreEqual(1, v);
-            tested.TryAdvanceVersion((_, _) => protectedVal = 1);
+            tested.AdvanceVersion((_, _) => protectedVal = 1);
             Thread.Sleep(10);
             // because of ongoing protection, nothing should happen yet
             tested.Leave();
@@ -42,10 +42,10 @@ namespace FASTER.test
             Assert.AreEqual(1, v);
             tested.Leave();
             
-            tested.TryAdvanceVersion((_, _) => protectedVal = 1);
+            tested.AdvanceVersion((_, _) => protectedVal = 1);
             Assert.AreEqual(1, protectedVal);
             
-            tested.TryAdvanceVersion((_, _) => protectedVal = 2, 4);
+            tested.AdvanceVersion((_, _) => protectedVal = 2, 4);
             Assert.AreEqual(2, protectedVal);
             
             v = tested.Enter();
@@ -81,7 +81,7 @@ namespace FASTER.test
 
             for (var i = 0; i < 1000; i++)
             {
-                tested.TryAdvanceVersion((vOld, vNew) =>
+                tested.AdvanceVersion((vOld, vNew) =>
                 {
                     Assert.AreEqual(vOld, Interlocked.Read(ref protectedVal));
                     // Flip sign to simulate critical section processing

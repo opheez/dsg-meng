@@ -73,7 +73,7 @@ namespace FASTER.test
             else if (random.Value.NextDouble() < options.writePermanentErrorRate)
             {
                 callback(42, numBytesToWrite, context);
-                versionScheme.TryAdvanceVersion((_, _) =>
+                versionScheme.AdvanceVersion((_, _) =>
                 {
                     var index = permanentlyFailedRangesStart.BinarySearch(logicalDestStart);
                     if (index >= 0)
@@ -129,7 +129,7 @@ namespace FASTER.test
             {
                 callback(42, readLength, context);
 
-                versionScheme.TryAdvanceVersion((_, _) =>
+                versionScheme.AdvanceVersion((_, _) =>
                 {
                     var index = permanentlyFailedRangesStart.BinarySearch(logicalSrcStart);
                     if (index >= 0)

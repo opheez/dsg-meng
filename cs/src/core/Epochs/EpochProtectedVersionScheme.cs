@@ -1,5 +1,3 @@
-using System;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -131,20 +129,31 @@ namespace FASTER.core
         }
     }
 
-    public interface IVersionSchemeStateMachine
+    public abstract class VersionSchemeStateMachineBase
     {
-        long ToVersion();
+        private long toVersion;
+        private EpochProtectedVersionScheme epvs;
+
+        protected VersionSchemeStateMachineBase(EpochProtectedVersionScheme epvs, long toVersion = -1)
+        {
+            this.epvs = epvs;
+            this.toVersion = toVersion;
+        }
+
+        protected void NotifyAvailableState() => epvs.TryStepStateMachine();
+
+        public long ToVersion() => toVersion;
         
-        bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState);
+        public abstract bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState);
         
-        void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState);
+        public abstract void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState);
     }
 
     public class EpochProtectedVersionScheme
     {
         private LightEpoch epoch;
         private VersionSchemeState state;
-        private IVersionSchemeStateMachine currentMachine;
+        private VersionSchemeStateMachineBase currentMachine;
 
         public EpochProtectedVersionScheme()
         {
@@ -152,6 +161,8 @@ namespace FASTER.core
             state = VersionSchemeState.Make(VersionSchemeState.REST, 1);
             currentMachine = null;
         }
+
+        public VersionSchemeState CurrentState() => state;
         
         // Atomic transition from expectedState -> nextState
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -168,6 +179,7 @@ namespace FASTER.core
             epoch.Resume();
             while (state.IsIntermediate())
                 Thread.Yield();
+            TryStepStateMachine();
             return state;
         }
 
@@ -176,6 +188,7 @@ namespace FASTER.core
             epoch.ProtectAndDrain();
             while (state.IsIntermediate())
                 Thread.Yield();
+            TryStepStateMachine();
             return state;
         }
 
@@ -184,32 +197,33 @@ namespace FASTER.core
             epoch.Suspend();
         }
 
-        private void StepStateMachine()
+
+        internal bool TryStepStateMachine()
         {
             var oldState = state;
-            if (currentMachine.GetNextStep(oldState, out var nextState))
+            if (oldState.IsIntermediate() || !currentMachine.GetNextStep(oldState, out var nextState)) return false;
+            
+            var intermediate = VersionSchemeState.MakeIntermediate(oldState);
+            if (!MakeTransition(oldState, intermediate)) return false;
+            epoch.BumpCurrentEpoch(() =>
             {
-                var intermediate = VersionSchemeState.MakeIntermediate(nextState);
-                MakeTransition(oldState, intermediate);
-                epoch.BumpCurrentEpoch(() =>
-                {
-                    currentMachine.OnEnteringState(oldState, nextState);
-                    MakeTransition(intermediate, nextState);
-                });
-                
-                if (!epoch.ThisInstanceProtected())
-                {
-                    epoch.Resume();
-                    epoch.Suspend();
-                }
-            }
-            else
+                currentMachine.OnEnteringState(oldState, nextState);
+                var success = MakeTransition(intermediate, nextState);
+                Debug.Assert(success);
+                if (nextState.Phase == VersionSchemeState.REST)
+                    currentMachine = null;
+            });
+
+            // Ensure that state machine is able to make progress if this thread is the only active thread
+            if (!epoch.ThisInstanceProtected())
             {
-                Thread.Yield();
+                epoch.Resume();
+                epoch.Suspend();
             }
+            return true;
         }
 
-        public bool ExecuteStateMachine(IVersionSchemeStateMachine stateMachine)
+        public bool ExecuteStateMachine(VersionSchemeStateMachineBase stateMachine)
         {
             while (Interlocked.CompareExchange(ref currentMachine, stateMachine, null) != null)
                 Thread.Yield();
@@ -220,18 +234,11 @@ namespace FASTER.core
                 return false;
             }
 
-            var targetState = VersionSchemeState.Make(VersionSchemeState.REST, currentMachine.ToVersion());
             Debug.Assert(state.Phase == VersionSchemeState.REST);
             Debug.Assert(stateMachine.GetNextStep(state, out _));
-            
-            while (state != targetState)
-            {
-                // TODO(Tianyu): Can we get rid of this?
-                StepStateMachine();
-            }
-
+            // Trigger one initial step to begin the process
+            TryStepStateMachine();
             return true;
         }
-
     }
 }

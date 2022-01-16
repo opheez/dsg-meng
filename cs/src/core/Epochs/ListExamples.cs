@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace FASTER.core
 {
@@ -166,7 +167,6 @@ namespace FASTER.core
         }
     }
 
-
     public class SimpleVersionSchemeResizableList : IResizableList
     {
         private SimpleVersionScheme svs;
@@ -255,6 +255,163 @@ namespace FASTER.core
                 count--;
                 Array.Copy(list, index + 1, list, index, list.Length - index - 1);
             });
+        }
+    }
+
+    public class ListGrowthStateMachine : VersionSchemeStateMachineBase
+    {
+        public const byte COPYING = 1;
+        private TwoPhaseResizableList obj;
+        private volatile bool copyDone = false;
+
+        public ListGrowthStateMachine(TwoPhaseResizableList obj) : base(obj.epvs)
+        {
+            this.obj = obj;
+        }
+        
+        public override bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState)
+        {
+            switch (currentState.Phase)
+            {
+                case VersionSchemeState.REST:
+                    nextState = VersionSchemeState.Make(COPYING, currentState.Version);
+                    return true;
+                case COPYING:
+                    nextState = copyDone
+                        ? VersionSchemeState.Make(VersionSchemeState.REST, currentState.Version + 1)
+                        : default;
+                    return copyDone;
+                default:
+                    throw new NotImplementedException();
+            }
+        }
+
+        public override void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
+        {
+            switch (fromState.Phase)
+            {
+                case VersionSchemeState.REST:
+                    obj.newList = new long[obj.count * 2];
+                    Task.Run(() =>
+                    {
+                        Array.Copy(obj.list, obj.newList, obj.list.Length);
+                        copyDone = true;
+                        NotifyAvailableState();
+                    });
+                    break;
+                case COPYING:
+                    obj.list = obj.newList;
+                    obj.newList = null;
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+        }
+    }
+
+    public class TwoPhaseResizableList : IResizableList
+    {
+        internal EpochProtectedVersionScheme epvs;
+        internal long[] list, newList;
+        internal int count;
+
+        public TwoPhaseResizableList()
+        {
+            epvs = new EpochProtectedVersionScheme();
+            list = new long[1];
+            newList = null;
+            count = 0;
+        }
+
+        public int Count() => count;
+
+        public long Read(int index)
+        {
+            try
+            {
+                epvs.Enter();
+                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
+                return list[index];
+            }
+            finally
+            {
+                epvs.Leave();
+            }
+        }
+
+        public void Write(int index, long value)
+        {
+            try
+            {
+                var state = epvs.Enter();
+                switch (state.Phase)
+                {
+                    case VersionSchemeState.REST:
+                        if (index < 0 || index >= count) throw new IndexOutOfRangeException();
+                        list[index] = value;
+                        break;
+                    case ListGrowthStateMachine.COPYING:
+                        epvs.Leave();
+                        Thread.Yield();
+                        epvs.Enter();
+                        break;
+                    default:
+                        throw new NotImplementedException();
+                }
+            }
+            finally
+            {
+                epvs.Leave();
+            }
+        }
+
+        public int Push(long value)
+        {
+            try
+            {
+                var state = epvs.Enter();
+                while (true)
+                {
+                    Debug.Assert(count <= list.Length);
+                    var countLocal = count;
+                    if (countLocal == list.Length)
+                    {
+                        epvs.ExecuteStateMachine(new ListGrowthStateMachine(this));
+
+                        while (epvs.Refresh() == state)
+                        {
+                            var newState = epvs.Refresh();
+                            if (newState != state)
+                            {
+                                state = newState;
+                                break;
+                            }
+                            Thread.Yield();
+                        }
+                    }
+
+                    var result = countLocal + 1;
+                    if (Interlocked.CompareExchange(ref count, countLocal, result) == countLocal)
+                    {
+                        var l = state.Phase == VersionSchemeState.REST ? list : newList;
+                        l[result] = value;
+                        return result;
+                    }
+                }
+            }
+            finally
+            {
+                epvs.Leave();
+            }
+        }
+
+        public void Delete(int index)
+        {
+            epvs.ExecuteStateMachine(new SimpleVersionSchemeStateMachine((_, _) =>
+            {
+                count--;
+                Array.Copy(list, index + 1, list, index, list.Length - index - 1);
+            }, epvs));
         }
     }
 }

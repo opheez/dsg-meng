@@ -5,27 +5,23 @@ using FASTER.core;
 
 namespace FASTER.core
 {
-    internal class SimpleVersionSchemeStateMachine : IVersionSchemeStateMachine
+    internal class SimpleVersionSchemeStateMachine : VersionSchemeStateMachineBase
     {
         private Action<long, long> criticalSection;
-        private long toVersion = -1;
 
-        public SimpleVersionSchemeStateMachine(Action<long, long> criticalSection, long toVersion = -1)
+        public SimpleVersionSchemeStateMachine(Action<long, long> criticalSection, EpochProtectedVersionScheme epvs, long toVersion = -1) : base(epvs, toVersion)
         {
             this.criticalSection = criticalSection;
-            this.toVersion = toVersion;
         }
-
-        public long ToVersion() => toVersion;
         
-        public bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState)
+        public override bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState)
         {
             Debug.Assert(currentState.Phase == VersionSchemeState.REST);
-            nextState = VersionSchemeState.Make(VersionSchemeState.REST, toVersion == -1 ? currentState.Version + 1 : toVersion);
+            nextState = VersionSchemeState.Make(VersionSchemeState.REST, ToVersion() == -1 ? currentState.Version + 1 : ToVersion());
             return true;
         }
 
-        public void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
+        public override void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
         {
             Debug.Assert(fromState.Phase == VersionSchemeState.REST && toState.Phase == VersionSchemeState.REST);
             criticalSection(fromState.Version, toState.Version);
@@ -49,7 +45,7 @@ namespace FASTER.core
 
         public bool AdvanceVersion(Action<long, long> criticalSection, long toVersion = -1)
         {
-            return versionScheme.ExecuteStateMachine(new SimpleVersionSchemeStateMachine(criticalSection, toVersion));
+            return versionScheme.ExecuteStateMachine(new SimpleVersionSchemeStateMachine(criticalSection, versionScheme, toVersion));
         }
     }
 }

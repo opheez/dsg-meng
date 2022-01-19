@@ -5,7 +5,7 @@ using FASTER.core;
 
 namespace FASTER.core
 {
-    internal class SimpleVersionSchemeStateMachine : VersionSchemeStateMachineBase
+    internal class SimpleVersionSchemeStateMachine : VersionSchemeStateMachine
     {
         private Action<long, long> criticalSection;
 

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,7 +7,7 @@ namespace FASTER.core
     public interface IResizableList
     {
         public int Count();
-        
+
         public long Read(int index);
 
         public void Write(int index, long value);
@@ -52,6 +51,7 @@ namespace FASTER.core
                 Array.Copy(list, newList, list.Length);
                 list = newList;
             }
+
             list[count] = value;
             return count++;
         }
@@ -112,7 +112,6 @@ namespace FASTER.core
             try
             {
                 rwLatch.EnterWriteLock();
-                if (count != list.Length) return;
                 var newList = new long[2 * list.Length];
                 Array.Copy(list, newList, list.Length);
                 list = newList;
@@ -125,25 +124,17 @@ namespace FASTER.core
 
         public int Push(long value)
         {
+            var result = Interlocked.Increment(ref count) - 1;
+            if (result == list.Length)
+                Resize();
             while (true)
             {
-                Debug.Assert(count <= list.Length);
-                var countLocal = count;
-                if (countLocal == list.Length)
-                {
-                    Resize();
-                    continue;
-                }
-
                 try
                 {
                     rwLatch.EnterReadLock();
-                    var result = countLocal + 1;
-                    if (Interlocked.CompareExchange(ref count, countLocal, result) == countLocal)
-                    {
-                        list[result] = value;
-                        return result;
-                    }
+                    if (result >= list.Length) continue;
+                    list[result] = value;
+                    return result;
                 }
                 finally
                 {
@@ -212,10 +203,9 @@ namespace FASTER.core
 
         private void Resize()
         {
-  
-                var newList = new long[2 * list.Length];
-                Array.Copy(list, newList, list.Length);
-                list = newList;
+            var newList = new long[2 * list.Length];
+            Array.Copy(list, newList, list.Length);
+            list = newList;
         }
 
         public int Push(long value)
@@ -223,23 +213,19 @@ namespace FASTER.core
             try
             {
                 var v = svs.Enter();
+                var result = Interlocked.Increment(ref count) - 1;
+                if (result == list.Length)
+                {
+                    svs.AdvanceVersion((_, _) => Resize(), v + 1);
+                    while (svs.Refresh() == v)
+                        Thread.Yield();
+                }
+
                 while (true)
                 {
-                    Debug.Assert(count <= list.Length);
-                    var countLocal = count;
-                    if (countLocal == list.Length)
-                    {
-                        svs.AdvanceVersion((_, _) => Resize(), v + 1);
-                        while (svs.Refresh() == v)
-                            Thread.Yield();
-                    }
-
-                    var result = countLocal + 1;
-                    if (Interlocked.CompareExchange(ref count, countLocal, result) == countLocal)
-                    {
-                        list[result] = value;
-                        return result;
-                    }
+                    if (result >= list.Length) continue;
+                    list[result] = value;
+                    return result;
                 }
             }
             finally
@@ -258,17 +244,17 @@ namespace FASTER.core
         }
     }
 
-    public class ListGrowthStateMachine : VersionSchemeStateMachineBase
+    public class ListGrowthStateMachine : VersionSchemeStateMachine
     {
         public const byte COPYING = 1;
         private TwoPhaseResizableList obj;
         private volatile bool copyDone = false;
 
-        public ListGrowthStateMachine(TwoPhaseResizableList obj) : base(obj.epvs)
+        public ListGrowthStateMachine(TwoPhaseResizableList obj, long toVersion) : base(obj.epvs, toVersion)
         {
             this.obj = obj;
         }
-        
+
         public override bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState)
         {
             switch (currentState.Phase)
@@ -277,9 +263,7 @@ namespace FASTER.core
                     nextState = VersionSchemeState.Make(COPYING, currentState.Version);
                     return true;
                 case COPYING:
-                    nextState = copyDone
-                        ? VersionSchemeState.Make(VersionSchemeState.REST, currentState.Version + 1)
-                        : default;
+                    nextState = VersionSchemeState.Make(VersionSchemeState.REST, actualToVersion);
                     return copyDone;
                 default:
                     throw new NotImplementedException();
@@ -291,7 +275,7 @@ namespace FASTER.core
             switch (fromState.Phase)
             {
                 case VersionSchemeState.REST:
-                    obj.newList = new long[obj.count * 2];
+                    obj.newList = new long[obj.list.Length * 2];
                     Task.Run(() =>
                     {
                         Array.Copy(obj.list, obj.newList, obj.list.Length);
@@ -323,6 +307,7 @@ namespace FASTER.core
             count = 0;
         }
 
+        // TODO(Tianyu): How to ensure this is correct in the face of concurrent pushes?
         public int Count() => count;
 
         public long Read(int index)
@@ -370,34 +355,29 @@ namespace FASTER.core
             try
             {
                 var state = epvs.Enter();
+                // Obtain a globally unique index to push entry onto
+                var result = Interlocked.Increment(ref count) - 1;
+
+                // Write the entry into the correct underlying array
                 while (true)
                 {
-                    Debug.Assert(count <= list.Length);
-                    var countLocal = count;
-                    if (countLocal == list.Length)
-                    {
-                        epvs.ExecuteStateMachine(new ListGrowthStateMachine(this));
+                    if (state.Phase == VersionSchemeState.REST && result == list.Length)
+                        // Use explicit versioning to prevent multiple list growth resulting from same full list state
+                        epvs.ExecuteStateMachine(new ListGrowthStateMachine(this, state.Version + 1));
 
-                        while (epvs.Refresh() == state)
-                        {
-                            var newState = epvs.Refresh();
-                            if (newState != state)
-                            {
-                                state = newState;
-                                break;
-                            }
-                            Thread.Yield();
-                        }
+                    var l = state.Phase == VersionSchemeState.REST ? list : newList;
+                    if (result >= l.Length)
+                    {
+                        state = epvs.Refresh();
+                        Thread.Yield();
+                        continue;
                     }
 
-                    var result = countLocal + 1;
-                    if (Interlocked.CompareExchange(ref count, countLocal, result) == countLocal)
-                    {
-                        var l = state.Phase == VersionSchemeState.REST ? list : newList;
-                        l[result] = value;
-                        return result;
-                    }
+                    l[result] = value;
+                    break;
                 }
+
+                return result;
             }
             finally
             {

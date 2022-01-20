@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -179,28 +178,38 @@ namespace FASTER.core
 
         public VersionSchemeState Enter()
         {
-            epoch.Resume();
-            while (state.IsIntermediate())
+            var epochNum = 0;
+            epoch.Resume(out epochNum);
+            TryStepStateMachine();
+
+            VersionSchemeState result = default;
+            while (true)
             {
+                result = state;
+                if (!result.IsIntermediate()) break;
                 epoch.Suspend();
                 Thread.Yield();
-                epoch.Resume();
+                epoch.Resume(out epochNum);
             }
-
-            TryStepStateMachine();
-            return state;
+            
+            return result;
         }
 
         public VersionSchemeState Refresh()
         {
             epoch.ProtectAndDrain();
-            while (state.IsIntermediate()) 
-            {
-                Thread.Yield();
-                epoch.ProtectAndDrain();
-            }
+            VersionSchemeState result = default;
             TryStepStateMachine();
-            return state;
+
+            while (true)
+            {
+                result = state;
+                if (!result.IsIntermediate()) break;
+                epoch.Suspend();
+                Thread.Yield();
+                epoch.Resume();
+            }
+            return result;
         }
 
         public void Leave()

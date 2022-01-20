@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using FASTER.core;
 using NUnit.Framework;
 
@@ -12,7 +14,6 @@ namespace FASTER.test
     [TestFixture]
     internal class ResizaleListTests
     {
-
         private IResizableList GetInstance(ListImpl impl)
         {
             switch (impl)
@@ -22,7 +23,7 @@ namespace FASTER.test
                 case ListImpl.Latched:
                     return new LatchedResizableList();
                 case ListImpl.Svs:
-                    return new SingleThreadedResizableList();
+                    return new SimpleVersionSchemeResizableList();
                 case ListImpl.TwoPhase:
                     return new TwoPhaseResizableList();
                 default:
@@ -66,5 +67,44 @@ namespace FASTER.test
             }
         }
         
+        [Test]
+        [Category("FasterLog")]
+        [Category("Smoke")]
+        public void MultiThreadedPushTest([Values] ListImpl impl)
+        {
+            var threadInsertCount = 10000;
+            var threadCount = 2 * Environment.ProcessorCount;
+            if (impl == ListImpl.SingleThreaded)
+                Assert.Ignore("Single threaded implementation not tested in multi-threaded tests");
+
+            var tested = GetInstance(impl);
+            
+            var workerViews = new List<List<(int, long)>>();
+            var threads = new List<Thread>();
+            for (var i = 0; i < threadCount; i++)
+            {
+                var id = i;
+                workerViews.Add(new List<(int, long)>());
+                var threadWorker = new Thread(() =>
+                {
+                    var random = new Random();
+                    for (var j = 0; j < threadInsertCount; j++)
+                    {
+                        var val = random.Next();
+                        var pos = tested.Push(val);
+                        workerViews[id].Add((pos, val));
+                    }
+                });
+                threadWorker.Start();
+                threads.Add(threadWorker);
+            }
+
+            foreach (var t in threads) t.Join();
+            
+            Assert.AreEqual(threadInsertCount * threadCount, tested.Count());
+            foreach (var t in workerViews)
+                foreach (var (pos, val) in t)
+                    Assert.AreEqual(val, tested.Read(pos));
+        }
     }
 }

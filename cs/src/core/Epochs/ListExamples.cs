@@ -125,10 +125,10 @@ namespace FASTER.core
         public int Push(long value)
         {
             var result = Interlocked.Increment(ref count) - 1;
-            if (result == list.Length)
-                Resize();
             while (true)
             {
+                if (result == list.Length)
+                    Resize();
                 try
                 {
                     rwLatch.EnterReadLock();
@@ -214,18 +214,19 @@ namespace FASTER.core
             {
                 var v = svs.Enter();
                 var result = Interlocked.Increment(ref count) - 1;
-                if (result == list.Length)
-                {
-                    svs.AdvanceVersion((_, _) => Resize(), v + 1);
-                    while (svs.Refresh() == v)
-                        Thread.Yield();
-                }
-
+                
                 while (true)
                 {
-                    if (result >= list.Length) continue;
-                    list[result] = value;
-                    return result;
+                    if (result == list.Length)
+                        svs.AdvanceVersion((_, _) => Resize(), v + 1);
+
+                    if (result < list.Length)
+                    {
+                        list[result] = value;
+                        return result;
+                    }
+                    v = svs.Refresh();
+                    Thread.Yield();
                 }
             }
             finally
@@ -365,19 +366,37 @@ namespace FASTER.core
                         // Use explicit versioning to prevent multiple list growth resulting from same full list state
                         epvs.ExecuteStateMachine(new ListGrowthStateMachine(this, state.Version + 1));
 
-                    var l = state.Phase == VersionSchemeState.REST ? list : newList;
-                    if (result >= l.Length)
+                    switch (state.Phase)
                     {
-                        state = epvs.Refresh();
-                        Thread.Yield();
-                        continue;
+                        case VersionSchemeState.REST:
+                            if (result >= list.Length)
+                            {
+                                epvs.Leave();
+                                Thread.Yield();
+                                state = epvs.Enter();
+                                continue;
+                            }
+
+                            list[result] = value;
+                            return result;
+                        case ListGrowthStateMachine.COPYING:
+                            // This was the copying phase of a previous state machine
+                            if (result >= newList.Length)
+                            {
+                                epvs.Leave();
+                                Thread.Yield();
+                                state = epvs.Enter();
+                                continue;
+                            }
+
+                            // Make sure to write update to old list if it belongs there in case copying erases new write
+                            if (result < list.Length)
+                                list[result] = value;
+                            // Also write to new list in case copying was delayed
+                            newList[result] = value;
+                            return result;
                     }
-
-                    l[result] = value;
-                    break;
                 }
-
-                return result;
             }
             finally
             {

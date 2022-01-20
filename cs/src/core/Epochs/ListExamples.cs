@@ -1,4 +1,5 @@
 using System;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -81,11 +82,13 @@ namespace FASTER.core
 
         public long Read(int index)
         {
+            if (index < 0) throw new IndexOutOfRangeException();
             try
             {
                 rwLatch.EnterReadLock();
-                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
-                return list[index];
+                if (index < list.Length) return list[index];
+                if (index < count) return default;
+                throw new IndexOutOfRangeException();
             }
             finally
             {
@@ -175,11 +178,13 @@ namespace FASTER.core
 
         public long Read(int index)
         {
+            if (index < 0) throw new IndexOutOfRangeException();
             try
             {
                 svs.Enter();
-                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
-                return list[index];
+                if (index < list.Length) return list[index];
+                if (index < count) return default;
+                throw new IndexOutOfRangeException();
             }
             finally
             {
@@ -214,7 +219,7 @@ namespace FASTER.core
             {
                 var v = svs.Enter();
                 var result = Interlocked.Increment(ref count) - 1;
-                
+
                 while (true)
                 {
                     if (result == list.Length)
@@ -313,11 +318,25 @@ namespace FASTER.core
 
         public long Read(int index)
         {
+            if (index < 0) throw new IndexOutOfRangeException();
             try
             {
-                epvs.Enter();
-                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
-                return list[index];
+                var state = epvs.Enter();
+                switch (state.Phase)
+                {
+                    case VersionSchemeState.REST:
+                        if (index < list.Length) return list[index];
+                        // element allocated but yet to be constructed
+                        if (index < count) return default;
+                        throw new IndexOutOfRangeException();
+                    case ListGrowthStateMachine.COPYING:
+                        if (index < list.Length) return list[index];
+                        if (index < newList.Length) return newList[index];
+                        if (index < count) return default;
+                        throw new IndexOutOfRangeException();
+                    default:
+                        throw new NotImplementedException();
+                }
             }
             finally
             {
@@ -330,20 +349,14 @@ namespace FASTER.core
             try
             {
                 var state = epvs.Enter();
-                switch (state.Phase)
+                // Write operation is not allowed during copy because we don't know about the copy progress
+                while (state.Phase == ListGrowthStateMachine.COPYING)
                 {
-                    case VersionSchemeState.REST:
-                        if (index < 0 || index >= count) throw new IndexOutOfRangeException();
-                        list[index] = value;
-                        break;
-                    case ListGrowthStateMachine.COPYING:
-                        epvs.Leave();
-                        Thread.Yield();
-                        epvs.Enter();
-                        break;
-                    default:
-                        throw new NotImplementedException();
+                    state = epvs.Refresh();
+                    Thread.Yield();
                 }
+                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
+                list[index] = value;
             }
             finally
             {
@@ -355,9 +368,9 @@ namespace FASTER.core
         {
             try
             {
-                var state = epvs.Enter();
-                // Obtain a globally unique index to push entry onto
                 var result = Interlocked.Increment(ref count) - 1;
+                
+                var state = epvs.Enter();
 
                 // Write the entry into the correct underlying array
                 while (true)

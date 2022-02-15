@@ -26,6 +26,11 @@ namespace FASTER.core
             Debug.Assert(fromState.Phase == VersionSchemeState.REST && toState.Phase == VersionSchemeState.REST);
             criticalSection(fromState.Version, toState.Version);
         }
+
+        public override void AfterEnteringState(VersionSchemeState state)
+        {
+            throw new NotImplementedException();
+        }
     }
     
     public class SimpleVersionScheme
@@ -34,7 +39,7 @@ namespace FASTER.core
 
         public SimpleVersionScheme()
         {
-            versionScheme = new EpochProtectedVersionScheme();
+            versionScheme = new EpochProtectedVersionScheme(new LightEpoch());
         }
 
         public long Enter() => versionScheme.Enter().Version;
@@ -43,6 +48,7 @@ namespace FASTER.core
 
         public long Refresh() => versionScheme.Refresh().Version;
 
+        
         public bool AdvanceVersion(Action<long, long> criticalSection, long toVersion = -1)
         {
             return versionScheme.ExecuteStateMachine(new SimpleVersionSchemeStateMachine(criticalSection, versionScheme, toVersion));

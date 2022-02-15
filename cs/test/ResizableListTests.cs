@@ -58,16 +58,6 @@ namespace FASTER.test
                 else 
                     Assert.AreEqual(i, tested.Read(i));
             }
-
-            tested.Delete(0);
-            Assert.AreEqual(99, tested.Count());
-            for (var i = 0; i < 99; i++)
-            {
-                if (i % 2 == 1)
-                    Assert.AreEqual((i + 1) * 2, tested.Read(i));
-                else 
-                    Assert.AreEqual(i + 1, tested.Read(i));
-            }
         }
         
         [Test]

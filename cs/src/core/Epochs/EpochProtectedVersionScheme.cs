@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -133,8 +132,8 @@ namespace FASTER.core
     public abstract class VersionSchemeStateMachine
     {
         private long toVersion;
-        internal long actualToVersion;
-        private EpochProtectedVersionScheme epvs;
+        protected internal long actualToVersion;
+        protected EpochProtectedVersionScheme epvs;
 
         protected VersionSchemeStateMachine(EpochProtectedVersionScheme epvs, long toVersion = -1)
         {
@@ -142,14 +141,19 @@ namespace FASTER.core
             this.toVersion = toVersion;
             actualToVersion = toVersion;
         }
-
-        protected void NotifyAvailableState() => epvs.TryStepStateMachine();
-
+        
         public long ToVersion() => toVersion;
         
         public abstract bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState);
         
         public abstract void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState);
+
+        public abstract void AfterEnteringState(VersionSchemeState state);
+    }
+
+    public enum StateMachineExecutionStatus
+    {
+        OK, RETRY, FAIL
     }
 
     public class EpochProtectedVersionScheme
@@ -157,9 +161,9 @@ namespace FASTER.core
         private LightEpoch epoch;
         private VersionSchemeState state;
         private VersionSchemeStateMachine currentMachine;
-        public EpochProtectedVersionScheme()
+        public EpochProtectedVersionScheme(LightEpoch epoch)
         {
-            epoch = new LightEpoch();
+            this.epoch = epoch;
             state = VersionSchemeState.Make(VersionSchemeState.REST, 1);
             currentMachine = null;
         }
@@ -178,8 +182,7 @@ namespace FASTER.core
 
         public VersionSchemeState Enter()
         {
-            var epochNum = 0;
-            epoch.Resume(out epochNum);
+            epoch.Resume();
             TryStepStateMachine();
 
             VersionSchemeState result = default;
@@ -189,7 +192,7 @@ namespace FASTER.core
                 if (!result.IsIntermediate()) break;
                 epoch.Suspend();
                 Thread.Yield();
-                epoch.Resume(out epochNum);
+                epoch.Resume();
             }
             
             return result;
@@ -217,30 +220,33 @@ namespace FASTER.core
             epoch.Suspend();
         }
 
-        internal bool TryStepStateMachine()
+        internal void TryStepStateMachine()
         {
             var machineLocal = currentMachine;
             var oldState = state;
             
             // Nothing to step
-            if (machineLocal == null) return false;
+            if (machineLocal == null) return;
             
-            // Machine finished, but not reset yet. Should avoid starting another cycle
+            // Machine finished, but not reset yet. Should reset and avoid starting another cycle
             if (oldState.Phase == VersionSchemeState.REST && oldState.Version == machineLocal.actualToVersion)
-                return false;
-            
+            {
+                Interlocked.CompareExchange(ref currentMachine, null, machineLocal);
+                return;
+            }
+
             // Step is in progress or no step is available
-            if (oldState.IsIntermediate() || !machineLocal.GetNextStep(oldState, out var nextState)) return false;
+            if (oldState.IsIntermediate() || !machineLocal.GetNextStep(oldState, out var nextState)) return;
             
             var intermediate = VersionSchemeState.MakeIntermediate(oldState);
-            if (!MakeTransition(oldState, intermediate)) return false;
+            if (!MakeTransition(oldState, intermediate)) return;
             epoch.BumpCurrentEpoch(() =>
             {
                 machineLocal.OnEnteringState(oldState, nextState);
                 var success = MakeTransition(intermediate, nextState);
+                machineLocal.AfterEnteringState(nextState);
                 Debug.Assert(success);
-                if (nextState.Phase == VersionSchemeState.REST)
-                    Interlocked.CompareExchange(ref currentMachine, null, machineLocal);
+                TryStepStateMachine();
             });
 
             // Ensure that state machine is able to make progress if this thread is the only active thread
@@ -249,25 +255,52 @@ namespace FASTER.core
                 epoch.Resume();
                 epoch.Suspend();
             }
-            return true;
         }
+
+        public StateMachineExecutionStatus TryExecuteStateMachine(VersionSchemeStateMachine stateMachine)
+        {
+            if (stateMachine.ToVersion() != -1 && stateMachine.ToVersion() <= state.Version) return StateMachineExecutionStatus.FAIL;
+            var actualStateMachine = Interlocked.CompareExchange(ref currentMachine, stateMachine, null);
+            if (actualStateMachine == null)
+            {
+                // Compute the actual ToVersion of state machine
+                stateMachine.actualToVersion =
+                    stateMachine.ToVersion() == -1 ? state.Version + 1 : stateMachine.ToVersion();
+                // Trigger one initial step to begin the process
+                TryStepStateMachine();
+                return StateMachineExecutionStatus.OK;
+            }
+            
+            // Otherwise, need to check that we are not a duplicate attempt to increment version
+            if (stateMachine.ToVersion() != -1 && currentMachine.actualToVersion >= stateMachine.ToVersion()) 
+                return StateMachineExecutionStatus.FAIL;
+
+            return StateMachineExecutionStatus.RETRY;
+        }
+
 
         public bool ExecuteStateMachine(VersionSchemeStateMachine stateMachine)
         {
-            // TODO(Tianyu): Currently unsafe to retry with protection on, need to figure out what to do
-            while (true)
+            if (epoch.ThisInstanceProtected())
+                throw new FasterException("unsafe to execute a state machine blockingly when under protection"); 
+            StateMachineExecutionStatus status;
+            do
             {
-                if (stateMachine.ToVersion() != -1 && stateMachine.ToVersion() <= state.Version) return false;
-                var actualStateMachine = Interlocked.CompareExchange(ref currentMachine, stateMachine, null);
-                if (actualStateMachine == null) break;
-                // Otherwise, need to check that we are not a duplicate attempt to increment version
-                if (stateMachine.ToVersion() != -1 && (actualStateMachine.actualToVersion >= stateMachine.ToVersion())) return false;
+                status = TryExecuteStateMachine(stateMachine);
+            } while (status == StateMachineExecutionStatus.RETRY);
+
+            return status == StateMachineExecutionStatus.OK;
+        }
+
+        public bool ExecuteStateMachineToFinish(VersionSchemeStateMachine stateMachine)
+        {
+            if (!ExecuteStateMachine(stateMachine)) return false;
+            while (state.Version != stateMachine.actualToVersion || state.Phase != VersionSchemeState.REST)
+            {
+                TryStepStateMachine();
+                Thread.Yield();
             }
-            // Compute the actual ToVersion of state machine
-            stateMachine.actualToVersion =
-                stateMachine.ToVersion() == -1 ? state.Version + 1 : stateMachine.ToVersion();
-            // Trigger one initial step to begin the process
-            TryStepStateMachine();
+
             return true;
         }
     }

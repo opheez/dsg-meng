@@ -22,12 +22,12 @@ namespace FASTER.core
         /// <summary>
         /// Default number of entries in the entries table
         /// </summary>
-        public const int kTableSize = 128;
+        public static int TableSize = 128;
 
         /// <summary>
         /// Default drainlist size
         /// </summary>
-        private const int kDrainListSize = 16;
+        private static int DrainListSize = 16;
 
         /// <summary>
         /// Thread protection status entries.
@@ -36,9 +36,9 @@ namespace FASTER.core
         private GCHandle tableHandle;
         private Entry* tableAligned;
 
-        private static readonly Entry[] threadIndex;
+        private static Entry[] threadIndex;
         private static GCHandle threadIndexHandle;
-        private static readonly Entry* threadIndexAligned;
+        private static Entry* threadIndexAligned;
 
         /// <summary>
         /// List of action, epoch pairs containing actions to performed 
@@ -46,7 +46,7 @@ namespace FASTER.core
         /// ensure latest value is seen by the last suspended thread.
         /// </summary>
         private volatile int drainCount = 0;
-        private readonly EpochActionPair[] drainList = new EpochActionPair[kDrainListSize];
+        private readonly EpochActionPair[] drainList = new EpochActionPair[DrainListSize];
 
         /// <summary>
         /// A thread's entry in the epoch table.
@@ -80,10 +80,13 @@ namespace FASTER.core
         /// Static constructor to setup shared cache-aligned space
         /// to store per-entry count of instances using that entry
         /// </summary>
-        static LightEpoch()
+
+        public static void InitializeStatic(int tableSize, int drainListSize)
         {
+            TableSize = tableSize;
+            DrainListSize = drainListSize;
             // Over-allocate to do cache-line alignment
-            threadIndex = new Entry[kTableSize + 2];
+            threadIndex = new Entry[TableSize + 2];
             threadIndexHandle = GCHandle.Alloc(threadIndex, GCHandleType.Pinned);
             long p = (long)threadIndexHandle.AddrOfPinnedObject();
 
@@ -91,6 +94,7 @@ namespace FASTER.core
             long p2 = (p + (Constants.kCacheLineBytes - 1)) & ~(Constants.kCacheLineBytes - 1);
             threadIndexAligned = (Entry*)p2;
         }
+        
 
         /// <summary>
         /// Instantiate the epoch table
@@ -98,7 +102,7 @@ namespace FASTER.core
         public LightEpoch()
         {
             // Over-allocate to do cache-line alignment
-            tableRaw = new Entry[kTableSize + 2];
+            tableRaw = new Entry[TableSize + 2];
             tableHandle = GCHandle.Alloc(tableRaw, GCHandleType.Pinned);
             long p = (long)tableHandle.AddrOfPinnedObject();
 
@@ -109,7 +113,7 @@ namespace FASTER.core
             CurrentEpoch = 1;
             SafeToReclaimEpoch = 0;
 
-            for (int i = 0; i < kDrainListSize; i++)
+            for (int i = 0; i < DrainListSize; i++)
                 drainList[i].epoch = int.MaxValue;
             drainCount = 0;
         }
@@ -186,7 +190,7 @@ namespace FASTER.core
                 // Barrier ensures we see the latest epoch table entries. Ensures
                 // that the last suspended thread drains all pending actions.
                 Thread.MemoryBarrier();
-                for (int index = 1; index <= kTableSize; ++index)
+                for (int index = 1; index <= TableSize; ++index)
                 {
                     int entry_epoch = (*(tableAligned + index)).localCurrentEpoch;
                     if (0 != entry_epoch)
@@ -208,7 +212,7 @@ namespace FASTER.core
         {
             ComputeNewSafeToReclaimEpoch(nextEpoch);
 
-            for (int i = 0; i < kDrainListSize; i++)
+            for (int i = 0; i < DrainListSize; i++)
             {
                 var trigger_epoch = drainList[i].epoch;
 
@@ -349,7 +353,7 @@ namespace FASTER.core
                     }
                 }
 
-                if (++i == kDrainListSize)
+                if (++i == DrainListSize)
                 {
                     ProtectAndDrain();
                     i = 0;
@@ -369,7 +373,7 @@ namespace FASTER.core
         {
             int oldestOngoingCall = currentEpoch;
 
-            for (int index = 1; index <= kTableSize; ++index)
+            for (int index = 1; index <= TableSize; ++index)
             {
                 int entry_epoch = (*(tableAligned + index)).localCurrentEpoch;
                 if (0 != entry_epoch)
@@ -400,9 +404,9 @@ namespace FASTER.core
             for (; ; )
             {
                 // Reserve an entry in the table.
-                for (int i = 0; i < kTableSize; ++i)
+                for (int i = 0; i < TableSize; ++i)
                 {
-                    int index_to_test = 1 + ((startIndex + i) & (kTableSize - 1));
+                    int index_to_test = 1 + ((startIndex + i) & (TableSize - 1));
                     if (0 == (threadIndexAligned + index_to_test)->threadId)
                     {
                         bool success =
@@ -418,7 +422,7 @@ namespace FASTER.core
                     ++current_iteration;
                 }
 
-                if (current_iteration > (kTableSize * 10))
+                if (current_iteration > (TableSize * 10))
                 {
                     throw new FasterException("Unable to reserve an epoch entry, try increasing the epoch table size (kTableSize)");
                 }
@@ -496,7 +500,7 @@ namespace FASTER.core
         public bool CheckIsComplete(int markerIdx, long version)
         {
             // check if all threads have reported complete
-            for (int index = 1; index <= kTableSize; ++index)
+            for (int index = 1; index <= TableSize; ++index)
             {
                 int entry_epoch = (*(tableAligned + index)).localCurrentEpoch;
                 int fc_version = (*(tableAligned + index)).markers[markerIdx];

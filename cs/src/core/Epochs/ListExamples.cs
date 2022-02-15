@@ -14,8 +14,6 @@ namespace FASTER.core
         public void Write(int index, long value);
 
         public int Push(long value);
-
-        public void Delete(int index);
     }
 
 
@@ -55,13 +53,6 @@ namespace FASTER.core
 
             list[count] = value;
             return count++;
-        }
-
-        public void Delete(int index)
-        {
-            if (index < 0 || index >= count) throw new IndexOutOfRangeException();
-            count--;
-            Array.Copy(list, index + 1, list, index, list.Length - index - 1);
         }
     }
 
@@ -145,20 +136,6 @@ namespace FASTER.core
                 }
             }
         }
-
-        public void Delete(int index)
-        {
-            try
-            {
-                rwLatch.EnterWriteLock();
-                count--;
-                Array.Copy(list, index + 1, list, index, list.Length - index - 1);
-            }
-            finally
-            {
-                rwLatch.ExitWriteLock();
-            }
-        }
     }
 
     public class SimpleVersionSchemeResizableList : IResizableList
@@ -222,31 +199,23 @@ namespace FASTER.core
 
                 while (true)
                 {
-                    if (result == list.Length)
-                        svs.AdvanceVersion((_, _) => Resize(), v + 1);
-
                     if (result < list.Length)
                     {
                         list[result] = value;
                         return result;
                     }
-                    v = svs.Refresh();
+
+                    svs.Leave();
+                    if (result == list.Length)
+                        svs.AdvanceVersion((_, _) => Resize(), v + 1);
                     Thread.Yield();
+                    v = svs.Enter();
                 }
             }
             finally
             {
                 svs.Leave();
             }
-        }
-
-        public void Delete(int index)
-        {
-            svs.AdvanceVersion((_, _) =>
-            {
-                count--;
-                Array.Copy(list, index + 1, list, index, list.Length - index - 1);
-            });
         }
     }
 
@@ -282,12 +251,6 @@ namespace FASTER.core
             {
                 case VersionSchemeState.REST:
                     obj.newList = new long[obj.list.Length * 2];
-                    Task.Run(() =>
-                    {
-                        Array.Copy(obj.list, obj.newList, obj.list.Length);
-                        copyDone = true;
-                        NotifyAvailableState();
-                    });
                     break;
                 case COPYING:
                     obj.list = obj.newList;
@@ -297,6 +260,13 @@ namespace FASTER.core
                     throw new NotImplementedException();
             }
         }
+
+        public override void AfterEnteringState(VersionSchemeState state)
+        {
+            Array.Copy(obj.list, obj.newList, obj.list.Length);
+            copyDone = true;
+            epvs.TryStepStateMachine();
+        }  
     }
 
     public class TwoPhaseResizableList : IResizableList
@@ -307,7 +277,7 @@ namespace FASTER.core
 
         public TwoPhaseResizableList()
         {
-            epvs = new EpochProtectedVersionScheme();
+            epvs = new EpochProtectedVersionScheme(new LightEpoch());
             list = new long[1];
             newList = null;
             count = 0;
@@ -375,9 +345,14 @@ namespace FASTER.core
                 // Write the entry into the correct underlying array
                 while (true)
                 {
+
                     if (state.Phase == VersionSchemeState.REST && result == list.Length)
+                    {
+                        epvs.Leave();
                         // Use explicit versioning to prevent multiple list growth resulting from same full list state
                         epvs.ExecuteStateMachine(new ListGrowthStateMachine(this, state.Version + 1));
+                        state = epvs.Enter();
+                    }
 
                     switch (state.Phase)
                     {
@@ -415,15 +390,6 @@ namespace FASTER.core
             {
                 epvs.Leave();
             }
-        }
-
-        public void Delete(int index)
-        {
-            epvs.ExecuteStateMachine(new SimpleVersionSchemeStateMachine((_, _) =>
-            {
-                count--;
-                Array.Copy(list, index + 1, list, index, list.Length - index - 1);
-            }, epvs));
         }
     }
 }

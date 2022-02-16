@@ -112,7 +112,7 @@ namespace FASTER.core
         public FasterKV(long size, LogSettings logSettings,
             CheckpointSettings checkpointSettings = null, SerializerSettings<Key, Value> serializerSettings = null,
             IFasterEqualityComparer<Key> comparer = null,
-            VariableLengthStructSettings<Key, Value> variableLengthStructSettings = null, bool tryRecoverLatest = false)
+            VariableLengthStructSettings<Key, Value> variableLengthStructSettings = null, bool tryRecoverLatest = false, bool useEpvs = false)
         {
             if (comparer != null)
                 this.comparer = comparer;
@@ -237,6 +237,11 @@ namespace FASTER.core
                     Recover();
                 }
                 catch { }
+            }
+
+            if (useEpvs)
+            {
+                epvs = new EpochProtectedVersionScheme(epoch);
             }
         }
 

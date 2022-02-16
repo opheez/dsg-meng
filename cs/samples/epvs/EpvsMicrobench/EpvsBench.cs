@@ -17,7 +17,7 @@ namespace epvs
             private byte[] scratchPad;
             private HashAlgorithm hasher;
             private EpvsBench parent;
-            private Queue<int> versionChangeIndexes;
+            private List<int> versionChangeIndexes;
             private int numOps, versionChangeDelay, numaStyle, threadId;
 
             internal Worker(EpvsBench parent, Options options, int threadId)
@@ -25,7 +25,7 @@ namespace epvs
                 hasher = new SHA256Managed();
                 scratchPad = new byte[hasher.HashSize / 8];
                 this.parent = parent;
-                versionChangeIndexes = new Queue<int>();
+                versionChangeIndexes = new List<int>();
                 numOps = options.NumOps;
                 versionChangeDelay = options.VersionChangeDelay;
                 numaStyle = options.NumaStyle;
@@ -35,7 +35,7 @@ namespace epvs
                 for (var i = 0; i < numOps; i++)
                 {
                     if (random.NextDouble() < options.VersionChangeProbability)
-                        versionChangeIndexes.Enqueue(i);
+                        versionChangeIndexes.Add(i);
                 }
             }
 
@@ -44,6 +44,7 @@ namespace epvs
                 for (var i = 0; i < numUnits; i++)
                     hasher.TryComputeHash(parent.hashBytes, scratchPad, out _);
             }
+            
 
             internal void RunOneThread()
             {
@@ -52,12 +53,13 @@ namespace epvs
                 else
                     Native32.AffinitizeThreadShardedNuma((uint) threadId, 2); // assuming two NUMA sockets
 
+                var nextChangeIndex = 0;
                 for (var i = 0; i < numOps; i++)
                 {
-                    if (i == versionChangeIndexes.Peek())
+                    if (nextChangeIndex < versionChangeIndexes.Count && i == versionChangeIndexes[nextChangeIndex])
                     {
-                        versionChangeIndexes.Dequeue();
                         parent.tested.AdvanceVersion((_, _) => DoWork(versionChangeDelay));
+                        nextChangeIndex++;
                     }
                     else
                     {
@@ -92,7 +94,7 @@ namespace epvs
                 t.Join();
             var timeMilli = sw.ElapsedMilliseconds;
             // TODO(Tianyu): More sophisticated output for automation
-            Console.WriteLine(options.NumOps * options.NumThreads / (double) timeMilli);
+            Console.WriteLine(options.NumOps * options.NumThreads * 1000.0 / timeMilli);
         }
     }
 }

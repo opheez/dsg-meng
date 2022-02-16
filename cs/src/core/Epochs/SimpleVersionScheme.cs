@@ -1,7 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Threading;
-using FASTER.core;
 
 namespace FASTER.core
 {
@@ -27,10 +25,7 @@ namespace FASTER.core
             criticalSection(fromState.Version, toState.Version);
         }
 
-        public override void AfterEnteringState(VersionSchemeState state)
-        {
-            throw new NotImplementedException();
-        }
+        public override void AfterEnteringState(VersionSchemeState state) {}
     }
     
     public class SimpleVersionScheme

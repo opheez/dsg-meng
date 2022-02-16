@@ -1,7 +1,5 @@
 using System;
-using System.Net.Http.Headers;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace FASTER.core
 {
@@ -265,7 +263,7 @@ namespace FASTER.core
         {
             Array.Copy(obj.list, obj.newList, obj.list.Length);
             copyDone = true;
-            epvs.TryStepStateMachine();
+            epvs.TryStepStateMachine(this);
         }  
     }
 

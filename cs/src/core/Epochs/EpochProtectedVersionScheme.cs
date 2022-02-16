@@ -132,7 +132,7 @@ namespace FASTER.core
     public abstract class VersionSchemeStateMachine
     {
         private long toVersion;
-        protected internal long actualToVersion;
+        protected internal long actualToVersion = -1;
         protected EpochProtectedVersionScheme epvs;
 
         protected VersionSchemeStateMachine(EpochProtectedVersionScheme epvs, long toVersion = -1)
@@ -183,9 +183,9 @@ namespace FASTER.core
         public VersionSchemeState Enter()
         {
             epoch.Resume();
-            TryStepStateMachine();
+            TryStepStateMachine(null);
 
-            VersionSchemeState result = default;
+            VersionSchemeState result;
             while (true)
             {
                 result = state;
@@ -202,7 +202,7 @@ namespace FASTER.core
         {
             epoch.ProtectAndDrain();
             VersionSchemeState result = default;
-            TryStepStateMachine();
+            TryStepStateMachine(null);
 
             while (true)
             {
@@ -220,13 +220,19 @@ namespace FASTER.core
             epoch.Suspend();
         }
 
-        internal void TryStepStateMachine()
+        internal void TryStepStateMachine(VersionSchemeStateMachine expectedMachine)
         {
             var machineLocal = currentMachine;
             var oldState = state;
             
             // Nothing to step
             if (machineLocal == null) return;
+
+            // Should exit to avoid stepping infinitely (until stack overflow)
+            if (expectedMachine != null && machineLocal != expectedMachine) return;
+
+            // Still computing actual to version
+            if (machineLocal.actualToVersion == -1) return;
             
             // Machine finished, but not reset yet. Should reset and avoid starting another cycle
             if (oldState.Phase == VersionSchemeState.REST && oldState.Version == machineLocal.actualToVersion)
@@ -240,14 +246,8 @@ namespace FASTER.core
             
             var intermediate = VersionSchemeState.MakeIntermediate(oldState);
             if (!MakeTransition(oldState, intermediate)) return;
-            epoch.BumpCurrentEpoch(() =>
-            {
-                machineLocal.OnEnteringState(oldState, nextState);
-                var success = MakeTransition(intermediate, nextState);
-                machineLocal.AfterEnteringState(nextState);
-                Debug.Assert(success);
-                TryStepStateMachine();
-            });
+            // Avoid upfront memory allocation by going to a function
+            StepMachineHeavy(machineLocal, oldState, nextState);
 
             // Ensure that state machine is able to make progress if this thread is the only active thread
             if (!epoch.ThisInstanceProtected())
@@ -255,6 +255,19 @@ namespace FASTER.core
                 epoch.Resume();
                 epoch.Suspend();
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void StepMachineHeavy(VersionSchemeStateMachine machineLocal, VersionSchemeState old, VersionSchemeState next)
+        {
+            epoch.BumpCurrentEpoch(() =>
+            {
+                machineLocal.OnEnteringState(old, next);
+                var success = MakeTransition(VersionSchemeState.MakeIntermediate(old), next);
+                machineLocal.AfterEnteringState(next);
+                Debug.Assert(success);
+                TryStepStateMachine(machineLocal);
+            });
         }
 
         public StateMachineExecutionStatus TryExecuteStateMachine(VersionSchemeStateMachine stateMachine)
@@ -267,7 +280,7 @@ namespace FASTER.core
                 stateMachine.actualToVersion =
                     stateMachine.ToVersion() == -1 ? state.Version + 1 : stateMachine.ToVersion();
                 // Trigger one initial step to begin the process
-                TryStepStateMachine();
+                TryStepStateMachine(stateMachine);
                 return StateMachineExecutionStatus.OK;
             }
             
@@ -297,7 +310,7 @@ namespace FASTER.core
             if (!ExecuteStateMachine(stateMachine)) return false;
             while (state.Version != stateMachine.actualToVersion || state.Phase != VersionSchemeState.REST)
             {
-                TryStepStateMachine();
+                TryStepStateMachine(stateMachine);
                 Thread.Yield();
             }
 

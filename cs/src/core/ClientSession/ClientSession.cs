@@ -1079,6 +1079,21 @@ namespace FASTER.core
             return new FasterKVIterator<Key, Value, Input, Output, Context, Functions>(fht, functions, untilAddress);
         }
 
+        internal static Phase FromEpvsPhase(FasterEpvsPhase phase)
+        {
+            switch (phase)
+            {
+                case FasterEpvsPhase.REST:
+                    return Phase.REST;
+                case FasterEpvsPhase.LOG_FLUSH:
+                    return Phase.WAIT_FLUSH;
+                case FasterEpvsPhase.META_FLUSH:
+                    return Phase.PERSISTENCE_CALLBACK;
+                default:
+                    throw new NotImplementedException();
+            }
+        }
+
         /// <summary>
         /// Resume session on current thread
         /// Call SuspendThread before any async op
@@ -1086,8 +1101,18 @@ namespace FASTER.core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void UnsafeResumeThread()
         {
-            fht.epoch.Resume();
-            fht.InternalRefresh(ctx, FasterSession);
+            if (fht.epvs == null)
+            {
+                fht.epoch.Resume();
+                fht.InternalRefresh(ctx, FasterSession);
+            }
+            else
+            {
+                var state = fht.epvs.Enter();
+                // Manually update context
+                ctx.phase = state.Phase == VersionSchemeState.REST ? Phase.REST : Phase.WAIT_FLUSH;
+                ctx.version = state.Version;
+            }
         }
 
         /// <summary>
@@ -1096,7 +1121,14 @@ namespace FASTER.core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void UnsafeSuspendThread()
         {
-            fht.epoch.Suspend();
+            if (fht.epvs == null)
+            {
+                fht.epoch.Suspend();
+            }
+            else
+            {
+                fht.epvs.Leave();
+            }
         }
 
         void IClientSession.AtomicSwitch(long version)

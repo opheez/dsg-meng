@@ -1,7 +1,4 @@
-﻿using System.Security.Cryptography;
-using System.Threading;
-using CommandLine;
-using FASTER.core;
+﻿using CommandLine;
 
 namespace epvs
 {
@@ -25,8 +22,8 @@ namespace epvs
                        "\n    1 = Sharding across NUMA sockets")]
         public int NumaStyle { get; set; }
 
-        [Option('p', "probability", Default = 0.001)]
-        public int VersionChangeProbability { get; set; }
+        [Option('p', "probability", Default = 1e-6)]
+        public double VersionChangeProbability { get; set; }
         
         [Option('l', "delay", Default = 5)]
         public int VersionChangeDelay { get; set; }

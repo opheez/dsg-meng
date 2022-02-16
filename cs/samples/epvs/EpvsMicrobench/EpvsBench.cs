@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using FASTER.core;
 
-namespace EpvsMicrobench
+namespace epvs
 {
     internal class EpvsBench
     {
@@ -18,9 +18,9 @@ namespace EpvsMicrobench
             private HashAlgorithm hasher;
             private EpvsBench parent;
             private Queue<int> versionChangeIndexes;
-            private int numOps, versionChangeDelay;
+            private int numOps, versionChangeDelay, numaStyle, threadId;
 
-            internal Worker(EpvsBench parent, Options options)
+            internal Worker(EpvsBench parent, Options options, int threadId)
             {
                 hasher = new SHA256Managed();
                 scratchPad = new byte[hasher.HashSize / 8];
@@ -28,7 +28,9 @@ namespace EpvsMicrobench
                 versionChangeIndexes = new Queue<int>();
                 numOps = options.NumOps;
                 versionChangeDelay = options.VersionChangeDelay;
-                
+                numaStyle = options.NumaStyle;
+                this.threadId = threadId;
+
                 var random = new Random();
                 for (var i = 0; i < numOps; i++)
                 {
@@ -36,7 +38,7 @@ namespace EpvsMicrobench
                         versionChangeIndexes.Enqueue(i);
                 }
             }
-            
+
             private void DoWork(int numUnits)
             {
                 for (var i = 0; i < numUnits; i++)
@@ -45,6 +47,11 @@ namespace EpvsMicrobench
 
             internal void RunOneThread()
             {
+                if (numaStyle == 0)
+                    Native32.AffinitizeThreadRoundRobin((uint) threadId);
+                else
+                    Native32.AffinitizeThreadShardedNuma((uint) threadId, 2); // assuming two NUMA sockets
+
                 for (var i = 0; i < numOps; i++)
                 {
                     if (i == versionChangeIndexes.Peek())
@@ -63,17 +70,17 @@ namespace EpvsMicrobench
         }
 
 
-        internal void RunExperiment( Options options)
+        internal void RunExperiment(Options options)
         {
             hashBytes = new byte[16];
             new Random().NextBytes(hashBytes);
             LightEpoch.InitializeStatic(options.EpochTableSize, options.DrainListSize);
-            var tested = new SimpleVersionScheme();
+            tested = new SimpleVersionScheme();
 
             var threads = new List<Thread>();
             for (var i = 0; i < options.NumThreads; i++)
             {
-                var worker = new Worker(this, options);
+                var worker = new Worker(this, options, i);
                 var t = new Thread(() => worker.RunOneThread());
                 threads.Add(t);
             }
@@ -85,8 +92,7 @@ namespace EpvsMicrobench
                 t.Join();
             var timeMilli = sw.ElapsedMilliseconds;
             // TODO(Tianyu): More sophisticated output for automation
-            Console.WriteLine(timeMilli);
+            Console.WriteLine(options.NumOps * options.NumThreads / (double) timeMilli);
         }
-        
     }
 }

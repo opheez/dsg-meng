@@ -98,12 +98,12 @@ namespace epvs
                 return;
             }
             
-            var avg = ticks.Average() * 1000000 / Stopwatch.Frequency;
-            var std = Math.Sqrt(ticks.Sum(e => Math.Pow(e - avg, 2)) / ticks.Count) * 1000000 / Stopwatch.Frequency;
+            var avg = ticks.Average() * 1000000.0 / Stopwatch.Frequency;
+            var std = Math.Sqrt(ticks.Sum(e => Math.Pow(e - avg, 2)) / ticks.Count) * 1000000.0 / Stopwatch.Frequency;
 
             ticks.Sort();
             var index = (int) Math.Ceiling(0.99 * (ticks.Count - 1));
-            var p99 = ticks[index] * 1000000 / Stopwatch.Frequency;
+            var p99 = ticks[index] * 1000000.0 / Stopwatch.Frequency;
             Console.WriteLine($"{tag} avg: {avg} us, std : {std} us, p99: {p99}" );
         }
 
@@ -122,7 +122,7 @@ namespace epvs
 
             var sw = Stopwatch.StartNew();
             // Start off with a few entries
-            for (var i = 0; i < 128; i++)
+            for (var i = 0; i < options.InitialCount; i++)
                 tested.Push(0xDEADBEEF);
 
             foreach (var t in threads)

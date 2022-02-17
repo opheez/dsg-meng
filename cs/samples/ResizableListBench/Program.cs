@@ -35,9 +35,11 @@ namespace epvs
         [Option('r', "read-probability", Default = 0.6)]
         public double ReadProbability { get; set; }
         
-                
         [Option('s', "latency-sample-rate", Default = 1e-4)]
         public double LatencySampleRate { get; set; }
+        
+        [Option('i', "initial-count", Default = 128)]
+        public int InitialCount { get; set; }
     }
 
 
@@ -55,7 +57,7 @@ namespace epvs
                 case "latch-free-mock":
                     // Pretty unlikely for a randomly generated workload to present two times as many push operations
                     var loadFactor = Math.Min(1, 2 * options.PushProbability);
-                    var estimatedSize = (int) Math.Ceiling(loadFactor * options.NumOps * options.NumThreads);
+                    var estimatedSize = (int) Math.Ceiling(loadFactor * options.NumOps * options.NumThreads) + options.InitialCount;
                     new ResizableListBench<MockLatchFreeResizableList>(new MockLatchFreeResizableList(estimatedSize)).RunExperiment(options);
                     break;
                 case "latched":

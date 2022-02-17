@@ -4,6 +4,13 @@ namespace epvs
 {
     internal class Options
     {
+        [Option('m', "synchronization-mode", Default = "epvs",
+        HelpText = "synchronization mode options:" +
+        "\n    latch-free" +
+        "\n    epvs" +
+        "\n    latch")]
+        public string SynchronizationMode { get; set; }
+
         [Option('o', "num-ops", Default = 10000000)]
         public int NumOps { get; set; }
 
@@ -25,7 +32,7 @@ namespace epvs
         [Option('p', "probability", Default = 1e-6)]
         public double VersionChangeProbability { get; set; }
         
-        [Option('l', "delay", Default = 5)]
+        [Option('l', "delay", Default = 1)]
         public int VersionChangeDelay { get; set; }
     }
 

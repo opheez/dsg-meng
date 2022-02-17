@@ -99,7 +99,7 @@ namespace FASTER.core
             count = 0;
         }
 
-        public int Count() => count;
+        public int Count() => Math.Min(count, list.Length);
 
         public long Read(int index)
         {
@@ -174,7 +174,7 @@ namespace FASTER.core
             count = 0;
         }
 
-        public int Count() => count;
+        public int Count() => Math.Min(count, list.Length);
 
         public long Read(int index)
         {

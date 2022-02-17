@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Threading;
 using FASTER.core;
 
@@ -8,22 +9,27 @@ namespace epvs
 {
     internal class EpvsBench
     {
+        internal SemaphoreSlim testedLatch;
         internal SimpleVersionScheme tested;
         internal byte[] hashBytes;
 
         internal class Worker
         {
-            // private byte[] scratchPad;
-            // private HashAlgorithm hasher;
-            private long scratchPad;
+            private byte[] scratchPad;
+
+            private HashAlgorithm hasher;
+
+            // private long scratchPad;
             private EpvsBench parent;
             private List<int> versionChangeIndexes;
             private int numOps, versionChangeDelay, numaStyle, threadId;
 
+            private byte syncMode;
+
             internal Worker(EpvsBench parent, Options options, Random random, int threadId)
             {
-                // hasher = new SHA256Managed();
-                // scratchPad = new byte[hasher.HashSize / 8];
+                hasher = new SHA256Managed();
+                scratchPad = new byte[hasher.HashSize / 8];
                 this.parent = parent;
                 versionChangeIndexes = new List<int>();
                 numOps = options.NumOps;
@@ -36,15 +42,27 @@ namespace epvs
                     if (random.NextDouble() < options.VersionChangeProbability)
                         versionChangeIndexes.Add(i);
                 }
+
+                switch (options.SynchronizationMode)
+                {
+                    case "latch-free":
+                        syncMode = 0;
+                        break;
+                    case "epvs":
+                        syncMode = 1;
+                        break;
+                    case "latch":
+                        syncMode = 2;
+                        break;
+                }
             }
 
             private void DoWork(int numUnits)
             {
                 for (var i = 0; i < numUnits; i++)
-                    // hasher.TryComputeHash(parent.hashBytes, scratchPad, out _);
-                    scratchPad++;
+                    hasher.TryComputeHash(parent.hashBytes, scratchPad, out _);
+                // scratchPad++;
             }
-            
 
             internal void RunOneThread()
             {
@@ -56,16 +74,51 @@ namespace epvs
                 var nextChangeIndex = 0;
                 for (var i = 0; i < numOps; i++)
                 {
-                    if (nextChangeIndex < versionChangeIndexes.Count && i == versionChangeIndexes[nextChangeIndex])
+                    switch (syncMode)
                     {
-                        parent.tested.AdvanceVersion((_, _) => DoWork(versionChangeDelay));
-                        nextChangeIndex++;
-                    }
-                    else
-                    {
-                        parent.tested.Enter();
-                        DoWork(1);
-                        parent.tested.Leave();
+                        case 0:
+                            if (nextChangeIndex < versionChangeIndexes.Count &&
+                                i == versionChangeIndexes[nextChangeIndex])
+                            {
+                                DoWork(versionChangeDelay);
+                                nextChangeIndex++;
+                            }
+                            else
+                            {
+                                DoWork(1);
+                            }
+                            break;
+                        case 1:
+                            if (nextChangeIndex < versionChangeIndexes.Count &&
+                                i == versionChangeIndexes[nextChangeIndex])
+                            {
+                                parent.tested.AdvanceVersion((_, _) => DoWork(versionChangeDelay));
+                                nextChangeIndex++;
+                            }
+                            else
+                            {
+                                parent.tested.Enter();
+                                DoWork(1);
+                                parent.tested.Leave();
+                            }
+
+                            break;
+                        case 2:
+                            parent.testedLatch.Wait();
+                            if (nextChangeIndex < versionChangeIndexes.Count &&
+                                i == versionChangeIndexes[nextChangeIndex])
+                            {
+                                DoWork(versionChangeDelay);
+                                nextChangeIndex++;
+                            }
+                            else
+                            {
+                                DoWork(1);
+                            }
+                            parent.testedLatch.Release();
+                            break;
+                        default:
+                            throw new NotImplementedException();
                     }
                 }
             }
@@ -74,10 +127,11 @@ namespace epvs
 
         internal void RunExperiment(Options options)
         {
-            hashBytes = new byte[16];
+            hashBytes = new byte[8];
             new Random().NextBytes(hashBytes);
             LightEpoch.InitializeStatic(options.EpochTableSize, options.DrainListSize);
             tested = new SimpleVersionScheme();
+            testedLatch = new SemaphoreSlim(1, 1);
 
             var threads = new List<Thread>();
             var random = new Random();

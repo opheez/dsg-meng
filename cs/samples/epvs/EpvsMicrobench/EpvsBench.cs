@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Threading;
 using FASTER.core;
 
@@ -14,16 +13,17 @@ namespace epvs
 
         internal class Worker
         {
-            private byte[] scratchPad;
-            private HashAlgorithm hasher;
+            // private byte[] scratchPad;
+            // private HashAlgorithm hasher;
+            private long scratchPad;
             private EpvsBench parent;
             private List<int> versionChangeIndexes;
             private int numOps, versionChangeDelay, numaStyle, threadId;
 
-            internal Worker(EpvsBench parent, Options options, int threadId)
+            internal Worker(EpvsBench parent, Options options, Random random, int threadId)
             {
-                hasher = new SHA256Managed();
-                scratchPad = new byte[hasher.HashSize / 8];
+                // hasher = new SHA256Managed();
+                // scratchPad = new byte[hasher.HashSize / 8];
                 this.parent = parent;
                 versionChangeIndexes = new List<int>();
                 numOps = options.NumOps;
@@ -31,7 +31,6 @@ namespace epvs
                 numaStyle = options.NumaStyle;
                 this.threadId = threadId;
 
-                var random = new Random();
                 for (var i = 0; i < numOps; i++)
                 {
                     if (random.NextDouble() < options.VersionChangeProbability)
@@ -42,7 +41,8 @@ namespace epvs
             private void DoWork(int numUnits)
             {
                 for (var i = 0; i < numUnits; i++)
-                    hasher.TryComputeHash(parent.hashBytes, scratchPad, out _);
+                    // hasher.TryComputeHash(parent.hashBytes, scratchPad, out _);
+                    scratchPad++;
             }
             
 
@@ -80,9 +80,10 @@ namespace epvs
             tested = new SimpleVersionScheme();
 
             var threads = new List<Thread>();
+            var random = new Random();
             for (var i = 0; i < options.NumThreads; i++)
             {
-                var worker = new Worker(this, options, i);
+                var worker = new Worker(this, options, random, i);
                 var t = new Thread(() => worker.RunOneThread());
                 threads.Add(t);
             }

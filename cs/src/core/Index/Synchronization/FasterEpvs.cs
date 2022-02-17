@@ -1,3 +1,5 @@
+using System;
+
 namespace FASTER.core
 {
     public enum FasterEpvsPhase : byte
@@ -25,17 +27,14 @@ namespace FASTER.core
                 case FasterEpvsPhase.LOG_FLUSH:
                     nextState = VersionSchemeState.Make((byte) FasterEpvsPhase.META_FLUSH, currentState.Version);
                     return faster.hlog.FlushedUntilAddress >= faster._hybridLogCheckpoint.info.finalLogicalAddress;
-                case FasterEpvsPhase.META_FLUSH:
-                    nextState = VersionSchemeState.Make((byte) FasterEpvsPhase.META_FLUSH, currentState.Version);
-
-                    r
-                    
+                default:
+                    throw new NotImplementedException();
             }
         }
 
         public override void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
         {
-            throw new System.NotImplementedException();
+            throw new NotImplementedException();
         }
 
         public override void AfterEnteringState(VersionSchemeState state)

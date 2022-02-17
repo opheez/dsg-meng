@@ -22,7 +22,7 @@ namespace FASTER.core
 
         public SingleThreadedResizableList()
         {
-            list = new long[1];
+            list = new long[16];
             count = 0;
         }
 
@@ -54,6 +54,38 @@ namespace FASTER.core
         }
     }
 
+    public class MockLatchFreeResizableList : IResizableList
+    {
+        private long[] list;
+        private int count;
+
+        public MockLatchFreeResizableList(long maxCapacity)
+        {
+            list = new long[maxCapacity];
+            count = 0;
+        }
+
+        public int Count() => count;
+
+        public long Read(int index)
+        {
+            return list[index];
+        }
+
+        public void Write(int index, long value)
+        {
+            list[index] = value;
+        }
+
+        public int Push(long value)
+        {
+            var result = Interlocked.Increment(ref count) - 1;
+            if (result == list.Length) throw new FasterException("list full! Increase mock list size");
+            list[result] = value;
+            return result;
+        }
+    }
+
     public class LatchedResizableList : IResizableList
     {
         private ReaderWriterLockSlim rwLatch;
@@ -63,7 +95,7 @@ namespace FASTER.core
         public LatchedResizableList()
         {
             rwLatch = new ReaderWriterLockSlim();
-            list = new long[1];
+            list = new long[16];
             count = 0;
         }
 
@@ -87,16 +119,9 @@ namespace FASTER.core
 
         public void Write(int index, long value)
         {
-            try
-            {
-                rwLatch.EnterReadLock();
-                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
-                list[index] = value;
-            }
-            finally
-            {
-                rwLatch.ExitReadLock();
-            }
+            rwLatch.EnterReadLock();
+            list[index] = value;
+            rwLatch.ExitReadLock();
         }
 
         private void Resize()
@@ -145,7 +170,7 @@ namespace FASTER.core
         public SimpleVersionSchemeResizableList()
         {
             svs = new SimpleVersionScheme();
-            list = new long[1];
+            list = new long[16];
             count = 0;
         }
 
@@ -261,9 +286,12 @@ namespace FASTER.core
 
         public override void AfterEnteringState(VersionSchemeState state)
         {
-            Array.Copy(obj.list, obj.newList, obj.list.Length);
-            copyDone = true;
-            epvs.TryStepStateMachine(this);
+            if (state.Phase == COPYING)
+            {
+                Array.Copy(obj.list, obj.newList, obj.list.Length);
+                copyDone = true;
+                epvs.TryStepStateMachine(this);
+            }
         }  
     }
 
@@ -276,7 +304,7 @@ namespace FASTER.core
         public TwoPhaseResizableList()
         {
             epvs = new EpochProtectedVersionScheme(new LightEpoch());
-            list = new long[1];
+            list = new long[16];
             newList = null;
             count = 0;
         }

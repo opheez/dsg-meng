@@ -34,12 +34,18 @@ namespace epvs
         
         [Option('r', "read-probability", Default = 0.6)]
         public double ReadProbability { get; set; }
-        
+
+        [Option('l', "dump-latency", Default = false)]
+        public bool DumpLatencyMeasurements { get; set; }
+
         [Option('s', "latency-sample-rate", Default = 1e-4)]
         public double LatencySampleRate { get; set; }
         
         [Option('i', "initial-count", Default = 128)]
         public int InitialCount { get; set; }
+        
+        [Option('u', "output-file", Default = "")]
+        public string OutputFile { get; set; }
     }
 
 

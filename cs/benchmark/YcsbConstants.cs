@@ -9,7 +9,7 @@ namespace FASTER.benchmark
     {
         Ycsb,
         SpanByte,
-        ConcurrentDictionaryYcsb
+        ConcurrentDictionaryYcsb,
     };
 
     enum LockImpl : byte

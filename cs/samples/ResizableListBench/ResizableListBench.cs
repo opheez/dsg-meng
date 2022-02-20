@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using FASTER.core;
@@ -130,13 +131,38 @@ namespace epvs
             foreach (var t in threads)
                 t.Join();
             var timeMilli = sw.ElapsedMilliseconds;
-            // TODO(Tianyu): More sophisticated output for automation
-            Console.WriteLine(options.NumOps * options.NumThreads * 1000.0 / timeMilli);
-            
-            ComputeStats(workers.SelectMany(w => w.pushLatencies).ToList(), "Push");
-            ComputeStats(workers.SelectMany(w => w.readLatencies).ToList(), "Read");
-            ComputeStats(workers.SelectMany(w => w.writeLatencies).ToList(), "Write");
 
+            if (options.DumpLatencyMeasurements)
+            {
+                using var pushLatencies = new StreamWriter(options.OutputFile + "-push.txt");
+                foreach (var i in workers.SelectMany(w => w.pushLatencies)
+                    .Select(n => n * 1000000.0 / Stopwatch.Frequency))
+                    pushLatencies.WriteLine(i);
+                
+                using var readLatencies = new StreamWriter(options.OutputFile + "-read.txt");
+                foreach (var i in workers.SelectMany(w => w.readLatencies)
+                    .Select(n => n * 1000000.0 / Stopwatch.Frequency))
+                    pushLatencies.WriteLine(i);
+                
+                using var writeLatencies = new StreamWriter(options.OutputFile + "-write.txt");
+                foreach (var i in workers.SelectMany(w => w.writeLatencies)
+                    .Select(n => n * 1000000.0 / Stopwatch.Frequency))
+                    pushLatencies.WriteLine(i);
+            }
+            else
+            {
+
+                var throughput = options.NumOps * options.NumThreads * 1000.0 / timeMilli;
+                if (options.OutputFile.Equals(""))
+                {
+                    Console.WriteLine(throughput);
+                }
+                else
+                {
+                    using var outputFile = new StreamWriter(options.OutputFile, true);
+                    outputFile.WriteLine(throughput);
+                }
+            }
         }
     }
 }

@@ -34,6 +34,10 @@ namespace epvs
         
         [Option('l', "delay", Default = 1)]
         public int VersionChangeDelay { get; set; }
+        
+                
+        [Option('u', "output-file", Default = "")]
+        public string OutputFile { get; set; }
     }
 
 

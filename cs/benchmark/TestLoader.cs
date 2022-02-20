@@ -109,6 +109,7 @@ namespace FASTER.benchmark
                     ConcurrentDictionary_YcsbBenchmark.CreateKeyVectors(this, out this.init_keys, out this.txn_keys);
                     LoadData(this, this.init_keys, this.txn_keys, new ConcurrentDictionary_YcsbBenchmark.KeySetter());
                     break;
+                    
                 default:
                     throw new ApplicationException("Unknown benchmark type");
             }

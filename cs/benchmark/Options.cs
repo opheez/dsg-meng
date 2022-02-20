@@ -53,6 +53,14 @@ namespace FASTER.benchmark
         [Option('s', "seed", Required = false, Default = 211,
             HelpText = "Seed for synthetic data distribution")]
         public int RandomSeed { get; set; }
+        
+        [Option("validation", Required = false, Default = "none",
+            HelpText = "Validation to use before each request (one of none, base, epvs)")]
+        public string Validation { get; set; }
+
+        [Option("useepvs", Required = false, Default = false,
+            HelpText = "Use epvs based state machines for checkpoints")]
+        public bool UseEpvs { get; set; } 
 
         [Option("synth", Required = false, Default = false,
             HelpText = "Use synthetic data")]

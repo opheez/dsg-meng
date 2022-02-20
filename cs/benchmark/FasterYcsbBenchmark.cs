@@ -33,6 +33,10 @@ namespace FASTER.benchmark
         long idx_ = 0;
         long total_ops_done = 0;
         volatile bool done = false;
+        
+        private byte validatorOption = 0;
+        private BaselineKeyValidator baseValidator = new BaselineKeyValidator();
+        private EpvsKeyValidator epvsValidator = new EpvsKeyValidator();
 
         internal FASTER_YcsbBenchmark(Key[] i_keys_, Key[] t_keys_, TestLoader testLoader)
         {
@@ -49,6 +53,21 @@ namespace FASTER.benchmark
             readPercent = testLoader.Options.ReadPercent;
             var lockImpl = testLoader.LockImpl;
             functions = new Functions(lockImpl != LockImpl.None, testLoader.Options.PostOps);
+
+            switch (testLoader.Options.Validation)
+            {
+                case "none":
+                    validatorOption = 0;
+                    break;
+                case "base":
+                    validatorOption = 1;
+                    break;
+                case "epvs":
+                    validatorOption = 2;
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
 
 #if DASHBOARD
             statsWritten = new AutoResetEvent[threadCount];
@@ -89,7 +108,7 @@ namespace FASTER.benchmark
             device.Dispose();
         }
 
-        private void RunYcsb(int thread_idx)
+        private void RunYcsb(int thread_idx, bool validate = false)
         {
             RandomGenerator rng = new((uint)(1 + thread_idx));
 
@@ -130,6 +149,11 @@ namespace FASTER.benchmark
 
                 for (long idx = chunk_idx; idx < chunk_idx + YcsbConstants.kChunkSize && !done; ++idx)
                 {
+                    if (validatorOption == 1)
+                        baseValidator.ValidateKey(txn_keys_[idx].value);
+                    else if (validatorOption == 2)
+                        epvsValidator.ValidateKey(txn_keys_[idx].value);
+
                     Op op;
                     int r = (int)rng.Generate(100);
                     if (r < readPercent)

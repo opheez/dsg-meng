@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
 using FASTER.core;
@@ -148,8 +149,16 @@ namespace epvs
             foreach (var t in threads)
                 t.Join();
             var timeMilli = sw.ElapsedMilliseconds;
-            // TODO(Tianyu): More sophisticated output for automation
-            Console.WriteLine(options.NumOps * options.NumThreads * 1000.0 / timeMilli);
+            var throughput = options.NumOps * options.NumThreads * 1000.0 / timeMilli;
+            if (options.OutputFile.Equals(""))
+            {
+                Console.WriteLine(throughput);
+            }
+            else
+            {
+                using var outputFile = new StreamWriter(options.OutputFile, true);
+                outputFile.WriteLine(throughput);
+            }
         }
     }
 }

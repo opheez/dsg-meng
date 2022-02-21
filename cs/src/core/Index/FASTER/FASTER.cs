@@ -359,10 +359,12 @@ namespace FASTER.core
             if (epvs != null)
             {
                 if (checkpointType != CheckpointType.FoldOver) throw new FasterException("unsupported use of non-foldover epvs checkpoints");
-                var status = epvs.TryExecuteStateMachine(new FasterEpvsStateMachine<Key, Value>(this, epvs, targetVersion));
-                epvs.TryStepStateMachine(null);
+                var ret =
+                    epvs.ExecuteStateMachine(new FasterEpvsStateMachine<Key, Value>(this, epvs, targetVersion));
+                if (ret)
+                    epvs.TryStepStateMachine(null);
                 token = _hybridLogCheckpointToken;
-                return status == StateMachineExecutionStatus.OK;
+                return ret;
             }
             ISynchronizationTask backend;
             if (checkpointType == CheckpointType.FoldOver)
@@ -491,6 +493,12 @@ namespace FASTER.core
         {
             if (LightEpoch.AnyInstanceProtected())
                 throw new FasterException("Cannot use CompleteCheckpointAsync when using non-async sessions");
+            // if (epvs != null)
+            // {
+            //     while (epvs.CurrentState().Phase != VersionSchemeState.REST)
+            //         epvs.TryStepStateMachine(null);
+            //     return;
+            // }
 
             token.ThrowIfCancellationRequested();
 

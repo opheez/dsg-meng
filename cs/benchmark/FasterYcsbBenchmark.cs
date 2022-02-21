@@ -249,6 +249,8 @@ namespace FASTER.benchmark
                     workers[idx] = new Thread(() => SetupYcsb(x));
                 }
 
+                store.TakeFullCheckpointAsync( CheckpointType.FoldOver).GetAwaiter().GetResult();
+
                 foreach (Thread worker in workers)
                 {
                     worker.Start();

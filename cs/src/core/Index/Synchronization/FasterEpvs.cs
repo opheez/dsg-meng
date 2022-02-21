@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace FASTER.core
 {
@@ -26,7 +27,7 @@ namespace FASTER.core
                     nextState = VersionSchemeState.Make((byte) FasterEpvsPhase.LOG_FLUSH, currentState.Version);
                     return true;
                 case FasterEpvsPhase.LOG_FLUSH:
-                    nextState = VersionSchemeState.Make((byte) FasterEpvsPhase.REST, currentState.Version);
+                    nextState = VersionSchemeState.Make((byte) FasterEpvsPhase.REST, actualToVersion);
                     return faster.hlog.FlushedUntilAddress >= faster._hybridLogCheckpoint.info.finalLogicalAddress;
                 default:
                     throw new NotImplementedException();
@@ -76,6 +77,11 @@ namespace FASTER.core
                     CollectMetadata(toState, faster);
                     faster.WriteHybridLogMetaInfo();
                     faster.lastVersion = lastVersion;
+                    faster._hybridLogCheckpoint.Dispose();
+                    var nextTcs = new TaskCompletionSource<LinkedCheckpointInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    faster.checkpointTcs.SetResult(new LinkedCheckpointInfo { NextTask = nextTcs.Task });
+                    faster.checkpointTcs = nextTcs;
+
                     break;
                 default:
                     throw new NotImplementedException();

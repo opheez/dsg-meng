@@ -356,6 +356,14 @@ namespace FASTER.core
         public bool TakeHybridLogCheckpoint(out Guid token, CheckpointType checkpointType, bool tryIncremental = false,
             long targetVersion = -1)
         {
+            if (epvs != null)
+            {
+                if (checkpointType != CheckpointType.FoldOver) throw new FasterException("unsupported use of non-foldover epvs checkpoints");
+                var status = epvs.TryExecuteStateMachine(new FasterEpvsStateMachine<Key, Value>(this, epvs, targetVersion));
+                epvs.TryStepStateMachine(null);
+                token = _hybridLogCheckpointToken;
+                return status == StateMachineExecutionStatus.OK;
+            }
             ISynchronizationTask backend;
             if (checkpointType == CheckpointType.FoldOver)
                 backend = new FoldOverCheckpointTask();

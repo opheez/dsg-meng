@@ -1087,8 +1087,6 @@ namespace FASTER.core
                     return Phase.REST;
                 case FasterEpvsPhase.LOG_FLUSH:
                     return Phase.WAIT_FLUSH;
-                case FasterEpvsPhase.META_FLUSH:
-                    return Phase.PERSISTENCE_CALLBACK;
                 default:
                     throw new NotImplementedException();
             }

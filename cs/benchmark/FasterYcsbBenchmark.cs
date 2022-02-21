@@ -95,11 +95,11 @@ namespace FASTER.benchmark
             if (testLoader.Options.UseSmallMemoryLog)
                 store = new FasterKV<Key, Value>
                     (testLoader.MaxKey / 4, new LogSettings { LogDevice = device, PreallocateLog = true, PageSizeBits = 25, SegmentSizeBits = 30, MemorySizeBits = 28 },
-                    new CheckpointSettings { CheckpointDir = testLoader.BackupPath });
+                    new CheckpointSettings { CheckpointDir = testLoader.BackupPath }, useEpvs: testLoader.Options.UseEpvs);
             else
                 store = new FasterKV<Key, Value>
                     (testLoader.MaxKey / 2, new LogSettings { LogDevice = device, PreallocateLog = true },
-                    new CheckpointSettings { CheckpointDir = testLoader.BackupPath });
+                    new CheckpointSettings { CheckpointDir = testLoader.BackupPath }, useEpvs: testLoader.Options.UseEpvs);
         }
 
         internal void Dispose()
@@ -311,17 +311,17 @@ namespace FASTER.benchmark
                 {
                     if (checkpointTaken < swatch.ElapsedMilliseconds / testLoader.Options.PeriodicCheckpointMilliseconds)
                     {
-                        long start = swatch.ElapsedTicks;
+                        // long start = swatch.ElapsedTicks;
                         if (store.TakeHybridLogCheckpoint(out _, testLoader.Options.PeriodicCheckpointType, testLoader.Options.PeriodicCheckpointTryIncremental))
                         {
-                            store.CompleteCheckpointAsync().AsTask().GetAwaiter().GetResult();
-                            var timeTaken = (swatch.ElapsedTicks - start) / TimeSpan.TicksPerMillisecond;
-                            Console.WriteLine("Checkpoint time: {0}ms", timeTaken);
+                            // store.CompleteCheckpointAsync().AsTask().GetAwaiter().GetResult();
+                            // var timeTaken = (swatch.ElapsedTicks - start) / TimeSpan.TicksPerMillisecond;
+                            // Console.WriteLine("Checkpoint time: {0}ms", timeTaken);
                             checkpointTaken++;
                         }
                     }
                 }
-                Console.WriteLine($"Checkpoint taken {checkpointTaken}");
+                // Console.WriteLine($"Checkpoint taken {checkpointTaken}");
             }
 
             swatch.Stop();

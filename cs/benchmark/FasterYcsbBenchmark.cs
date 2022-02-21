@@ -163,12 +163,12 @@ namespace FASTER.benchmark
                     else
                         op = Op.ReadModifyWrite;
 
-                    if (idx % 512 == 0)
-                    {
-                        if (!testLoader.Options.NoThreadAffinity)
-                            session.Refresh();
-                        session.CompletePending(false);
-                    }
+                    // if (idx % 512 == 0)
+                    // {
+                    //     if (!testLoader.Options.NoThreadAffinity)
+                    //         session.Refresh();
+                    //     session.CompletePending(false);
+                    // }
 
                     switch (op)
                     {
@@ -321,7 +321,7 @@ namespace FASTER.benchmark
                         }
                     }
                 }
-                // Console.WriteLine($"Checkpoint taken {checkpointTaken}");
+                Console.WriteLine($"Checkpoint taken {checkpointTaken}");
             }
 
             swatch.Stop();

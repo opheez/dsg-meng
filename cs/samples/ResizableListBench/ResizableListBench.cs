@@ -153,11 +153,8 @@ namespace epvs
             {
 
                 var throughput = options.NumOps * options.NumThreads * 1000.0 / timeMilli;
-                if (options.OutputFile.Equals(""))
-                {
-                    Console.WriteLine(throughput);
-                }
-                else
+                Console.WriteLine(throughput);
+                if (!options.OutputFile.Equals(""))
                 {
                     using var outputFile = new StreamWriter(options.OutputFile, true);
                     outputFile.WriteLine(throughput);

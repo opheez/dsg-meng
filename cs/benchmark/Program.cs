@@ -3,6 +3,7 @@
 
 using System;
 using System.Threading;
+using FASTER.core;
 
 namespace FASTER.benchmark
 {
@@ -12,6 +13,8 @@ namespace FASTER.benchmark
 
         public static void Main(string[] args)
         {
+            LightEpoch.InitializeStatic(128, 16);
+            
             TestLoader testLoader = new(args);
             if (testLoader.error)
                 return;

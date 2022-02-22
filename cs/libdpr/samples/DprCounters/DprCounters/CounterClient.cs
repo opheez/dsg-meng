@@ -13,17 +13,15 @@ namespace DprCounters
     {
         private DprClient client;
         private Dictionary<Worker, IPEndPoint> cluster;
-        private Thread backgroundThread;
 
-        public CounterClient(IDprFinder dprFinder, Dictionary<Worker, IPEndPoint> cluster)
+        public CounterClient(IDprFinder dprFinder, IDprFinder dprFinderApi)
         {
-            client = new DprClient(dprFinder);
-            this.cluster = cluster;
+            client = new DprClient(dprFinder, dprFinderApi);
         }
         
         public CounterClientSession GetSession()
         {
-            return new(client.GetSession(Guid.NewGuid()), cluster);
+            return new(client.GetSession(Guid.NewGuid()), client.FetchCluster());
         }
 
         public void RefreshDpr()

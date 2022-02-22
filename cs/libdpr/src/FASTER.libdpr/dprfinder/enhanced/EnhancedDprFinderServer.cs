@@ -25,6 +25,7 @@ namespace FASTER.libdpr
         private static readonly byte[] OkResponse = Encoding.GetEncoding("ASCII").GetBytes("+OK\r\n");
 
         private readonly EnhancedDprFinderBackend backend;
+        private readonly ClusterBackend clusterBackend;
         private readonly string ip;
         private readonly int port;
         private Thread processThread;
@@ -45,6 +46,14 @@ namespace FASTER.libdpr
             this.backend = backend;
         }
 
+        public EnhancedDprFinderServer(string ip, int port, EnhancedDprFinderBackend backend, ClusterBackend clusterBackend)
+        {
+            this.ip = ip;
+            this.port = port;
+            this.backend = backend;
+            this.clusterBackend = clusterBackend;
+        }
+
         /// <inheritdoc />
         public void Dispose()
         {
@@ -53,7 +62,14 @@ namespace FASTER.libdpr
 
             termination.Set();
             processThread.Join();
-            backend.Dispose();
+            if(backend != null)
+            {
+                backend.Dispose();
+            }
+            if(clusterBackend != null)
+            {
+                // clusterBackend.Dispose();
+            }
         }
 
         /// <summary>
@@ -66,7 +82,8 @@ namespace FASTER.libdpr
             processThread = new Thread(() =>
             {
                 while (!termination.IsSet)
-                    backend.Process();
+                    if(backend != null)
+                        backend.Process();
             });
             processThread.Start();
 
@@ -135,6 +152,12 @@ namespace FASTER.libdpr
                     break;
                 case DprFinderCommand.Type.DELETE_WORKER:
                     backend.DeleteWorker(command.w, () => socket.Send(OkResponse));
+                    break;
+                case DprFinderCommand.Type.FETCH_CLUSTER:
+                    var fetchedCluster = clusterBackend.getClusterState();
+                    fetchedCluster.rwLatch.EnterReadLock();
+                    socket.SendFetchClusterResponse(ValueTuple.Create(fetchedCluster.serializedResponse, fetchedCluster.responseEnd));
+                    fetchedCluster.rwLatch.ExitReadLock();
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();

@@ -83,6 +83,19 @@ namespace FASTER.libdpr
             return true;
         }
 
+        public Dictionary<Worker, IPEndPoint> FetchCluster() 
+        {
+            Dictionary<Worker, IPEndPoint> result;
+            lock (dprFinderConn)
+            {
+                dprFinderConn.SendFetchClusterCommand();
+                ProcessRespResponse();
+
+                result = ConfigurationResponse.FromBuffer(recvBuffer, parser.stringStart, out var head);
+            }
+            return result;
+        }
+
         public void ReportRecovery(long worldLine, WorkerVersion latestRecoveredVersion)
         {
             // No need to report recovery for enhanced DprFinder

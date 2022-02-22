@@ -92,7 +92,7 @@ namespace DprCounters
             
             var cp = versionTracker.GetCommitPoint();
             // Because the session is strictly sequential, operation will never be in exception list.
-            Debug.Assert(cp.ExcludedSerialNos.Count == 0);
+            // Debug.Assert(cp.ExcludedSerialNos.Count == 0);
             return seq < cp.UntilSerialNo;
         }
     }

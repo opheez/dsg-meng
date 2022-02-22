@@ -124,6 +124,10 @@ namespace FASTER.libdpr
             }
         }
 
+        public Dictionary<Worker, IPEndPoint> FetchCluster()
+        {
+            return null;
+        }
         public void ResendGraph(Worker worker, IStateObject stateObject)
         {
             // Nothing to do here

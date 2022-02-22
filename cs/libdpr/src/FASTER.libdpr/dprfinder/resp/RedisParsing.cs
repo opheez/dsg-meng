@@ -47,7 +47,8 @@ namespace FASTER.libdpr
             ADD_WORKER,
             DELETE_WORKER,
             SYNC,
-            GRAPH_RESENT
+            GRAPH_RESENT,
+            FETCH_CLUSTER
         }
 
         internal Type commandType;
@@ -173,6 +174,11 @@ namespace FASTER.libdpr
                                 currentCommand.commandType = DprFinderCommand.Type.DELETE_WORKER;
                                 commandParserState = CommandParserState.ARG_W;
                                 break;
+                            case 'F':
+                                Debug.Assert(Encoding.ASCII.GetString(buf, stringStart, size).Equals("FetchCluster"));
+                                currentCommand.commandType = DprFinderCommand.Type.FETCH_CLUSTER;
+                                commandParserState = CommandParserState.NONE;
+                                return true;
                             case 'S':
                                 Debug.Assert(Encoding.ASCII.GetString(buf, stringStart, size).Equals("Sync"));
                                 currentCommand.commandType = DprFinderCommand.Type.SYNC;

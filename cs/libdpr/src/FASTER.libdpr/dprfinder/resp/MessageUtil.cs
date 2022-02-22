@@ -85,11 +85,44 @@ namespace FASTER.libdpr
             reusableMessageBuffers.Return(buf);
         }
 
+        internal static void SendFetchClusterCommand(this Socket socket)
+        {
+            var buf = reusableMessageBuffers.Checkout();
+            var head = RespUtil.WriteRedisArrayHeader(1, buf, 0);
+            head += RespUtil.WriteRedisBulkString("FetchCluster", buf, head);
+            socket.Send(buf, 0, head, SocketFlags.None);
+            reusableMessageBuffers.Return(buf);
+        }
+
         internal static void SendSyncCommand(this Socket socket)
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = RespUtil.WriteRedisArrayHeader(1, buf, 0);
             head += RespUtil.WriteRedisBulkString("Sync", buf, head);
+            socket.Send(buf, 0, head, SocketFlags.None);
+            reusableMessageBuffers.Return(buf);
+        }
+
+        internal static void SendFetchClusterResponse(this Socket socket, (byte[], int) serializedState) 
+        {
+            var buf = reusableMessageBuffers.Checkout();
+            var head = 0;
+            buf[head++] = (byte) '$';
+
+            var size = RespUtil.LongToDecimalString(serializedState.Item2, buf, head);
+            Debug.Assert(size != 0);
+            head += size;
+
+            Debug.Assert(head + 4 + serializedState.Item2 < buf.Length);
+            buf[head++] = (byte) '\r';
+            buf[head++] = (byte) '\n';
+
+            Array.Copy(serializedState.Item1, 0, buf, head, serializedState.Item2);
+            head += serializedState.Item2;
+
+            buf[head++] = (byte) '\r';
+            buf[head++] = (byte) '\n';
+
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }

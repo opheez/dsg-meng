@@ -138,6 +138,7 @@ namespace DprCounters
 
         public void StopServer()
         {
+            Console.WriteLine(dprServer.StateObject().value);
             socket.Dispose();
             termination.Set();
         }

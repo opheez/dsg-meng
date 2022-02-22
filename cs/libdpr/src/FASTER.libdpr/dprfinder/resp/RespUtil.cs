@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Linq;
 
 namespace FASTER.libdpr
@@ -167,6 +168,11 @@ namespace FASTER.libdpr
             return sizeof(int) + dict.Count * 2 * sizeof(long);
         }
 
+        internal static int DictionarySerializedSize(IDictionary<Worker, IPEndPoint> dict)
+        {
+            return sizeof(int) + dict.Count * 2 * sizeof(int) + dict.Count * sizeof(long);
+        }
+
         internal static int SerializeDictionary(IDictionary<Worker, long> dict, byte[] buf, int head)
         {
             if (head + DictionarySerializedSize(dict) > buf.Length) return 0;
@@ -183,6 +189,25 @@ namespace FASTER.libdpr
             return head;
         }
 
+        internal static int SerializeDictionary(IDictionary<Worker, IPEndPoint> workers, byte[] buf, int head)
+        {
+            if (head + DictionarySerializedSize(workers) > buf.Length) return 0;
+            Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), workers.Count);
+            head += sizeof(int);
+            foreach (var entry in workers)
+            {
+                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), entry.Key.guid);
+                head += sizeof(long);
+                var ipBytes = entry.Value.Address.GetAddressBytes();
+                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), BitConverter.ToInt32(ipBytes, 0));
+                head += sizeof(int);
+                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), entry.Value.Port);
+                head += sizeof(int);
+            }
+
+            return head;
+        }
+
         public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<Worker, long> result)
         {
             var size = BitConverter.ToInt32(buf, head);
@@ -194,6 +219,24 @@ namespace FASTER.libdpr
                 var val = BitConverter.ToInt64(buf, head);
                 head += sizeof(long);
                 result[new Worker(workerId)] = val;
+            }
+
+            return head;
+        }
+
+        public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<Worker, IPEndPoint> result)
+        {
+            var size = BitConverter.ToInt32(buf, head);
+            head += sizeof(int);
+            for (var i = 0; i < size; i++)
+            {
+                var workerId = BitConverter.ToInt64(buf, head);
+                head += sizeof(long);
+                var ipBytes = BitConverter.GetBytes(BitConverter.ToInt32(buf, head));
+                head += sizeof(int);
+                var port = BitConverter.ToInt32(buf, head);
+                head += sizeof(int);
+                result[new Worker(workerId)] = new IPEndPoint(new IPAddress(ipBytes), port);
             }
 
             return head;

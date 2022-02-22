@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Net;
 using System.Collections.Concurrent;
 
 namespace FASTER.libdpr
@@ -9,7 +11,7 @@ namespace FASTER.libdpr
     /// </summary>
     public class DprClient
     {
-        private readonly IDprFinder dprFinder;
+        private readonly IDprFinder dprFinder, dprFinderApi;
         private long dprViewNumber;
         private readonly ConcurrentDictionary<Guid, DprClientSession> sessions;
 
@@ -17,9 +19,10 @@ namespace FASTER.libdpr
         ///     Constructs a new DprClient with the given dpr finder backend
         /// </summary>
         /// <param name="dprFinder"> backend dpr finder of the cluster</param>
-        public DprClient(IDprFinder dprFinder)
+        public DprClient(IDprFinder dprFinder, IDprFinder dprFinderApi)
         {
             this.dprFinder = dprFinder;
+            this.dprFinderApi = dprFinderApi;
             sessions = new ConcurrentDictionary<Guid, DprClientSession>();
         }
 
@@ -31,6 +34,11 @@ namespace FASTER.libdpr
         {
             dprViewNumber++;
             dprFinder.Refresh();
+        }
+
+        public Dictionary<Worker, IPEndPoint> FetchCluster()
+        {
+            return dprFinderApi.FetchCluster();
         }
 
         internal IDprFinder GetDprFinder()

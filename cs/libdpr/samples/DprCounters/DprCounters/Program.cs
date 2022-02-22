@@ -12,49 +12,30 @@ namespace DprCounters
     {
         static void Main(string[] args)
         {
-            // Use a simple pair of in-memory storage to back our DprFinder server for now. Start a local DPRFinder
-            // server for the cluster
-            var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var device = new PingPongDevice(localDevice1, localDevice2);
-            using var dprFinderServer = new EnhancedDprFinderServer("127.0.0.1", 15721, new EnhancedDprFinderBackend(device));
-            dprFinderServer.StartServer();
-            
+            var cluster = new Cluster("127.0.0.1", 15721, "127.0.0.1", 15722);
+            Dictionary<Worker, IPEndPoint> temp = new Dictionary<Worker, IPEndPoint>();
+
             // Start two counter servers
-            var cluster = new Dictionary<Worker, IPEndPoint>();
-
-            var w0 = new Worker(0);
-            cluster.Add(w0, new IPEndPoint(IPAddress.Parse("127.0.0.1"), 15722));
-            var w0Server = new CounterServer("127.0.0.1", 15722, new Worker(0), "worker0/",
-                new EnhancedDprFinder("127.0.0.1", 15721));
-            var w0Thread = new Thread(w0Server.RunServer);
-            w0Thread.Start();
-
-
-            var w1 = new Worker(1);
-            cluster.Add(w1, new IPEndPoint(IPAddress.Parse("127.0.0.1"), 15723));
-            var w1Server = new CounterServer("127.0.0.1", 15723, new Worker(1), "worker1/",
-                new EnhancedDprFinder("127.0.0.1", 15721));
-            var w1Thread = new Thread(w1Server.RunServer);
-            w1Thread.Start();
-
+            // TODO(Nikola): add a enum that specifies which type of worker should be started
+            cluster.AddWorker(0, "127.0.0.1", 15723);
+            cluster.AddWorker(1, "127.0.0.1", 15724);
 
             // Start a client that performs some operations
-            var client = new CounterClient(new EnhancedDprFinder("127.0.0.1", 15721), cluster);
+            var client = new CounterClient(new EnhancedDprFinder("127.0.0.1", 15721), new EnhancedDprFinder("127.0.0.1", 15722)); // passing the api ip/port to the client
+            // TODO(Nikola): actually get a list of workers from the session and use that
             var session = client.GetSession();            
-            var op0 = session.Increment(w0, 42, out _);
-            var op1 = session.Increment(w1, 2, out _);
-            var op2 = session.Increment(w1, 7, out _);
-            var op3 = session.Increment(w0, 10, out _);
+            var op0 = session.Increment(new Worker(0), 42, out _);
+            var op1 = session.Increment(new Worker(1), 2, out _);
+            var op2 = session.Increment(new Worker(1), 7, out _);
+            var op3 = session.Increment(new Worker(0), 10, out _);
             while (!session.Committed(op3))
                 client.RefreshDpr();
 
             // Shutdown
-            w0Server.StopServer();
-            w0Thread.Join();
-            
-            w1Server.StopServer();
-            w1Thread.Join();
+            // the below two operations could be used for individual worker, but no need since we're stopping the entire cluster
+            // cluster.DeleteWorker(0);
+            // cluster.DeleteWorker(1);
+            cluster.Stop();
         }
     }
 }

@@ -78,7 +78,7 @@ namespace FASTER.benchmark
             HelpText = "Use Small Memory log in experiment")]
         public bool UseSmallMemoryLog { get; set; }
 
-        [Option("noaff", Required = false, Default = false,
+        [Option("noaff", Required = false, Default = true,
             HelpText = "Do not use thread affinitization in experiment")]
         public bool NoThreadAffinity { get; set; }
 
@@ -101,6 +101,9 @@ namespace FASTER.benchmark
         [Option("dumpdist", Required = false, Default = false,
             HelpText = "Dump the distribution of each non-empty bucket in the hash table")]
         public bool DumpDistribution { get; set; }
+        
+        [Option("output-file", Default = "")]
+        public string OutputFile { get; set; }
 
         internal CheckpointType PeriodicCheckpointType => this.PeriodicCheckpointUseSnapshot ? CheckpointType.Snapshot : CheckpointType.FoldOver;
 

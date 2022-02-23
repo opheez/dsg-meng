@@ -7,6 +7,7 @@
 using FASTER.core;
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 
 namespace FASTER.benchmark
@@ -346,6 +347,11 @@ namespace FASTER.benchmark
             double opsPerSecond = total_ops_done / seconds;
             Console.WriteLine(TestStats.GetTotalOpsString(total_ops_done, seconds));
             Console.WriteLine(TestStats.GetStatsLine(StatsLineNum.Iteration, YcsbConstants.OpsPerSec, opsPerSecond));
+            if (!testLoader.Options.OutputFile.Equals(""))
+            {
+                using var outputFile = new StreamWriter(testLoader.Options.OutputFile, true);
+                outputFile.WriteLine(opsPerSecond);
+            }
             return (insertsPerSecond, opsPerSecond);
         }
 

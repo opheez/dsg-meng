@@ -11,10 +11,10 @@ namespace epvs
         "\n    latch")]
         public string SynchronizationMode { get; set; }
 
-        [Option('o', "num-ops", Default = 10000000)]
+        [Option('o', "num-ops", Default = 1000000)]
         public int NumOps { get; set; }
 
-        [Option('e', "table-size", Default = 128)]
+        [Option('e', "table-size", Default = 512)]
         public int EpochTableSize { get; set; }
 
         [Option('d', "drainlist-size", Default = 16)]

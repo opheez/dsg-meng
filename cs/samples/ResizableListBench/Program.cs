@@ -20,7 +20,7 @@ namespace epvs
         [Option('t', "num-threads", Required = true)]
         public int NumThreads { get; set; }
         
-        [Option('n', "numa", Required = false, Default = 0,
+        [Option('n', "numa", Required = false, Default = 1,
             HelpText = "NUMA options:" +
                        "\n    0 = No sharding across NUMA sockets" +
                        "\n    1 = Sharding across NUMA sockets")]
@@ -29,10 +29,10 @@ namespace epvs
         [Option('p', "push-probability", Default = 0.2)]
         public double PushProbability { get; set; }
         
-        [Option('w', "write-probability", Default = 0.2)]
+        // [Option('w', "write-probability", Default = -1)]
         public double WriteProbability { get; set; }
         
-        [Option('r', "read-probability", Default = 0.6)]
+        // [Option('r', "read-probability", Default = -1)]
         public double ReadProbability { get; set; }
 
         [Option('l', "dump-latency", Default = false)]
@@ -54,8 +54,8 @@ namespace epvs
         static void Main(string[] args)
         {
             var options = Parser.Default.ParseArguments<Options>(args).Value;
-            if (Math.Abs(options.PushProbability + options.WriteProbability + options.ReadProbability - 1.0) > 1e-6)
-                throw new FasterException("probability given does not add up to 1!");
+
+            options.WriteProbability = options.ReadProbability = 0.5 * (1 - options.PushProbability);
             LightEpoch.InitializeStatic(128, 16);
 
             switch (options.DataStructureType)

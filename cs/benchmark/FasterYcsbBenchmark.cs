@@ -88,7 +88,7 @@ namespace FASTER.benchmark
             for (int i = 0; i < 8; i++)
                 input_[i].value = i;
 
-            device = Devices.CreateLogDevice(TestLoader.DevicePath, preallocateFile: true, deleteOnClose: !testLoader.RecoverMode, useIoCompletionPort: true);
+            device = Devices.CreateLogDevice(TestLoader.DevicePath, preallocateFile: true, deleteOnClose: true, useIoCompletionPort: true);
 
             if (testLoader.Options.ThreadCount >= 16)
                 device.ThrottleLimit = testLoader.Options.ThreadCount * 12;
@@ -105,6 +105,7 @@ namespace FASTER.benchmark
 
         internal void Dispose()
         {
+            store.checkpointManager.PurgeAll();
             store.Dispose();
             device.Dispose();
         }
@@ -115,7 +116,7 @@ namespace FASTER.benchmark
 
             if (numaStyle == 0)
                 Native32.AffinitizeThreadRoundRobin((uint)thread_idx);
-            else
+            else if (numaStyle == 1)
                 Native32.AffinitizeThreadShardedNuma((uint)thread_idx, 2); // assuming two NUMA sockets
 
             waiter.Wait();
@@ -250,7 +251,7 @@ namespace FASTER.benchmark
                     workers[idx] = new Thread(() => SetupYcsb(x));
                 }
 
-                store.TakeFullCheckpointAsync( CheckpointType.FoldOver).GetAwaiter().GetResult();
+                // store.TakeHybridLogCheckpointAsync(CheckpointType.FoldOver).GetAwaiter().GetResult();
 
                 foreach (Thread worker in workers)
                 {

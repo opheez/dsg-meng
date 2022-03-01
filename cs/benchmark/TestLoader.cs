@@ -76,8 +76,8 @@ namespace FASTER.benchmark
             if (!verifyOption(this.Options.RunSeconds >= 0, "RunSeconds"))
                 return;
 
-            this.InitCount = this.Options.UseSmallData ? 2500480 : 250000000;
-            this.TxnCount = this.Options.UseSmallData ? 10000000 : 1000000000;
+            this.InitCount = this.Options.UseSmallData ? 10000000 : 250000000;
+            this.TxnCount = this.Options.UseSmallData ? 50000000 : 1000000000;
             this.MaxKey = this.Options.UseSmallData ? 1 << 22 : 1 << 28;
             this.RecoverMode = Options.BackupAndRestore && Options.PeriodicCheckpointMilliseconds <= 0;
 

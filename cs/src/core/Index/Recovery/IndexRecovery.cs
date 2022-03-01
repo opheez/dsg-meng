@@ -12,7 +12,7 @@ namespace FASTER.core
     /// <summary/>
     public partial class FasterBase
     {
-        internal ICheckpointManager checkpointManager;
+        public ICheckpointManager checkpointManager;
         internal bool disposeCheckpointManager;
 
         // Derived class exposed API

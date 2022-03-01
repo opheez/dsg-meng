@@ -52,10 +52,14 @@ namespace epvs
                     case "epvs":
                         syncMode = 1;
                         break;
-                    case "latch":
+                    case "epvs-refresh":
                         syncMode = 2;
                         break;
+                    case "latch":
+                        syncMode = 3;
+                        break;
                 }
+                
             }
 
             private void DoWork(int numUnits)
@@ -72,6 +76,9 @@ namespace epvs
                 else
                     Native32.AffinitizeThreadShardedNuma((uint) threadId, 2); // assuming two NUMA sockets
 
+                if (syncMode == 2)
+                    parent.tested.Enter();
+                
                 var nextChangeIndex = 0;
                 for (var i = 0; i < numOps; i++)
                 {
@@ -102,9 +109,22 @@ namespace epvs
                                 DoWork(1);
                                 parent.tested.Leave();
                             }
-
                             break;
                         case 2:
+                            if (nextChangeIndex < versionChangeIndexes.Count &&
+                                i == versionChangeIndexes[nextChangeIndex])
+                            {
+                                parent.tested.AdvanceVersion((_, _) => DoWork(versionChangeDelay));
+                                nextChangeIndex++;
+                            }
+                            else
+                            {
+                                parent.tested.Refresh();
+                                DoWork(1);
+                            }
+
+                            break;
+                        case 3:
                             parent.testedLatch.Wait();
                             if (nextChangeIndex < versionChangeIndexes.Count &&
                                 i == versionChangeIndexes[nextChangeIndex])
@@ -122,6 +142,9 @@ namespace epvs
                             throw new NotImplementedException();
                     }
                 }
+                
+                if (syncMode == 2)
+                    parent.tested.Leave();
             }
         }
 

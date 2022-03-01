@@ -8,6 +8,7 @@ namespace epvs
         HelpText = "synchronization mode options:" +
         "\n    latch-free" +
         "\n    epvs" +
+        "\n    epvs-refresh" +
         "\n    latch")]
         public string SynchronizationMode { get; set; }
 

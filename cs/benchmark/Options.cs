@@ -22,7 +22,8 @@ namespace FASTER.benchmark
         [Option('n', "numa", Required = false, Default = 0,
              HelpText = "NUMA options:" +
                         "\n    0 = No sharding across NUMA sockets" +
-                        "\n    1 = Sharding across NUMA sockets")]
+                        "\n    1 = Sharding across NUMA sockets" +
+                        "\n    2 = don't pin threads")]
         public int NumaStyle { get; set; }
 
         [Option('k', "recover", Required = false, Default = false,
@@ -70,7 +71,7 @@ namespace FASTER.benchmark
             HelpText = "Number of seconds to execute experiment")]
         public int RunSeconds { get; set; }
 
-        [Option("sd", Required = false, Default = false,
+        [Option("sd", Required = false, Default = true,
             HelpText = "Use SmallData in experiment")]
         public bool UseSmallData { get; set; }
 

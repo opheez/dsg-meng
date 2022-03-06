@@ -36,7 +36,7 @@ namespace FASTER.core
                     break;
                 case Phase.PERSISTENCE_CALLBACK:
                     CollectMetadata(next, faster);
-                    faster.WriteHybridLogMetaInfo();
+                    // faster.WriteHybridLogMetaInfo();
                     faster.lastVersion = lastVersion;
                     break;
                 case Phase.REST:

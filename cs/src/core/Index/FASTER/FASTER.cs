@@ -362,7 +362,7 @@ namespace FASTER.core
                 var ret =
                     epvs.ExecuteStateMachine(new FasterEpvsStateMachine<Key, Value>(this, epvs, targetVersion));
                 if (ret)
-                    epvs.TryStepStateMachine(null);
+                    epvs.TryStepStateMachine();
                 token = _hybridLogCheckpointToken;
                 return ret;
             }

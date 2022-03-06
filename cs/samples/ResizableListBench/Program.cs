@@ -38,7 +38,7 @@ namespace epvs
         [Option('l', "dump-latency", Default = false)]
         public bool DumpLatencyMeasurements { get; set; }
 
-        [Option('s', "latency-sample-rate", Default = 1e-4)]
+        [Option('s', "latency-sample-rate", Default = 1e-3)]
         public double LatencySampleRate { get; set; }
         
         [Option('i', "initial-count", Default = 128)]
@@ -71,7 +71,6 @@ namespace epvs
                     break;
                 case "simple-version":
                     new ResizableListBench<SimpleVersionSchemeResizableList>(new SimpleVersionSchemeResizableList()).RunExperiment(options);
-
                     break;
                 case "two-phase-version":
                     new ResizableListBench<TwoPhaseResizableList>(new TwoPhaseResizableList()).RunExperiment(options);

@@ -290,7 +290,7 @@ namespace FASTER.core
             {
                 Array.Copy(obj.list, obj.newList, obj.list.Length);
                 copyDone = true;
-                epvs.TryStepStateMachine(this);
+                epvs.TryStepStateMachine();
             }
         }  
     }

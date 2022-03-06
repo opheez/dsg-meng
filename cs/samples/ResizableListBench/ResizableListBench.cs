@@ -135,19 +135,23 @@ namespace epvs
             if (options.DumpLatencyMeasurements)
             {
                 using var pushLatencies = new StreamWriter(options.OutputFile + "-push.txt");
+                ComputeStats(workers.SelectMany(w => w.pushLatencies).ToList(), "push");
                 foreach (var i in workers.SelectMany(w => w.pushLatencies)
                     .Select(n => n * 1000000.0 / Stopwatch.Frequency))
                     pushLatencies.WriteLine(i);
                 
                 using var readLatencies = new StreamWriter(options.OutputFile + "-read.txt");
+                ComputeStats(workers.SelectMany(w => w.readLatencies).ToList(), "read");
+
                 foreach (var i in workers.SelectMany(w => w.readLatencies)
                     .Select(n => n * 1000000.0 / Stopwatch.Frequency))
-                    pushLatencies.WriteLine(i);
+                    readLatencies.WriteLine(i);
                 
                 using var writeLatencies = new StreamWriter(options.OutputFile + "-write.txt");
+                ComputeStats(workers.SelectMany(w => w.writeLatencies).ToList(), "write");
                 foreach (var i in workers.SelectMany(w => w.writeLatencies)
                     .Select(n => n * 1000000.0 / Stopwatch.Frequency))
-                    pushLatencies.WriteLine(i);
+                    writeLatencies.WriteLine(i);
             }
             else
             {

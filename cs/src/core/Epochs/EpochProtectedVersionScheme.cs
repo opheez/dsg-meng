@@ -183,7 +183,7 @@ namespace FASTER.core
         public VersionSchemeState Enter()
         {
             epoch.Resume();
-            TryStepStateMachine(null);
+            TryStepStateMachine();
 
             VersionSchemeState result;
             while (true)
@@ -202,7 +202,7 @@ namespace FASTER.core
         {
             epoch.ProtectAndDrain();
             VersionSchemeState result = default;
-            TryStepStateMachine(null);
+            TryStepStateMachine();
 
             while (true)
             {
@@ -220,7 +220,7 @@ namespace FASTER.core
             epoch.Suspend();
         }
 
-        internal void TryStepStateMachine(VersionSchemeStateMachine expectedMachine)
+        internal void TryStepStateMachine(VersionSchemeStateMachine expectedMachine = null)
         {
             var machineLocal = currentMachine;
             var oldState = state;
@@ -310,7 +310,7 @@ namespace FASTER.core
             if (!ExecuteStateMachine(stateMachine)) return false;
             while (state.Version != stateMachine.actualToVersion || state.Phase != VersionSchemeState.REST)
             {
-                TryStepStateMachine(stateMachine);
+                TryStepStateMachine();
                 Thread.Yield();
             }
 

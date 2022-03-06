@@ -75,7 +75,7 @@ namespace FASTER.core
                     break;
                 case FasterEpvsPhase.LOG_FLUSH:
                     CollectMetadata(toState, faster);
-                    faster.WriteHybridLogMetaInfo();
+                    // faster.WriteHybridLogMetaInfo();
                     faster.lastVersion = lastVersion;
                     faster._hybridLogCheckpoint.Dispose();
                     var nextTcs = new TaskCompletionSource<LinkedCheckpointInfo>(TaskCreationOptions.RunContinuationsAsynchronously);

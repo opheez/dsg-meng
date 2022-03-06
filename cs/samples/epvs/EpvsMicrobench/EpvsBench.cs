@@ -70,10 +70,10 @@ namespace epvs
             }
 
             internal void RunOneThread()
-            {
+            {                            
                 if (numaStyle == 0)
                     Native32.AffinitizeThreadRoundRobin((uint) threadId);
-                else
+                else if (numaStyle == 1)
                     Native32.AffinitizeThreadShardedNuma((uint) threadId, 2); // assuming two NUMA sockets
 
                 if (syncMode == 2)
@@ -114,7 +114,11 @@ namespace epvs
                             if (nextChangeIndex < versionChangeIndexes.Count &&
                                 i == versionChangeIndexes[nextChangeIndex])
                             {
-                                parent.tested.AdvanceVersion((_, _) => DoWork(versionChangeDelay));
+                                while (parent.tested.TryAdvanceVersion((_, _) =>
+                                {
+                                    DoWork(versionChangeDelay);
+                                }) == StateMachineExecutionStatus.RETRY)
+                                    parent.tested.Refresh();
                                 nextChangeIndex++;
                             }
                             else

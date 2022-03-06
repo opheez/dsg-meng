@@ -48,5 +48,11 @@ namespace FASTER.core
         {
             return versionScheme.ExecuteStateMachine(new SimpleVersionSchemeStateMachine(criticalSection, versionScheme, toVersion));
         }
+
+        public StateMachineExecutionStatus TryAdvanceVersion(Action<long, long> criticalSection, long toVersion = -1)
+        {
+            return versionScheme.TryExecuteStateMachine(
+                new SimpleVersionSchemeStateMachine(criticalSection, versionScheme, toVersion));
+        }
     }
 }

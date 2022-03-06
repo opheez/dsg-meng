@@ -422,10 +422,10 @@ namespace FASTER.core
                     ++current_iteration;
                 }
 
-                if (current_iteration > (TableSize * 10))
-                {
-                    throw new FasterException("Unable to reserve an epoch entry, try increasing the epoch table size (kTableSize)");
-                }
+                // if (current_iteration > (TableSize * 20))
+                // {
+                    // throw new FasterException("Unable to reserve an epoch entry, try increasing the epoch table size (kTableSize)");
+                // }
             }
         }
 

@@ -66,16 +66,26 @@ namespace FASTER.core
         internal void InternalRefresh<Input, Output, Context, FasterSession>(FasterExecutionContext<Input, Output, Context> ctx, FasterSession fasterSession)
             where FasterSession : IFasterSession
         {
-            epoch.ProtectAndDrain();
-
-            // We check if we are in normal mode
-            var newPhaseInfo = SystemState.Copy(ref systemState);
-            if (ctx.phase == Phase.REST && newPhaseInfo.Phase == Phase.REST && ctx.version == newPhaseInfo.Version)
+            if (epvs == null)
             {
-                return;
-            }
+                epoch.ProtectAndDrain();
 
-            ThreadStateMachineStep(ctx, fasterSession, default);
+                // We check if we are in normal mode
+                var newPhaseInfo = SystemState.Copy(ref systemState);
+                if (ctx.phase == Phase.REST && newPhaseInfo.Phase == Phase.REST && ctx.version == newPhaseInfo.Version)
+                {
+                    return;
+                }
+
+                ThreadStateMachineStep(ctx, fasterSession, default);
+            }
+            else
+            {
+                var state = epvs.Refresh();
+                // Manually update context
+                ctx.phase = state.Phase == VersionSchemeState.REST ? Phase.REST : Phase.WAIT_FLUSH;
+                ctx.version = state.Version;
+            }
         }
 
         internal void InitContext<Input, Output, Context>(FasterExecutionContext<Input, Output, Context> ctx, string token, long lsn = -1)

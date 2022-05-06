@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Service
+metadata:
+    labels:
+        app: dpr-finder
+    name: dpr-finder-svc
+spec:
+    clusterIP: None
+    ports:
+    - port: 3000
+      protocol: TCP
+      targetPort: 3000
+    selector:
+        app: dpr-finder
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+    labels:
+        app: dpr-finder
+    name: dpr-finder
+spec:
+    serviceName: "dpr-finder-svc"
+    replicas: 1
+    selector:
+        matchLabels:
+            app: dpr-finder
+    template:
+        metadata:
+            labels:
+                app: dpr-finder
+        spec:
+            containers:
+            - image: cetko24/meng_project
+              imagePullPolicy: Never
+              name: dpr-finder
+              ports:
+              - containerPort: 3000
+                name: dpr-finder
+              args: ["backend"]
+              volumeMounts:
+              - name: dpr-finder-storage
+                mountPath: /DprCounters/data
+    volumeClaimTemplates:
+    - metadata:
+        name: dpr-finder-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

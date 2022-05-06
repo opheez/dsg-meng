@@ -138,16 +138,21 @@ namespace FASTER.libdpr
                     socket.Send(OkResponse);
                     break;
                 case DprFinderCommand.Type.GRAPH_RESENT:
+                    Console.WriteLine("RECEIVING GRAPH RESENDS");
                     backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
+                    socket.Send(OkResponse); // added this, it's probably the ack we need to unblock
                     break;
                 case DprFinderCommand.Type.SYNC:
                     var precomputedResponse = backend.GetPrecomputedResponse();
                     precomputedResponse.rwLatch.EnterReadLock();
+                    // var max_version = backend.MaxVersion();
+                    // Console.WriteLine("MAX VERSION: " + max_version.ToString());
                     socket.SendSyncResponse(backend.MaxVersion(),
                         ValueTuple.Create(precomputedResponse.serializedResponse, precomputedResponse.responseEnd));
                     precomputedResponse.rwLatch.ExitReadLock();
                     break;
                 case DprFinderCommand.Type.ADD_WORKER:
+                    Console.WriteLine("RECEIVED ADD WORKER");
                     backend.AddWorker(command.w, socket.SendAddWorkerResponse);
                     break;
                 case DprFinderCommand.Type.DELETE_WORKER:

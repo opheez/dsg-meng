@@ -124,7 +124,7 @@ namespace FASTER.libdpr
             }
         }
 
-        public Dictionary<Worker, IPEndPoint> FetchCluster()
+        public Dictionary<Worker, EndPoint> FetchCluster()
         {
             return null;
         }

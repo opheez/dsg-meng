@@ -18,4 +18,3 @@ if __name__ == "__main__":
     server = socketserver.TCPServer((host, 15000), ScriptServer)
     server.serve_forever()
 
-

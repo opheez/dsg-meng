@@ -16,7 +16,7 @@ namespace DprCounters
         private int portFinder, portApi;
         private EnhancedDprFinderServer backendServerFinder, backendServerApi;
         private ClusterBackend apiBackend;
-        private Dictionary<Worker, IPEndPoint> workers = new Dictionary<Worker, IPEndPoint>();
+        private Dictionary<Worker, EndPoint> workers = new Dictionary<Worker, EndPoint>();
         private Dictionary<Worker, Tuple<CounterServer, Thread>> servers = new Dictionary<Worker, Tuple<CounterServer, Thread>>();
 
         public Cluster() 

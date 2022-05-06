@@ -29,7 +29,6 @@ namespace FASTER.libdpr
                         stringStart = readHead + 1;
                         return false;
                     }
-
                     return readHead == stringStart + size + 1;
                 default:
                     // Nothing to do

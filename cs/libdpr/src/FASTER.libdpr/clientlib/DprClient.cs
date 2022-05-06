@@ -19,6 +19,17 @@ namespace FASTER.libdpr
         ///     Constructs a new DprClient with the given dpr finder backend
         /// </summary>
         /// <param name="dprFinder"> backend dpr finder of the cluster</param>
+        public DprClient(IDprFinder dprFinder)
+        {
+            this.dprFinder = dprFinder;
+            this.dprFinderApi = null;
+            sessions = new ConcurrentDictionary<Guid, DprClientSession>();
+        }
+
+        /// <summary>
+        ///     Constructs a new DprClient with the given dpr finder backend
+        /// </summary>
+        /// <param name="dprFinder"> backend dpr finder of the cluster</param>
         public DprClient(IDprFinder dprFinder, IDprFinder dprFinderApi)
         {
             this.dprFinder = dprFinder;
@@ -34,9 +45,17 @@ namespace FASTER.libdpr
         {
             dprViewNumber++;
             dprFinder.Refresh();
+            // var actual_refresh = dprFinder.Refresh();
+            // if(actual_refresh)
+            // {
+            //     Console.WriteLine("REFRESH DOING SOMETHING");
+            // } else 
+            // {
+            //     Console.WriteLine("REFRESH STUCK");
+            // }
         }
 
-        public Dictionary<Worker, IPEndPoint> FetchCluster()
+        public Dictionary<Worker, EndPoint> FetchCluster()
         {
             return dprFinderApi.FetchCluster();
         }

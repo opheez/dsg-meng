@@ -107,6 +107,6 @@ namespace FASTER.libdpr
         ///     Forms and returns a mapping of workers to their ip end points. To be invoked as necessary, usually in
         ///     DPR Finders used by clients in order for the clients to obtain the most fresh view of the cluster.
         /// </summary>
-        Dictionary<Worker, IPEndPoint> FetchCluster();
+        Dictionary<Worker, EndPoint> FetchCluster();
     }
 }

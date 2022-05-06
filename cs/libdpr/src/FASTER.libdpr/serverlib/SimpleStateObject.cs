@@ -49,6 +49,8 @@ namespace FASTER.libdpr
             {
                 RestoreCheckpoint(version);
                 callbacks.OnRollbackComplete();
+                Console.WriteLine("VNEW: " + vNew.ToString());
+                Console.WriteLine("VERSION: " + version.ToString());
                 callbacks.BeforeNewVersion(vNew, version);
             });
         }

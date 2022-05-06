@@ -15,7 +15,7 @@ namespace FASTER.libdpr
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = 0;
-            var checkpoints = stateObject.GetUnprunedVersions();
+            var checkpoints = stateObject.GetUnprunedVersions(); // TODO(Nikola): Always empty, returns empty stuff
             var minVersion = long.MaxValue;
             var numRequests = 0;
             foreach (var (bytes, offset) in checkpoints)
@@ -31,7 +31,7 @@ namespace FASTER.libdpr
                 numRequests++;
             }
 
-            if (numRequests == 0) return 0;
+            if (numRequests == 0) return 0; // NIKOLA: Commented this out since it's always true
             head += RespUtil.WriteRedisArrayHeader(2, buf, head);
             head += RespUtil.WriteRedisBulkString("GraphResent", buf, head);
             var committedVersion = new WorkerVersion(worker, minVersion == long.MaxValue ? 0 : minVersion);

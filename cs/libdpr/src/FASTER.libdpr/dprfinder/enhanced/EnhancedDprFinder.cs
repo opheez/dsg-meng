@@ -10,7 +10,12 @@ namespace FASTER.libdpr
 {
     public class EnhancedDprFinder : IDprFinder
     {
-        private readonly Socket dprFinderConn;
+        // private readonly Socket dprFinderConn;
+        int refresh_number = 0;
+        private Socket dprFinderConn;
+        object dprFinderConnLock;
+        string ip;
+        int port;
         private ClusterState lastKnownClusterState;
         private readonly Dictionary<Worker, long> lastKnownCut = new Dictionary<Worker, long>();
         private long maxVersion;
@@ -20,15 +25,45 @@ namespace FASTER.libdpr
         public EnhancedDprFinder(Socket dprFinderConn)
         {
             this.dprFinderConn = dprFinderConn;
+            this.dprFinderConnLock = true;
             dprFinderConn.NoDelay = true;
         }
 
+        private void ResetDprFinderConn()
+        {
+            EndPoint endpoint;
+            if(Char.IsDigit(ip[0]))
+            {
+                endpoint = new IPEndPoint(IPAddress.Parse(ip), port);
+            } else 
+            {
+                endpoint = new DnsEndPoint(ip, port);
+            }
+            // var ipEndpoint = new IPEndPoint(IPAddress.Parse(ip), port);
+            dprFinderConn = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            // dprFinderConn = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            dprFinderConn.NoDelay = true;
+            dprFinderConn.Connect(endpoint);
+        }
         public EnhancedDprFinder(string ip, int port)
         {
-            var ipEndpoint = new IPEndPoint(IPAddress.Parse(ip), port);
-            dprFinderConn = new Socket(ipEndpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            dprFinderConn.NoDelay = true;
-            dprFinderConn.Connect(ipEndpoint);
+            this.ip = ip;
+            this.port = port;
+            this.dprFinderConnLock = true;
+            ResetDprFinderConn();
+            // EndPoint endpoint;
+            // if(Char.IsDigit(ip[0]))
+            // {
+            //     endpoint = new IPEndPoint(IPAddress.Parse(ip), port);
+            // } else 
+            // {
+            //     endpoint = new DnsEndPoint(ip, port);
+            // }
+            // // var ipEndpoint = new IPEndPoint(IPAddress.Parse(ip), port);
+            // dprFinderConn = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            // // dprFinderConn = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            // dprFinderConn.NoDelay = true;
+            // dprFinderConn.Connect(endpoint);
         }
 
 
@@ -54,7 +89,7 @@ namespace FASTER.libdpr
 
         public void ReportNewPersistentVersion(long worldLine, WorkerVersion persisted, IEnumerable<WorkerVersion> deps)
         {
-            lock (dprFinderConn)
+            lock (dprFinderConnLock)
             {
                 dprFinderConn.SendNewCheckpointCommand(worldLine, persisted, deps);
                 var received = dprFinderConn.Receive(recvBuffer);
@@ -63,30 +98,51 @@ namespace FASTER.libdpr
         }
 
         public bool Refresh()
-        {
-            lock (dprFinderConn)
+        {   
+            refresh_number++;
+            lock (dprFinderConnLock)
             {
-                dprFinderConn.SendSyncCommand();
-                ProcessRespResponse();
-
-                maxVersion = BitConverter.ToInt64(recvBuffer, parser.stringStart);
-                var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart + sizeof(long), out var head);
-                Interlocked.Exchange(ref lastKnownClusterState, newState);
-                // Cut is unavailable, signal a resend.
-                if (BitConverter.ToInt32(recvBuffer, head) == -1) return false;
-                lock (lastKnownCut)
+                try
                 {
-                    RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
+                    // Console.WriteLine("SENDING SYNC");
+                    dprFinderConn.SendSyncCommand();
+                    // Console.WriteLine("DONE SYNC");
+                    ProcessRespResponse();
+                    // Console.WriteLine("DONE PROCESSING");
+
+                    maxVersion = BitConverter.ToInt64(recvBuffer, parser.stringStart);
+                    var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart + sizeof(long), out var head);
+                    Interlocked.Exchange(ref lastKnownClusterState, newState);
+                    // Console.WriteLine("DONE EXCHANGING");
+                    // Cut is unavailable, signal a resend.
+                    if (BitConverter.ToInt32(recvBuffer, head) == -1) return false;
+                    lock (lastKnownCut)
+                    {
+                        // Console.WriteLine("STARTING READING");
+                        RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
+                        // Console.WriteLine("DONE READING");
+                    }
+                } catch (SocketException e) {
+                    try
+                    {
+                        // Console.WriteLine("CONNECTION RESET: " + refresh_number.ToString());
+                        ResetDprFinderConn();
+                        return Refresh();
+                    } catch (Exception ee)
+                    {
+                        // Console.WriteLine("RETURNING FALSE");
+                        return false;
+                    }
                 }
             }
-
+            // Console.WriteLine("REFRESH DONE: " + refresh_number.ToString());
             return true;
         }
 
-        public Dictionary<Worker, IPEndPoint> FetchCluster() 
+        public Dictionary<Worker, EndPoint> FetchCluster() 
         {
-            Dictionary<Worker, IPEndPoint> result;
-            lock (dprFinderConn)
+            Dictionary<Worker, EndPoint> result;
+            lock (dprFinderConnLock)
             {
                 dprFinderConn.SendFetchClusterCommand();
                 ProcessRespResponse();
@@ -103,21 +159,22 @@ namespace FASTER.libdpr
 
         public void ResendGraph(Worker worker, IStateObject stateObject)
         {
-            lock (dprFinderConn)
+            lock (dprFinderConnLock)
             {
                 var acks = dprFinderConn.SendGraphReconstruction(worker, stateObject);
                 // Wait for all of the sent commands to be acked
                 var received = 0;
-                while (received < acks * 5)
+                while (received < acks * 5) {
                     received += dprFinderConn.Receive(recvBuffer);
+                }
             }
         }
 
         public long NewWorker(Worker id, IStateObject stateObject)
         {
-            if (stateObject != null)
-                ResendGraph(id, stateObject);
-            lock (dprFinderConn)
+            if (stateObject != null) // Why is this necessary? It is never null (with the current code)
+                ResendGraph(id, stateObject); // This breaks something inside the Dpr Finder backend somehow
+            lock (dprFinderConnLock)
             {
                 dprFinderConn.SendAddWorkerCommand(id);
                 ProcessRespResponse();
@@ -129,7 +186,7 @@ namespace FASTER.libdpr
 
         public void DeleteWorker(Worker id)
         {
-            lock (dprFinderConn)
+            lock (dprFinderConnLock)
             {
                 dprFinderConn.SendDeleteWorkerCommand(id);
                 var received = dprFinderConn.Receive(recvBuffer);
@@ -139,14 +196,25 @@ namespace FASTER.libdpr
 
         private void ProcessRespResponse()
         {
-            int i = 0, receivedSize = 0;
-            while (true)
+            int i = 0, receivedSize = 0, zeroByteFails = 0, zeroByteTolerance = 10;
+            // while (true)
+            while(zeroByteFails < zeroByteTolerance)
             {
-                receivedSize += dprFinderConn.Receive(recvBuffer);
+                // Console.WriteLine("WHILE AGAIN");
+                var additionalSize = dprFinderConn.Receive(recvBuffer);
+                receivedSize += additionalSize;
+                if(additionalSize == 0) {
+                    Thread.Sleep(10);
+                    zeroByteFails++;
+                }
+                // Console.WriteLine("RECEIVED");
                 for (; i < receivedSize; i++)
                     if (parser.ProcessChar(i, recvBuffer))
                         return;
+                    // else
+                    //     Console.WriteLine("PROCESSED");
             }
+            throw new SocketException(32);
         }
     }
 }

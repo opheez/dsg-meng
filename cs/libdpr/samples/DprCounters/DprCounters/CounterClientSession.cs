@@ -13,7 +13,7 @@ namespace DprCounters
     public class CounterClientSession
     {
         private DprClientSession session;
-        private Dictionary<Worker, IPEndPoint> cluster;
+        private Dictionary<Worker, EndPoint> cluster;
         private byte[] serializationBuffer = new byte[1 << 15];
         private long serialNum = 0;
 
@@ -24,7 +24,7 @@ namespace DprCounters
         /// </summary>
         /// <param name="session"> dpr session </param>
         /// <param name="cluster"> static cluster mapping </param>
-        public CounterClientSession(DprClientSession session, Dictionary<Worker, IPEndPoint> cluster)
+        public CounterClientSession(DprClientSession session, Dictionary<Worker, EndPoint> cluster)
         {
             this.session = session;
             this.cluster = cluster;
@@ -51,10 +51,10 @@ namespace DprCounters
                 header.Length + sizeof(long));
             header.CopyTo(new Span<byte>(serializationBuffer, sizeof(int), header.Length));
             BitConverter.TryWriteBytes(new Span<byte>(serializationBuffer, header.Length + sizeof(int), sizeof(long)), amount);
-            
+           
             // For simplicity, start a new socket every operation
             var endPoint = cluster[worker];
-            using var socket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             socket.Connect(endPoint);
             socket.Send(serializationBuffer, 0, sizeof(int) + header.Length + sizeof(long), SocketFlags.None);
 
@@ -67,12 +67,11 @@ namespace DprCounters
             // Now wait until the entire message arrives
             while (receivedBytes < size + sizeof(int))
                 receivedBytes += socket.Receive(serializationBuffer, receivedBytes, serializationBuffer.Length - receivedBytes, SocketFlags.None);
-
+            
             // Forward the DPR response header after we are done
             var success = session.ResolveBatch(new Span<byte>(serializationBuffer, sizeof(int), size - sizeof(long)), out var vector);
             // Because we use one-off sockets, resolve batch should never fail.
             Debug.Assert(success);
-
             versionTracker.Resolve(id, new WorkerVersion(worker, vector[0]));
 
             // (Non-DPR) Response is 8 bytes, 

@@ -75,20 +75,26 @@ namespace FASTER.libdpr
         /// </summary>
         public void ConnectToCluster()
         {
+            state.dprFinder.Refresh(); // added a refresh here so that we can have the lastknowncut ready to go
             var v = state.dprFinder.NewWorker(state.me, stateObject);
+            Console.WriteLine("WORKER REGISTERED");
+            if (v != 0)
+            {
+                // state.dprFinder.Refresh();
+                // If worker is recovering from failure, need to load a previous checkpoint
+                state.rollbackProgress = new ManualResetEventSlim();
+                var separate = state.dprFinder.SafeVersion(state.me);
+                Console.WriteLine("SEPARATE: " + separate.ToString());
+                stateObject.BeginRestore(separate);
+                // Wait for user to signal end of restore;
+                state.rollbackProgress.Wait();
+            }
             // This worker is recovering from some failure and we need to load said checkpoint
             state.worldlineTracker.TryAdvanceVersion((vOld, vNew) =>
             {
-                if (v != 0)
-                {
-                    // If worker is recovering from failure, need to load a previous checkpoint
-                    state.rollbackProgress = new ManualResetEventSlim();
-                    stateObject.BeginRestore(state.dprFinder.SafeVersion(state.me));
-                    // Wait for user to signal end of restore;
-                    state.rollbackProgress.Wait();
-                }
+                return;
             }, state.dprFinder.SystemWorldLine());
-            state.dprFinder.Refresh();
+            // state.dprFinder.Refresh();
         }
 
         /// <summary></summary>
@@ -123,23 +129,33 @@ namespace FASTER.libdpr
         public void TryRefreshAndCheckpoint(long checkpointPeriodMilli, long refreshPeriodMilli)
         {
             var currentTime = state.sw.ElapsedMilliseconds;
-
+            // Console.WriteLine("OBSTACLE 1");
             var lastCommitted = state.dprFinder.SafeVersion(state.me);
+            // Console.WriteLine("OBSTACLE 2");
 
             if (state.lastRefreshMilli + refreshPeriodMilli < currentTime)
             {
+                // Console.WriteLine("OBSTACLE 1");
                 if (!state.dprFinder.Refresh())
+                {
                     state.dprFinder.ResendGraph(state.me, stateObject);
+                }
+                // Console.WriteLine("OBSTACLE 3");
                 core.Utility.MonotonicUpdate(ref state.lastRefreshMilli, currentTime, out _);
+                // Console.WriteLine("OBSTACLE 4");
                 TryAdvanceWorldLineTo(state.dprFinder.SystemWorldLine());
+                // Console.WriteLine("DONE");
             }
-
+            // Console.WriteLine("OBSTACLE 3");
+            // Console.WriteLine("MIGHT SEND: " + currentTime.ToString());
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
+                // Console.WriteLine("Sending the version update stuff: " + currentTime.ToString());
                 stateObject.BeginCheckpoint(ComputeDependency,
                     Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion()));
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
             }
+            // Console.WriteLine("OBSTACLE 4");
 
             // Can prune dependency information of committed versions
             var newCommitted = state.dprFinder.SafeVersion(state.me);

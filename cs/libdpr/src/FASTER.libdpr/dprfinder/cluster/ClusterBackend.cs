@@ -33,7 +33,7 @@ namespace FASTER.libdpr
         ///     serialized response will have a special value for the cut to signal its absence.
         /// </summary>
         /// <param name="clusterState"> cluster state to serialize </param>
-        public ConfigurationResponse(Dictionary<Worker, IPEndPoint> workers)
+        public ConfigurationResponse(Dictionary<Worker, EndPoint> workers)
         {
             rwLatch = new ReaderWriterLockSlim();
             // Reserve space for dict_size + actual_dict fields
@@ -48,9 +48,9 @@ namespace FASTER.libdpr
             responseEnd = recoveryStateEnd;
         }
 
-        public static Dictionary<Worker, IPEndPoint> FromBuffer(byte[] buf, int offset, out int head)
+        public static Dictionary<Worker, EndPoint> FromBuffer(byte[] buf, int offset, out int head)
         {
-            var result = new Dictionary<Worker, IPEndPoint>();
+            var result = new Dictionary<Worker, EndPoint>();
             head = RespUtil.ReadDictionaryFromBytes(buf, offset, result);
             return result;
         }
@@ -58,9 +58,9 @@ namespace FASTER.libdpr
 
     public class ClusterBackend
     {
-        private Dictionary<Worker, IPEndPoint> clusterInfo;
+        private Dictionary<Worker, EndPoint> clusterInfo;
         private ConfigurationResponse response;
-        public ClusterBackend(Dictionary<Worker, IPEndPoint> clusterInfo)
+        public ClusterBackend(Dictionary<Worker, EndPoint> clusterInfo)
         {
             // passing by reference, so updating inside cluster should update the backend whenever we refresh?
             // is that good practice?

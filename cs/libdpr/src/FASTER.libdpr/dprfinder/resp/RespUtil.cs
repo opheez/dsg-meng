@@ -168,7 +168,7 @@ namespace FASTER.libdpr
             return sizeof(int) + dict.Count * 2 * sizeof(long);
         }
 
-        internal static int DictionarySerializedSize(IDictionary<Worker, IPEndPoint> dict)
+        internal static int DictionarySerializedSize(IDictionary<Worker, EndPoint> dict)
         {
             return sizeof(int) + dict.Count * 2 * sizeof(int) + dict.Count * sizeof(long);
         }
@@ -189,7 +189,7 @@ namespace FASTER.libdpr
             return head;
         }
 
-        internal static int SerializeDictionary(IDictionary<Worker, IPEndPoint> workers, byte[] buf, int head)
+        internal static int SerializeDictionary(IDictionary<Worker, EndPoint> workers, byte[] buf, int head)
         {
             if (head + DictionarySerializedSize(workers) > buf.Length) return 0;
             Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), workers.Count);
@@ -198,10 +198,11 @@ namespace FASTER.libdpr
             {
                 Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), entry.Key.guid);
                 head += sizeof(long);
-                var ipBytes = entry.Value.Address.GetAddressBytes();
+                var ipValue = (IPEndPoint)(entry.Value); // TODO(Nikola): This will stop working if I am sending DNS stuff this way...
+                var ipBytes = ipValue.Address.GetAddressBytes();
                 Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), BitConverter.ToInt32(ipBytes, 0));
                 head += sizeof(int);
-                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), entry.Value.Port);
+                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), ipValue.Port);
                 head += sizeof(int);
             }
 
@@ -224,7 +225,7 @@ namespace FASTER.libdpr
             return head;
         }
 
-        public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<Worker, IPEndPoint> result)
+        public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<Worker, EndPoint> result)
         {
             var size = BitConverter.ToInt32(buf, head);
             head += sizeof(int);

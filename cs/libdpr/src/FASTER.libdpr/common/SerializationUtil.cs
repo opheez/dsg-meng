@@ -37,15 +37,20 @@ namespace FASTER.libdpr
         public static void DeserializeCheckpointMetadata(byte[] buf, int offset, out long worldLine,
             out WorkerVersion checkpointed, out IEnumerable<WorkerVersion> deps)
         {
-            var head = offset;
-            worldLine = BitConverter.ToInt64(buf, head);
-            head += sizeof(long);
-            var worker = BitConverter.ToInt64(buf, head);
-            head += sizeof(long);
-            var version = BitConverter.ToInt64(buf, head);
-            head += sizeof(long);
-            checkpointed = new WorkerVersion(worker, version);
-            deps = new EnumerableSerializedDeps(buf, head);
+            try{
+                var head = offset;
+                worldLine = BitConverter.ToInt64(buf, head);
+                head += sizeof(long);
+                var worker = BitConverter.ToInt64(buf, head);
+                head += sizeof(long);
+                var version = BitConverter.ToInt64(buf, head);
+                head += sizeof(long);
+                checkpointed = new WorkerVersion(worker, version);
+                deps = new EnumerableSerializedDeps(buf, head);
+            } catch (Exception e) {
+                Console.WriteLine("BUFFER LENGTH WHEN FAILING:" + buf.Length.ToString());
+                throw e;
+            }
         }
 
         public class EnumerableSerializedDeps : IEnumerable<WorkerVersion>

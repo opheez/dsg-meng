@@ -14,6 +14,11 @@ namespace DprCounters
         private DprClient client;
         private Dictionary<Worker, IPEndPoint> cluster;
 
+        public CounterClient(IDprFinder dprFinder)
+        {
+            client = new DprClient(dprFinder);
+        }
+
         public CounterClient(IDprFinder dprFinder, IDprFinder dprFinderApi)
         {
             client = new DprClient(dprFinder, dprFinderApi);
@@ -22,6 +27,11 @@ namespace DprCounters
         public CounterClientSession GetSession()
         {
             return new(client.GetSession(Guid.NewGuid()), client.FetchCluster());
+        }
+
+        public CounterClientSession GetSession(Dictionary<Worker, EndPoint> specifiedCluster)
+        {
+            return new(client.GetSession(Guid.NewGuid()), specifiedCluster);
         }
 
         public void RefreshDpr()

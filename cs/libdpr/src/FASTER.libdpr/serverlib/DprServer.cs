@@ -104,19 +104,13 @@ namespace FASTER.libdpr
             return stateObject;
         }
 
-        private ReadOnlySpan<byte> ComputeDependency(long version)
+        private ReadOnlySpan<byte> ComputeCheckpointMetadata(long version)
         {
             var deps = state.versions[version];
-            var head = 0;
-            foreach (var wv in deps)
-            {
-                Utility.TryWriteBytes(new Span<byte>(depSerializationArray, head, sizeof(long)), wv.Worker.guid);
-                head += sizeof(long);
-                Utility.TryWriteBytes(new Span<byte>(depSerializationArray, head, sizeof(long)), wv.Version);
-                head += sizeof(long);
-            }
-
-            return new ReadOnlySpan<byte>(depSerializationArray, 0, head);
+            var size = SerializationUtil.SerializeCheckpointMetadata(depSerializationArray, 0,
+                state.worldlineTracker.Version(), new WorkerVersion(state.me, version), deps);
+            Debug.Assert(size > 0);
+            return new ReadOnlySpan<byte>(depSerializationArray, 0, size);
         }
 
         /// <summary>
@@ -151,7 +145,7 @@ namespace FASTER.libdpr
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
                 // Console.WriteLine("Sending the version update stuff: " + currentTime.ToString());
-                stateObject.BeginCheckpoint(ComputeDependency,
+                stateObject.BeginCheckpoint(ComputeCheckpointMetadata,
                     Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion()));
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
             }
@@ -218,7 +212,7 @@ namespace FASTER.libdpr
             // can be safely executed), taking checkpoints if necessary.
             while (request.version > stateObject.Version())
             {
-                stateObject.BeginCheckpoint(ComputeDependency, request.version);
+                stateObject.BeginCheckpoint(ComputeCheckpointMetadata, request.version);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, state.sw.ElapsedMilliseconds, out _);
                 Thread.Yield();
             }
@@ -363,7 +357,7 @@ namespace FASTER.libdpr
         /// <param name="targetVersion"> the version to jump to after the checkpoint, or -1 for the immediate next version</param>
         public void ForceCheckpoint(long targetVersion = -1)
         {
-            stateObject.BeginCheckpoint(ComputeDependency, targetVersion);
+            stateObject.BeginCheckpoint(ComputeCheckpointMetadata, targetVersion);
             core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, state.sw.ElapsedMilliseconds, out _);
         }
     }

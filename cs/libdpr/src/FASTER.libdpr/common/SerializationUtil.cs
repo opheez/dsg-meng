@@ -16,9 +16,12 @@ namespace FASTER.libdpr
             offset += sizeof(long);
             if (!Utility.TryWriteBytes(new Span<byte>(buf, offset, buf.Length - offset), checkpointed.Version))
                 return 0;
-            // skip 4 bytes of size field for now;
+            offset += sizeof(long);
+
+            // skip 4 bytes of size field for now, will fill in after traversal
             var sizeField = offset;
-            if (!Utility.TryWriteBytes(new Span<byte>(buf, offset, buf.Length - offset), 0)) return 0;
+            offset += sizeof(int);
+            
             var numDeps = 0;
             foreach (var wv in deps)
             {

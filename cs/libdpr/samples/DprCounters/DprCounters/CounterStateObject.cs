@@ -42,6 +42,7 @@ namespace DprCounters
             // store persistent mappings or use other schemes to do so.
             var fileName = Path.Join(checkpointDirectory, version.ToString());
             var fs = File.Open(fileName, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            // Console.WriteLine("DOING STUFF WITH FILE: " + version.ToString());
 
             // libDPR will ensure that request batches that are protected with VersionScheme.Enter() and
             // VersionScheme.Leave() will not interleave with checkpoint or recovery code. It is therefore safe
@@ -71,6 +72,7 @@ namespace DprCounters
             // });
             fs.WriteAsync(serializationBuffer).AsTask().ContinueWith(token =>
             {
+                // Console.WriteLine("FINISHED WRITING FILE: " + version.ToString());
                 if (!token.IsCompletedSuccessfully)
                     Console.WriteLine($"Error {token} during checkpoint");
                 // We need to invoke onPersist() to inform DPR when a checkpoint is on disk
@@ -99,24 +101,32 @@ namespace DprCounters
         
         public override void PruneVersion(long version)
         {
-            var fileToDelete = Path.Join(checkpointDirectory, version.ToString());
-            prevCounters.TryRemove(version, out _);
-            File.Delete(fileToDelete);
+            lock(prevCounters)
+            {
+                var fileToDelete = Path.Join(checkpointDirectory, version.ToString());
+                prevCounters.TryRemove(version, out _);
+                File.Delete(fileToDelete);
+            }
             // TODO: Remove the file with the version
         }
 
         public override IEnumerable<(byte[], int)> GetUnprunedVersions()
         {
-            (byte[], int)[] unpruned = new (byte[], int)[prevCounters.Count()];
-            int index = 0;
-            foreach(var (version, _) in prevCounters)
+            lock(prevCounters) // TODO(Nikola): This fixes the below problem (I think), figure out if the scope can be made tighter
             {
-                var fileToOpen = Path.Join(checkpointDirectory, version.ToString());
-                var fileBytes = File.ReadAllBytes(fileToOpen);
-                unpruned[index] = (fileBytes, 0); // TODO(Nikola): this could go wrong if something is pruned in the meantime
+                (byte[], int)[] unpruned = new (byte[], int)[prevCounters.Count()];
+                int index = 0;
+                foreach(var (version, _) in prevCounters)
+                {
+                    // Console.WriteLine("UNPRUNED VERSION TO RETURN: " + version.ToString());
+                    var fileToOpen = Path.Join(checkpointDirectory, version.ToString());
+                    var fileBytes = File.ReadAllBytes(fileToOpen);
+                    unpruned[index] = (fileBytes, 0);
+                    index++;
+                }
+                return unpruned;
             }
             // return Enumerable.Empty<(byte[], int)>();
-            return unpruned;
             // TODO: pairs of byte arrays (deps) from each file with the dep byte starting at zero, size of array
         }
     }

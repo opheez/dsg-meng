@@ -92,7 +92,9 @@ namespace FASTER.libdpr
             lock (dprFinderConnLock)
             {
                 dprFinderConn.SendNewCheckpointCommand(worldLine, persisted, deps);
+                // Console.WriteLine("WAITING TO RECEIVE");
                 var received = dprFinderConn.Receive(recvBuffer);
+                // Console.WriteLine("RECEIVED");
                 Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
             }
         }
@@ -127,7 +129,9 @@ namespace FASTER.libdpr
                     {
                         // Console.WriteLine("CONNECTION RESET: " + refresh_number.ToString());
                         ResetDprFinderConn();
-                        return Refresh();
+                        Console.WriteLine("CONNECTION RESET SUCCESSFULLY");
+                        // return Refresh();
+                        return false;
                     } catch (Exception ee)
                     {
                         // Console.WriteLine("RETURNING FALSE");

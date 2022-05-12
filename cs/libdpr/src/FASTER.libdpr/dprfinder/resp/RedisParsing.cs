@@ -141,7 +141,9 @@ namespace FASTER.libdpr
                 case CommandParserState.NUM_ARGS:
                 {
                     if (ProcessRedisInt(readHead, buf, out var size))
+                    {
                         commandParserState = CommandParserState.COMMAND_TYPE;
+                    }
                     return false;
                 }
                 case CommandParserState.COMMAND_TYPE:
@@ -221,7 +223,10 @@ namespace FASTER.libdpr
                         else if (currentCommand.commandType == DprFinderCommand.Type.REPORT_RECOVERY)
                             commandParserState = CommandParserState.ARG_WL;
                         else if (currentCommand.commandType == DprFinderCommand.Type.GRAPH_RESENT)
+                        {
+                            commandParserState = CommandParserState.NONE;
                             return true;
+                        }
                         else
                             Debug.Assert(false);
 
@@ -266,7 +271,6 @@ namespace FASTER.libdpr
                             currentCommand.deps.Add(new WorkerVersion(workerId, version));
                             size = -1;
                         }
-
                         commandParserState = CommandParserState.NONE;
                         return true;
                     }

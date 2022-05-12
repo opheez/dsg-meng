@@ -129,11 +129,13 @@ namespace FASTER.libdpr
 
             if (state.lastRefreshMilli + refreshPeriodMilli < currentTime)
             {
-                // Console.WriteLine("OBSTACLE 1");
+                // Console.WriteLine("REFRESHING DPR");
                 if (!state.dprFinder.Refresh())
                 {
+                    // Console.WriteLine("SENDING GRAPH");
                     state.dprFinder.ResendGraph(state.me, stateObject);
                 }
+                // Console.WriteLine("DONE BOTH");
                 // Console.WriteLine("OBSTACLE 3");
                 core.Utility.MonotonicUpdate(ref state.lastRefreshMilli, currentTime, out _);
                 // Console.WriteLine("OBSTACLE 4");
@@ -144,9 +146,10 @@ namespace FASTER.libdpr
             // Console.WriteLine("MIGHT SEND: " + currentTime.ToString());
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
-                // Console.WriteLine("Sending the version update stuff: " + currentTime.ToString());
+                var toprint = Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion());
+                // Console.WriteLine("FED INTO BEGIN: " + toprint.ToString());
                 stateObject.BeginCheckpoint(ComputeCheckpointMetadata,
-                    Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion()));
+                    toprint);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
             }
             // Console.WriteLine("OBSTACLE 4");

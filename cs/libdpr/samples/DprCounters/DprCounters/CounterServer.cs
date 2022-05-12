@@ -62,7 +62,12 @@ namespace DprCounters
                         // Console.WriteLine("TRY_REFRESH WORKING: " + id.ToString());
                         dprServer.TryRefreshAndCheckpoint(100, 10);
                         // Console.WriteLine("OUT OF TRY_REFRESH");
-                    } catch (Exception e) 
+                    }
+                    catch (SocketException s)
+                    {
+
+                    } 
+                    catch (Exception e) 
                     {
                         Console.WriteLine("###################################");
                         Console.WriteLine(e.ToString());
@@ -92,6 +97,7 @@ namespace DprCounters
                 }
                 catch (SocketException e)
                 {
+                    Console.WriteLine("HIT EXCEPTION");
                     return;
                 }
                 Console.WriteLine("RECEIVING 1");

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Text;
 
 namespace FASTER.libdpr
 {
@@ -30,7 +31,6 @@ namespace FASTER.libdpr
                 if (minVersion > wv.Version) minVersion = wv.Version;
                 numRequests++;
             }
-
             if (numRequests == 0) return 0; // NIKOLA: Commented this out since it's always true
             head += RespUtil.WriteRedisArrayHeader(2, buf, head);
             head += RespUtil.WriteRedisBulkString("GraphResent", buf, head);
@@ -69,6 +69,7 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
             head += RespUtil.WriteRedisBulkString(checkpointed, buf, head);
             head += RespUtil.WriteRedisBulkString(deps, buf, head);
+            // Console.WriteLine(Encoding.ASCII.GetString(buf, 0, head));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -197,20 +198,28 @@ namespace FASTER.libdpr
             private static bool HandleReceiveCompletion(SocketAsyncEventArgs e)
             {
                 var connState = (DprFinderRedisProtocolConnState) e.UserToken;
+                // Console.WriteLine("HANDLING STARTED");
                 if (e.BytesTransferred == 0 || e.SocketError != SocketError.Success)
                 {
+                    // Console.WriteLine("FAILED");
                     connState.socket.Dispose();
                     e.Dispose();
                     return false;
                 }
 
                 connState.bytesRead += e.BytesTransferred;
+                // Console.WriteLine(Encoding.ASCII.GetString(e.Buffer, connState.readHead, connState.bytesRead - connState.readHead));
+                // Console.WriteLine("###################");
                 for (; connState.readHead < connState.bytesRead; connState.readHead++)
+                {   
+                    // Console.WriteLine("CHECKING");
                     if (connState.parser.ProcessChar(connState.readHead, e.Buffer))
                     {
+                        // Console.WriteLine("FULL MESSAGE");
                         connState.commandHandler(connState.parser.currentCommand, connState.socket);
                         connState.commandStart = connState.readHead + 1;
                     }
+                }
 
                 // TODO(Tianyu): Magic number
                 // If less than some certain number of bytes left in the buffer, shift buffer content to head to free

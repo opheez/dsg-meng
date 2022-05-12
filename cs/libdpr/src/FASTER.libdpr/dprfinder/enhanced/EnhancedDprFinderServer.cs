@@ -24,6 +24,7 @@ namespace FASTER.libdpr
     {
         private static readonly byte[] OkResponse = Encoding.GetEncoding("ASCII").GetBytes("+OK\r\n");
 
+        private object testLock = new object();
         private readonly EnhancedDprFinderBackend backend;
         private readonly ClusterBackend clusterBackend;
         private readonly string ip;
@@ -104,6 +105,7 @@ namespace FASTER.libdpr
             if (e.SocketError != SocketError.Success)
             {
                 e.Dispose();
+                Console.WriteLine("DISPOSED OF STUFF");
                 return false;
             }
 
@@ -133,16 +135,22 @@ namespace FASTER.libdpr
             switch (command.commandType)
             {
                 case DprFinderCommand.Type.NEW_CHECKPOINT:
+                    // Console.WriteLine("NEW CHECKPOINT RECEIVED");
                     backend.NewCheckpoint(command.worldLine, command.wv, command.deps);
                     // Ack immediately as the graph is not required to be fault-tolerant
                     socket.Send(OkResponse);
+                    // Console.WriteLine("RESPONSE SENT");
                     break;
                 case DprFinderCommand.Type.GRAPH_RESENT:
-                    Console.WriteLine("RECEIVING GRAPH RESENDS");
-                    backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
-                    socket.Send(OkResponse); // added this, it's probably the ack we need to unblock
+                    // Console.WriteLine("RECEIVING GRAPH RESENDS");
+                    lock(testLock) // TODO(Nikola): probably not needed, leaving for now just in case
+                    {
+                        backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
+                        socket.Send(OkResponse); // added this, it's probably the ack we need to unblock
+                    }
                     break;
                 case DprFinderCommand.Type.SYNC:
+                    // Console.WriteLine("RECEIVING SYNCS");
                     var precomputedResponse = backend.GetPrecomputedResponse();
                     precomputedResponse.rwLatch.EnterReadLock();
                     // var max_version = backend.MaxVersion();
@@ -152,19 +160,22 @@ namespace FASTER.libdpr
                     precomputedResponse.rwLatch.ExitReadLock();
                     break;
                 case DprFinderCommand.Type.ADD_WORKER:
-                    Console.WriteLine("RECEIVED ADD WORKER");
+                    // Console.WriteLine("RECEIVED ADD WORKER");
                     backend.AddWorker(command.w, socket.SendAddWorkerResponse);
                     break;
                 case DprFinderCommand.Type.DELETE_WORKER:
+                    // Console.WriteLine("DELETE WORKER RECEIVED");
                     backend.DeleteWorker(command.w, () => socket.Send(OkResponse));
                     break;
                 case DprFinderCommand.Type.FETCH_CLUSTER:
+                    // Console.WriteLine("FETCH CLUSTER RECEIVED");
                     var fetchedCluster = clusterBackend.getClusterState();
                     fetchedCluster.rwLatch.EnterReadLock();
                     socket.SendFetchClusterResponse(ValueTuple.Create(fetchedCluster.serializedResponse, fetchedCluster.responseEnd));
                     fetchedCluster.rwLatch.ExitReadLock();
                     break;
                 default:
+                    // Console.WriteLine("ARGUMENT EXCEPTION");
                     throw new ArgumentOutOfRangeException();
             }
         }

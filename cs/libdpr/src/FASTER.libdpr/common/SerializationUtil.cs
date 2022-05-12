@@ -16,12 +16,9 @@ namespace FASTER.libdpr
             offset += sizeof(long);
             if (!Utility.TryWriteBytes(new Span<byte>(buf, offset, buf.Length - offset), checkpointed.Version))
                 return 0;
-            offset += sizeof(long);
-
-            // skip 4 bytes of size field for now, will fill in after traversal
+            // skip 4 bytes of size field for now;
             var sizeField = offset;
-            offset += sizeof(int);
-            
+            if (!Utility.TryWriteBytes(new Span<byte>(buf, offset, buf.Length - offset), 0)) return 0;
             var numDeps = 0;
             foreach (var wv in deps)
             {
@@ -40,20 +37,15 @@ namespace FASTER.libdpr
         public static void DeserializeCheckpointMetadata(byte[] buf, int offset, out long worldLine,
             out WorkerVersion checkpointed, out IEnumerable<WorkerVersion> deps)
         {
-            try{
-                var head = offset;
-                worldLine = BitConverter.ToInt64(buf, head);
-                head += sizeof(long);
-                var worker = BitConverter.ToInt64(buf, head);
-                head += sizeof(long);
-                var version = BitConverter.ToInt64(buf, head);
-                head += sizeof(long);
-                checkpointed = new WorkerVersion(worker, version);
-                deps = new EnumerableSerializedDeps(buf, head);
-            } catch (Exception e) {
-                Console.WriteLine("BUFFER LENGTH WHEN FAILING:" + buf.Length.ToString());
-                throw e;
-            }
+            var head = offset;
+            worldLine = BitConverter.ToInt64(buf, head);
+            head += sizeof(long);
+            var worker = BitConverter.ToInt64(buf, head);
+            head += sizeof(long);
+            var version = BitConverter.ToInt64(buf, head);
+            head += sizeof(long);
+            checkpointed = new WorkerVersion(worker, version);
+            deps = new EnumerableSerializedDeps(buf, head);
         }
 
         public class EnumerableSerializedDeps : IEnumerable<WorkerVersion>

@@ -226,7 +226,7 @@ namespace FASTER.libdpr
                     // If node is committed as determined by the cut, ok to continue
                     if (currentCut.GetValueOrDefault(node.Worker, 0) >= node.Version) continue;
                     // Otherwise, need to check if it is persistent (and therefore present in the graph)
-                    if (!precedenceGraph.TryGetValue(node, out var val)) return false;
+                    if (!precedenceGraph.TryGetValue(node, out var val))  { Console.WriteLine("FAIL TO UPDATE 1"); return false; }
 
                     visited.Add(node);
                     foreach (var dep in val)
@@ -250,6 +250,10 @@ namespace FASTER.libdpr
                 }
 
                 return true;
+            }
+            catch (Exception eee) {
+                Console.WriteLine("FAILINGGGG");
+                return false;
             }
             finally
             {
@@ -310,9 +314,12 @@ namespace FASTER.libdpr
             var threshold = tryCommitAll ? outstandingWvs.Count : 100;
             for (var i = 0; i < threshold; i++)
             {
-                if (!outstandingWvs.TryDequeue(out var wv)) break;
+                if (!outstandingWvs.TryDequeue(out var wv)) break; // { Console.WriteLine("GOT BROKEN"); break; }
+                // Console.WriteLine("NOT BROKEN");
                 if (!TryCommitWorkerVersion(wv))
                     outstandingWvs.Enqueue(wv);
+                // else
+                //     Console.WriteLine("TRY COMMIT SUCCESSFUL");
             }
 
             if (cutChanged)
@@ -333,7 +340,6 @@ namespace FASTER.libdpr
         /// <param name="deps"> dependencies of the checkpoint </param>
         public void NewCheckpoint(long worldLine, WorkerVersion wv, IEnumerable<WorkerVersion> deps)
         {
-            // Console.WriteLine("RECEIVING NEW CHECKPOINT SHIT");
             // The DprFinder should be the most up-to-date w.r.t. world-lines and we should not ever receive
             // a request from the future. 
             Debug.Assert(worldLine <= volatileClusterState.currentWorldLine);

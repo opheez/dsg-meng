@@ -42,7 +42,6 @@ namespace DprCounters
             // store persistent mappings or use other schemes to do so.
             var fileName = Path.Join(checkpointDirectory, version.ToString());
             var fs = File.Open(fileName, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
-            // Console.WriteLine("DOING STUFF WITH FILE: " + version.ToString());
 
             // libDPR will ensure that request batches that are protected with VersionScheme.Enter() and
             // VersionScheme.Leave() will not interleave with checkpoint or recovery code. It is therefore safe
@@ -72,7 +71,6 @@ namespace DprCounters
             // });
             fs.WriteAsync(serializationBuffer).AsTask().ContinueWith(token =>
             {
-                // Console.WriteLine("FINISHED WRITING FILE: " + version.ToString());
                 if (!token.IsCompletedSuccessfully)
                     Console.WriteLine($"Error {token} during checkpoint");
                 // We need to invoke onPersist() to inform DPR when a checkpoint is on disk
@@ -84,7 +82,6 @@ namespace DprCounters
         // With SimpleStateObject, CounterStateObject can just implement a single-threaded blocking recovery function
         protected override void RestoreCheckpoint(long version)
         {   
-            Console.WriteLine("BEING RESTORED");
             // This is for machines that did not physically go down (otherwise they will simply
             // load the surviving version on restart). libDPR will additionally never request a worker to restore
             // checkpoints earlier than the committed version in the DPR cut. We can therefore rely on a (relatively
@@ -118,7 +115,6 @@ namespace DprCounters
                 int index = 0;
                 foreach(var (version, _) in prevCounters)
                 {
-                    // Console.WriteLine("UNPRUNED VERSION TO RETURN: " + version.ToString());
                     var fileToOpen = Path.Join(checkpointDirectory, version.ToString());
                     var fileBytes = File.ReadAllBytes(fileToOpen);
                     unpruned[index] = (fileBytes, 0);

@@ -177,12 +177,10 @@ namespace FASTER.libdpr
             // see if a previously persisted state is available
             if (persistentStorage.ReadLatestCompleteWrite(out var buf))
             {
-                Console.WriteLine("RECOVERING FROM THE PAST");
                 volatileClusterState = ClusterState.FromBuffer(buf, 0, out _);
             }
             else
             {
-                Console.WriteLine("FORMING DPR FROM SCRATCH");
                 volatileClusterState = new ClusterState();
             }
 
@@ -226,7 +224,7 @@ namespace FASTER.libdpr
                     // If node is committed as determined by the cut, ok to continue
                     if (currentCut.GetValueOrDefault(node.Worker, 0) >= node.Version) continue;
                     // Otherwise, need to check if it is persistent (and therefore present in the graph)
-                    if (!precedenceGraph.TryGetValue(node, out var val))  { Console.WriteLine("FAIL TO UPDATE 1"); return false; }
+                    if (!precedenceGraph.TryGetValue(node, out var val))  return false;
 
                     visited.Add(node);
                     foreach (var dep in val)
@@ -250,10 +248,6 @@ namespace FASTER.libdpr
                 }
 
                 return true;
-            }
-            catch (Exception eee) {
-                Console.WriteLine("FAILINGGGG");
-                return false;
             }
             finally
             {
@@ -314,12 +308,9 @@ namespace FASTER.libdpr
             var threshold = tryCommitAll ? outstandingWvs.Count : 100;
             for (var i = 0; i < threshold; i++)
             {
-                if (!outstandingWvs.TryDequeue(out var wv)) break; // { Console.WriteLine("GOT BROKEN"); break; }
-                // Console.WriteLine("NOT BROKEN");
+                if (!outstandingWvs.TryDequeue(out var wv)) break;
                 if (!TryCommitWorkerVersion(wv))
                     outstandingWvs.Enqueue(wv);
-                // else
-                //     Console.WriteLine("TRY COMMIT SUCCESSFUL");
             }
 
             if (cutChanged)
@@ -357,9 +348,7 @@ namespace FASTER.libdpr
                 var list = objectPool.Checkout();
                 list.Clear();
                 list.AddRange(deps);
-                // Console.WriteLine("OLD MAX_VERSION: " + maxVersion.ToString());
                 maxVersion = Math.Max(wv.Version, maxVersion);
-                // Console.WriteLine("NEW MAX_VERSION: " + maxVersion.ToString());
                 // wv may be duplicate as workers retry sending dependencies. Need to guard against this.
                 versionTable.AddOrUpdate(wv.Worker, wv.Version, (w, old) => Math.Max(old, wv.Version));
                 if (!precedenceGraph.TryAdd(wv, list))
@@ -398,7 +387,6 @@ namespace FASTER.libdpr
         public void AddWorker(Worker worker, Action<(long, long)> callback = null)
         {
             addQueue.Enqueue(ValueTuple.Create(worker, callback));
-            Console.WriteLine("ADDED WORKER: " + worker.guid.ToString());
         }
 
         private (long, long) ProcessAddWorker(Worker worker)

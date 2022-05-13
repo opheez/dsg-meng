@@ -92,9 +92,7 @@ namespace FASTER.libdpr
             lock (dprFinderConnLock)
             {
                 dprFinderConn.SendNewCheckpointCommand(worldLine, persisted, deps);
-                // Console.WriteLine("WAITING TO RECEIVE");
                 var received = dprFinderConn.Receive(recvBuffer);
-                // Console.WriteLine("RECEIVED");
                 Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
             }
         }
@@ -106,40 +104,29 @@ namespace FASTER.libdpr
             {
                 try
                 {
-                    // Console.WriteLine("SENDING SYNC");
                     dprFinderConn.SendSyncCommand();
-                    // Console.WriteLine("DONE SYNC");
                     ProcessRespResponse();
-                    // Console.WriteLine("DONE PROCESSING");
 
                     maxVersion = BitConverter.ToInt64(recvBuffer, parser.stringStart);
                     var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart + sizeof(long), out var head);
                     Interlocked.Exchange(ref lastKnownClusterState, newState);
-                    // Console.WriteLine("DONE EXCHANGING");
                     // Cut is unavailable, signal a resend.
                     if (BitConverter.ToInt32(recvBuffer, head) == -1) return false;
                     lock (lastKnownCut)
                     {
-                        // Console.WriteLine("STARTING READING");
                         RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
-                        // Console.WriteLine("DONE READING");
                     }
                 } catch (SocketException e) {
                     try
                     {
-                        // Console.WriteLine("CONNECTION RESET: " + refresh_number.ToString());
                         ResetDprFinderConn();
-                        Console.WriteLine("CONNECTION RESET SUCCESSFULLY");
-                        // return Refresh();
                         return false;
                     } catch (Exception ee)
                     {
-                        // Console.WriteLine("RETURNING FALSE");
                         return false;
                     }
                 }
             }
-            // Console.WriteLine("REFRESH DONE: " + refresh_number.ToString());
             return true;
         }
 
@@ -204,19 +191,15 @@ namespace FASTER.libdpr
             // while (true)
             while(zeroByteFails < zeroByteTolerance)
             {
-                // Console.WriteLine("WHILE AGAIN");
                 var additionalSize = dprFinderConn.Receive(recvBuffer);
                 receivedSize += additionalSize;
                 if(additionalSize == 0) {
                     Thread.Sleep(10);
                     zeroByteFails++;
                 }
-                // Console.WriteLine("RECEIVED");
                 for (; i < receivedSize; i++)
                     if (parser.ProcessChar(i, recvBuffer))
                         return;
-                    // else
-                    //     Console.WriteLine("PROCESSED");
             }
             throw new SocketException(32);
         }

@@ -25,9 +25,7 @@ namespace FASTER.libdpr
         /// <param name="previousVersion"></param>
         public void BeforeNewVersion(long version, long previousVersion)
         {
-            // Console.WriteLine("BEFORE ENTRY");
             // var worldLine = state.worldlineTracker.Enter(); // current deadlock
-            // Console.WriteLine("AFTER ENTRY");
             var deps = state.dependencySetPool.Checkout();
             if (previousVersion != 0)
                 deps.Update(state.me, previousVersion);

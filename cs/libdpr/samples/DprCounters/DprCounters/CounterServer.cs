@@ -41,9 +41,7 @@ namespace DprCounters
 
         public void RunServer()
         {
-            Console.WriteLine("STARTING TO RUN");
             dprServer.ConnectToCluster();
-            Console.WriteLine("CONNECTED TO CLUSTER");
             
             termination = new ManualResetEventSlim();
             // DprServer must be continually refreshed and checkpointed for the system to make progress. It is easiest
@@ -59,9 +57,7 @@ namespace DprCounters
                     // A DprServer has built-in timers to rate-limit checkpoints and refreshes if needed
                     try
                     {
-                        // Console.WriteLine("TRY_REFRESH WORKING: " + id.ToString());
                         dprServer.TryRefreshAndCheckpoint(100, 10);
-                        // Console.WriteLine("OUT OF TRY_REFRESH");
                     }
                     catch (SocketException s)
                     {
@@ -69,14 +65,9 @@ namespace DprCounters
                     } 
                     catch (Exception e) 
                     {
-                        Console.WriteLine("###################################");
                         Console.WriteLine(e.ToString());
-                        Console.WriteLine("###################################");
-                        // break;
                     }
-                    // dprServer.TryRefreshAndCheckpoint(100, 10);
                 }
-                // Console.WriteLine("TERMINATION WAS SET");
             });
             backgroundThread.Start();
 
@@ -89,7 +80,6 @@ namespace DprCounters
             socket.Listen(512);
             while (!termination.IsSet)
             {
-                Console.WriteLine("STARTING THE CONNECTION AGAIN");
                 Socket conn;
                 try
                 {
@@ -97,10 +87,8 @@ namespace DprCounters
                 }
                 catch (SocketException e)
                 {
-                    Console.WriteLine("HIT EXCEPTION");
                     return;
                 }
-                Console.WriteLine("RECEIVING 1");
 
                 var receivedBytes = 0;
                 // Our protocol first reads a size field of the combined DPR header + messages
@@ -108,14 +96,12 @@ namespace DprCounters
                     receivedBytes += conn.Receive(inBuffer, receivedBytes, inBuffer.Length - receivedBytes,
                         SocketFlags.None);
 
-                Console.WriteLine("RECEIVING 2");
                 var size = BitConverter.ToInt32(inBuffer);
                 // Receive the combined message.
                 while (receivedBytes < size + sizeof(int))
                     receivedBytes += conn.Receive(inBuffer, receivedBytes, inBuffer.Length - receivedBytes,
                         SocketFlags.None);
 
-                Console.WriteLine("START GENERAL RESPONSE");
                 // We can obtain the DPR header by computing the size information
                 var request = new ReadOnlySpan<byte>(inBuffer, sizeof(int), size - sizeof(int));
                 
@@ -123,13 +109,11 @@ namespace DprCounters
 
                 int responseHeaderSize;
                 long result = 0;
-                Console.WriteLine("DONE WITH GENERAL RESPONSE; TALKING TO DPR_SERVER");
                 // Before executing server-side logic, check with DPR to start tracking for the batch and make sure 
                 // we are allowed to execute it. If not, the response header will be populated and we should immediately
                 // return that to the client side libDPR.
                 if (dprServer.RequestRemoteBatchBegin(request, out var tracker))
                 {
-                    Console.WriteLine("INCREASING VALUE RESPONSE");
                     // If so, protect the execution and obtain the version this batch will execute in
                     var v = dprServer.StateObject().VersionScheme().Enter();
                     // Add operation to version tracking using the libDPR-supplied version tracker
@@ -140,8 +124,6 @@ namespace DprCounters
                     dprServer.StateObject().value +=
                         BitConverter.ToInt64(new Span<byte>(inBuffer, sizeof(int) + size - sizeof(long), sizeof(long)));
                     
-                    Console.WriteLine("NEW VALUE: " + dprServer.StateObject().value.ToString());
-                    
                     // Once requests are done executing, stop protecting this batch so DPR can progress
                     dprServer.StateObject().VersionScheme().Leave();
                     // Signal the end of execution for DPR to finish up and populate a response header
@@ -149,10 +131,8 @@ namespace DprCounters
                 }
                 else
                 {
-                    Console.WriteLine("REFUSING TO INCREASE");
                     responseHeaderSize = dprServer.ComposeErrorResponse(request, responseBuffer);
                 }
-                Console.WriteLine("FORMING THE FULL RESPONSE");
 
                 // The server is then free to convey the result back to the client any way it wants, so long as it
                 // forwards the DPR response header. In this case, we are using the same format as above by concatenating
@@ -164,7 +144,6 @@ namespace DprCounters
                         outBuffer.Length - responseHeaderSize - sizeof(int)), result);
                 conn.Send(outBuffer, 0, sizeof(int) + responseHeaderSize + sizeof(long), SocketFlags.None);
                 // One socket connection per client for simplicity
-                Console.WriteLine("######################################");
                 conn.Close();
             }
 

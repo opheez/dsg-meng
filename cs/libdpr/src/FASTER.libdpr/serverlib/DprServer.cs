@@ -77,14 +77,12 @@ namespace FASTER.libdpr
         {
             state.dprFinder.Refresh(); // added a refresh here so that we can have the lastknowncut ready to go
             var v = state.dprFinder.NewWorker(state.me, stateObject);
-            Console.WriteLine("WORKER REGISTERED");
             if (v != 0)
             {
                 // state.dprFinder.Refresh();
                 // If worker is recovering from failure, need to load a previous checkpoint
                 state.rollbackProgress = new ManualResetEventSlim();
                 var separate = state.dprFinder.SafeVersion(state.me);
-                Console.WriteLine("SEPARATE: " + separate.ToString());
                 stateObject.BeginRestore(separate);
                 // Wait for user to signal end of restore;
                 state.rollbackProgress.Wait();

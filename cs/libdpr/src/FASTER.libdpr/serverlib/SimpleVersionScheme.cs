@@ -77,10 +77,6 @@ namespace FASTER.libdpr
         /// <returns> Whether the advance was successful </returns>
         public bool TryAdvanceVersion(Action<long, long> criticalSection, long targetVersion = -1)
         {
-            if(targetVersion == -1)
-            {
-                Console.WriteLine("VERSION IN SCHEME: " + version.ToString());
-            }
             var ev = new ManualResetEventSlim();
             // Compare and exchange to install our advance
             while (Interlocked.CompareExchange(ref versionChanged, ev, null) != null)

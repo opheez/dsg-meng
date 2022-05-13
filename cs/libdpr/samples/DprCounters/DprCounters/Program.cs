@@ -136,7 +136,6 @@ namespace DprCounters
             }
             if(args[0] == "backend")
             {   
-                Console.WriteLine("STARTED SHIT");
                 runBackendServer();
                 return;
             }

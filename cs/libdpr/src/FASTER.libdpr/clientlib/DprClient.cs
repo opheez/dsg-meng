@@ -45,14 +45,6 @@ namespace FASTER.libdpr
         {
             dprViewNumber++;
             dprFinder.Refresh();
-            // var actual_refresh = dprFinder.Refresh();
-            // if(actual_refresh)
-            // {
-            //     Console.WriteLine("REFRESH DOING SOMETHING");
-            // } else 
-            // {
-            //     Console.WriteLine("REFRESH STUCK");
-            // }
         }
 
         public Dictionary<Worker, EndPoint> FetchCluster()

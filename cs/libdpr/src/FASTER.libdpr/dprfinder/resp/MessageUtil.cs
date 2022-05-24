@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
@@ -8,22 +10,34 @@ namespace FASTER.libdpr
 {
     internal static class MessageUtil
     {
+        private static readonly bool debugging = true;
+        private static readonly string serverLog = "/DprCounters/data/server.txt";
         private static readonly ThreadLocalObjectPool<byte[]> reusableMessageBuffers =
             new ThreadLocalObjectPool<byte[]>(() => new byte[BatchInfo.MaxHeaderSize], 1);
 
-
+        internal static void Log(string logFile, string s) 
+        {
+            if(debugging)
+            {
+                using (TextWriter tw = TextWriter.Synchronized(File.AppendText(logFile)))
+                {
+                    tw.WriteLine(s);
+                }
+            }
+        }
         internal static int SendGraphReconstruction(this Socket socket, Worker worker, IStateObject stateObject)
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = 0;
-            var checkpoints = stateObject.GetUnprunedVersions(); // TODO(Nikola): Always empty, returns empty stuff
+            var checkpoints = stateObject.GetUnprunedVersions();
             var minVersion = long.MaxValue;
             var numRequests = 0;
             foreach (var (bytes, offset) in checkpoints)
             {
                 SerializationUtil.DeserializeCheckpointMetadata(bytes, offset,
                     out var worldLine, out var wv, out var deps);
-                head += RespUtil.WriteRedisArrayHeader(4, buf, 0);
+                // head += RespUtil.WriteRedisArrayHeader(4, buf, 0);
+                head += RespUtil.WriteRedisArrayHeader(4, buf, head);
                 head += RespUtil.WriteRedisBulkString("NewCheckpoint", buf, head);
                 head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
                 head += RespUtil.WriteRedisBulkString(wv, buf, head);
@@ -36,6 +50,8 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("GraphResent", buf, head);
             var committedVersion = new WorkerVersion(worker, minVersion == long.MaxValue ? 0 : minVersion);
             head += RespUtil.WriteRedisBulkString(committedVersion, buf, head);
+            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
+            MessageUtil.Log(serverLog, String.Format("#######\nNew NewCheckpoint Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             return ++numRequests;
         }
@@ -46,6 +62,8 @@ namespace FASTER.libdpr
             var head = RespUtil.WriteRedisArrayHeader(2, buf, 0);
             head += RespUtil.WriteRedisBulkString("AddWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(worker.guid, buf, head);
+            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
+            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -56,7 +74,10 @@ namespace FASTER.libdpr
             var head = RespUtil.WriteRedisArrayHeader(2, buf, 0);
             head += RespUtil.WriteRedisBulkString("DeleteWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(worker.guid, buf, head);
+            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
+            MessageUtil.Log(serverLog, String.Format("#######\nRequest id: \nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
+            MessageUtil.Log(serverLog, "Delete Worker sent");
             reusableMessageBuffers.Return(buf);
         }
 
@@ -69,7 +90,8 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
             head += RespUtil.WriteRedisBulkString(checkpointed, buf, head);
             head += RespUtil.WriteRedisBulkString(deps, buf, head);
-            // Console.WriteLine(Encoding.ASCII.GetString(buf, 0, head));
+            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
+            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -82,6 +104,8 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("ReportRecovery", buf, head);
             head += RespUtil.WriteRedisBulkString(recovered, buf, head);
             head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
+            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
+            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -91,6 +115,8 @@ namespace FASTER.libdpr
             var buf = reusableMessageBuffers.Checkout();
             var head = RespUtil.WriteRedisArrayHeader(1, buf, 0);
             head += RespUtil.WriteRedisBulkString("FetchCluster", buf, head);
+            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
+            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -100,6 +126,8 @@ namespace FASTER.libdpr
             var buf = reusableMessageBuffers.Checkout();
             var head = RespUtil.WriteRedisArrayHeader(1, buf, 0);
             head += RespUtil.WriteRedisBulkString("Sync", buf, head);
+            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
+            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -184,6 +212,7 @@ namespace FASTER.libdpr
 
         internal class DprFinderRedisProtocolConnState
         {
+            private static readonly string connStateLog = "/DprCounters/data/serverLog.txt";
             private readonly Action<DprFinderCommand, Socket> commandHandler;
             private readonly DprFinderCommandParser parser = new DprFinderCommandParser();
             private int readHead, bytesRead, commandStart;
@@ -208,14 +237,18 @@ namespace FASTER.libdpr
                 }
 
                 connState.bytesRead += e.BytesTransferred;
-                // Console.WriteLine(Encoding.ASCII.GetString(e.Buffer, connState.readHead, connState.bytesRead - connState.readHead));
-                // Console.WriteLine("###################");
+                string receivedFrom = ((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString();
+                // string receivedFrom = IPAddress.Parse(((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString());
+                string receivedBufferRaw = Encoding.ASCII.GetString(e.Buffer, connState.readHead, connState.bytesRead - connState.readHead);
+                MessageUtil.Log(connStateLog, String.Format("##########\nSender:{0}\nMessage Received:\n{1}", receivedFrom, receivedBufferRaw));
+                if(receivedBufferRaw.Contains("GraphResent"))
+                    connState.readHead += 1;
                 for (; connState.readHead < connState.bytesRead; connState.readHead++)
                 {   
                     // Console.WriteLine("CHECKING");
                     if (connState.parser.ProcessChar(connState.readHead, e.Buffer))
                     {
-                        // Console.WriteLine("FULL MESSAGE");
+                        MessageUtil.Log(connStateLog, "Full Message Found");
                         connState.commandHandler(connState.parser.currentCommand, connState.socket);
                         connState.commandStart = connState.readHead + 1;
                     }
@@ -246,8 +279,10 @@ namespace FASTER.libdpr
                 {
                     do
                     {
+                        MessageUtil.Log(connStateLog, "Calling HandleReceive");
                         // No more things to receive
                         if (!HandleReceiveCompletion(e)) return;
+                        MessageUtil.Log(connStateLog, "Done With HandleReceive");
                     } while (!connState.socket.ReceiveAsync(e));
                 }
                 catch (ObjectDisposedException)

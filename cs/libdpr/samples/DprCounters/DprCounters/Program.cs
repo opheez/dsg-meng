@@ -40,7 +40,11 @@ namespace DprCounters
         }
 
         static void runCounterServer(string backendIp, int backendPort, int guid) 
-        {
+        {   
+            string hostName = Dns.GetHostName(); // Retrive the Name of HOST
+            // Get the IP
+            string myIP = Dns.GetHostByName(hostName).AddressList[0].ToString();
+            Console.WriteLine("My IP Address is :"+myIP);
             Worker worker = new Worker(guid);
             var wServer = new CounterServer("0.0.0.0", 80, worker, "/DprCounters/data/worker" + guid.ToString() + "/",
                 new EnhancedDprFinder(backendIp, backendPort));
@@ -49,8 +53,6 @@ namespace DprCounters
 
         static void runBackendServer()
         {
-            // var localDevice1 = new LocalStorageDevice("/DprCounters/data/dpr1.dat", deleteOnClose: false);
-            // var localDevice2 = new LocalStorageDevice("/DprCounters/data/dpr2.dat", deleteOnClose: false);
             var localDevice1 = new ManagedLocalStorageDevice("/DprCounters/data/dpr1.dat", deleteOnClose: true);
             var localDevice2 = new ManagedLocalStorageDevice("/DprCounters/data/dpr2.dat", deleteOnClose: true);
             var device = new PingPongDevice(localDevice1, localDevice2);
@@ -60,8 +62,6 @@ namespace DprCounters
 
         static void runClient()
         {
-            // var cluster = new Cluster("127.0.0.1", 15721, "127.0.0.1", 15722);
-
             var client = new CounterClient(new EnhancedDprFinder("dpr-finder-0.dpr-finder-svc", 3000));
             Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
             Worker w0 = new Worker(0);
@@ -117,7 +117,7 @@ namespace DprCounters
 
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("KURCINELAAA");
+            Console.Out.WriteLine("MRS");
             if(args.Length == 0 || args[0] == "single")
             {
                 runWithoutKubernetes();

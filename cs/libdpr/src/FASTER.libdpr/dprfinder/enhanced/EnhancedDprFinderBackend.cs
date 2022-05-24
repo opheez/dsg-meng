@@ -177,10 +177,12 @@ namespace FASTER.libdpr
             // see if a previously persisted state is available
             if (persistentStorage.ReadLatestCompleteWrite(out var buf))
             {
+                Console.WriteLine("Second");
                 volatileClusterState = ClusterState.FromBuffer(buf, 0, out _);
             }
             else
             {
+                Console.WriteLine("First");
                 volatileClusterState = new ClusterState();
             }
 

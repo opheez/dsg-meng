@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -22,9 +23,8 @@ namespace FASTER.libdpr
     /// </summary>
     public class EnhancedDprFinderServer : IDisposable
     {
+        private static readonly string debugLogFile = "/DprCounters/data/serverLog.txt";
         private static readonly byte[] OkResponse = Encoding.GetEncoding("ASCII").GetBytes("+OK\r\n");
-
-        private object testLock = new object();
         private readonly EnhancedDprFinderBackend backend;
         private readonly ClusterBackend clusterBackend;
         private readonly string ip;
@@ -45,6 +45,14 @@ namespace FASTER.libdpr
             this.ip = ip;
             this.port = port;
             this.backend = backend;
+        }
+
+        public EnhancedDprFinderServer(string ip, int port, EnhancedDprFinderBackend backend, bool debug)
+        {
+            this.ip = ip;
+            this.port = port;
+            this.backend = backend;
+
         }
 
         public EnhancedDprFinderServer(string ip, int port, EnhancedDprFinderBackend backend, ClusterBackend clusterBackend)
@@ -78,6 +86,7 @@ namespace FASTER.libdpr
         /// </summary>
         public void StartServer()
         {
+            MessageUtil.Log(debugLogFile, "##############\n\nSERVER STARTED");
             termination = new ManualResetEventSlim();
 
             processThread = new Thread(() =>
@@ -105,7 +114,6 @@ namespace FASTER.libdpr
             if (e.SocketError != SocketError.Success)
             {
                 e.Dispose();
-                Console.WriteLine("DISPOSED OF STUFF");
                 return false;
             }
 
@@ -140,11 +148,8 @@ namespace FASTER.libdpr
                     socket.Send(OkResponse);
                     break;
                 case DprFinderCommand.Type.GRAPH_RESENT:
-                    lock(testLock) // TODO(Nikola): probably not needed, leaving for now just in case
-                    {
-                        backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
-                        socket.Send(OkResponse); // added this, it's probably the ack we need to unblock
-                    }
+                    backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
+                    socket.Send(OkResponse); // added this, it's probably the ack we need to unblock
                     break;
                 case DprFinderCommand.Type.SYNC:
                     var precomputedResponse = backend.GetPrecomputedResponse();

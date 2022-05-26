@@ -10,7 +10,7 @@ namespace FASTER.libdpr
 {
     internal static class MessageUtil
     {
-        private static readonly bool debugging = true;
+        private static readonly bool debugging = false;
         private static readonly string serverLog = "/DprCounters/data/server.txt";
         private static readonly ThreadLocalObjectPool<byte[]> reusableMessageBuffers =
             new ThreadLocalObjectPool<byte[]>(() => new byte[BatchInfo.MaxHeaderSize], 1);
@@ -126,8 +126,6 @@ namespace FASTER.libdpr
             var buf = reusableMessageBuffers.Checkout();
             var head = RespUtil.WriteRedisArrayHeader(1, buf, 0);
             head += RespUtil.WriteRedisBulkString("Sync", buf, head);
-            string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -241,8 +239,8 @@ namespace FASTER.libdpr
                 // string receivedFrom = IPAddress.Parse(((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString());
                 string receivedBufferRaw = Encoding.ASCII.GetString(e.Buffer, connState.readHead, connState.bytesRead - connState.readHead);
                 MessageUtil.Log(connStateLog, String.Format("##########\nSender:{0}\nMessage Received:\n{1}", receivedFrom, receivedBufferRaw));
-                if(receivedBufferRaw.Contains("GraphResent"))
-                    connState.readHead += 1;
+                // if(receivedBufferRaw.Contains("GraphResent"))
+                //     connState.readHead += 1;
                 for (; connState.readHead < connState.bytesRead; connState.readHead++)
                 {   
                     // Console.WriteLine("CHECKING");

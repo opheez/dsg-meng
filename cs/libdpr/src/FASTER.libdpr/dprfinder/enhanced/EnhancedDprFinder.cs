@@ -8,6 +8,16 @@ using System.Threading;
 
 namespace FASTER.libdpr
 {
+    public static class Extensions
+    {
+        public static int ReceiveFailFast(this Socket conn, byte[] buffer)
+        {
+            int result = conn.Receive(buffer);
+            if(result == 0)
+                throw new SocketException(32);
+            return result;
+        }
+    }
     public class EnhancedDprFinder : IDprFinder
     {
         // private readonly Socket dprFinderConn;
@@ -51,19 +61,6 @@ namespace FASTER.libdpr
             this.port = port;
             this.dprFinderConnLock = true;
             ResetDprFinderConn();
-            // EndPoint endpoint;
-            // if(Char.IsDigit(ip[0]))
-            // {
-            //     endpoint = new IPEndPoint(IPAddress.Parse(ip), port);
-            // } else 
-            // {
-            //     endpoint = new DnsEndPoint(ip, port);
-            // }
-            // // var ipEndpoint = new IPEndPoint(IPAddress.Parse(ip), port);
-            // dprFinderConn = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            // // dprFinderConn = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            // dprFinderConn.NoDelay = true;
-            // dprFinderConn.Connect(endpoint);
         }
 
 
@@ -92,7 +89,7 @@ namespace FASTER.libdpr
             lock (dprFinderConnLock)
             {
                 dprFinderConn.SendNewCheckpointCommand(worldLine, persisted, deps);
-                var received = dprFinderConn.Receive(recvBuffer);
+                var received = dprFinderConn.ReceiveFailFast(recvBuffer);
                 Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
             }
         }
@@ -156,7 +153,7 @@ namespace FASTER.libdpr
                 // Wait for all of the sent commands to be acked
                 var received = 0;
                 while (received < acks * 5) {
-                    received += dprFinderConn.Receive(recvBuffer);
+                    received += dprFinderConn.ReceiveFailFast(recvBuffer);
                 }
             }
         }
@@ -180,28 +177,22 @@ namespace FASTER.libdpr
             lock (dprFinderConnLock)
             {
                 dprFinderConn.SendDeleteWorkerCommand(id);
-                var received = dprFinderConn.Receive(recvBuffer);
+                var received = dprFinderConn.ReceiveFailFast(recvBuffer);
                 Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
             }
         }
 
         private void ProcessRespResponse()
         {
-            int i = 0, receivedSize = 0, zeroByteFails = 0, zeroByteTolerance = 10;
-            // while (true)
-            while(zeroByteFails < zeroByteTolerance)
+            int i = 0, receivedSize = 0;
+            while (true)
             {
-                var additionalSize = dprFinderConn.Receive(recvBuffer);
-                receivedSize += additionalSize;
-                if(additionalSize == 0) {
-                    Thread.Sleep(10);
-                    zeroByteFails++;
-                }
+                
+                receivedSize += dprFinderConn.ReceiveFailFast(recvBuffer);
                 for (; i < receivedSize; i++)
                     if (parser.ProcessChar(i, recvBuffer))
                         return;
             }
-            throw new SocketException(32);
         }
     }
 }

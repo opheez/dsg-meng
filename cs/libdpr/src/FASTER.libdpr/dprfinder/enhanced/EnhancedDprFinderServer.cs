@@ -138,6 +138,20 @@ namespace FASTER.libdpr
             } while (!servSocket.AcceptAsync(e));
         }
 
+        private void FailFast()
+        {   // easy way to replicate failing during recovery at any given message below
+            string path = "/DprCounters/data/failing.txt";
+            if(File.Exists(path))
+                return;
+            else
+            {
+                using(FileStream fs = File.Create(path))
+                {
+                    Environment.Exit(1);
+                }
+            }
+        }
+
         private void HandleClientCommand(DprFinderCommand command, Socket socket)
         {
             switch (command.commandType)
@@ -148,6 +162,7 @@ namespace FASTER.libdpr
                     socket.Send(OkResponse);
                     break;
                 case DprFinderCommand.Type.GRAPH_RESENT:
+                    // FailFast();
                     backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
                     socket.Send(OkResponse); // added this, it's probably the ack we need to unblock
                     break;

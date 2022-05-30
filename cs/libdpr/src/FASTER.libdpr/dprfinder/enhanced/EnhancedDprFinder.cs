@@ -43,10 +43,8 @@ namespace FASTER.libdpr
     }
     public class EnhancedDprFinder : IDprFinder
     {
-        // private readonly Socket dprFinderConn;
-        int refresh_number = 0;
         private Socket dprFinderConn;
-        object dprFinderConnLock;
+        object dprFinderConnLock; // locking on this since dprFinderConn object might change
         string ip;
         int port;
         private ClusterState lastKnownClusterState;
@@ -58,8 +56,15 @@ namespace FASTER.libdpr
         public EnhancedDprFinder(Socket dprFinderConn)
         {
             this.dprFinderConn = dprFinderConn;
-            this.dprFinderConnLock = true;
+            this.dprFinderConnLock = new Object();
             dprFinderConn.NoDelay = true;
+        }
+        public EnhancedDprFinder(string ip, int port)
+        {
+            this.ip = ip;
+            this.port = port;
+            this.dprFinderConnLock = new Object();
+            ResetDprFinderConn();
         }
 
         private void ResetDprFinderConn()
@@ -72,18 +77,20 @@ namespace FASTER.libdpr
             {
                 endpoint = new DnsEndPoint(ip, port);
             }
-            // var ipEndpoint = new IPEndPoint(IPAddress.Parse(ip), port);
             dprFinderConn = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            // dprFinderConn = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             dprFinderConn.NoDelay = true;
             dprFinderConn.Connect(endpoint);
         }
-        public EnhancedDprFinder(string ip, int port)
+
+        private void ResetDprFinderConnSafe()
         {
-            this.ip = ip;
-            this.port = port;
-            this.dprFinderConnLock = true;
-            ResetDprFinderConn();
+            try
+            {
+                ResetDprFinderConn();
+            } catch (Exception)
+            {
+                return;
+            }
         }
 
 
@@ -119,7 +126,6 @@ namespace FASTER.libdpr
 
         public bool Refresh()
         {   
-            refresh_number++;
             lock (dprFinderConnLock)
             {
                 try
@@ -136,15 +142,9 @@ namespace FASTER.libdpr
                     {
                         RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
                     }
-                } catch (SocketException e) {
-                    try
-                    {
-                        ResetDprFinderConn();
-                        return false;
-                    } catch (Exception ee)
-                    {
-                        return false;
-                    }
+                } catch (SocketException) {
+                    ResetDprFinderConnSafe();
+                    return false;
                 }
             }
             return true;
@@ -155,12 +155,20 @@ namespace FASTER.libdpr
             Dictionary<Worker, EndPoint> result;
             lock (dprFinderConnLock)
             {
-                dprFinderConn.SendFetchClusterCommand();
-                ProcessRespResponse();
+                try
+                {
+                    dprFinderConn.SendFetchClusterCommand();
+                    ProcessRespResponse();
 
-                result = ConfigurationResponse.FromBuffer(recvBuffer, parser.stringStart, out var head);
+                    result = ConfigurationResponse.FromBuffer(recvBuffer, parser.stringStart, out var head);
+                    return result;
+                } catch (SocketException) 
+                {
+                    ResetDprFinderConnSafe();
+                    // leaving this unsafe for now, as FetchCluster() is about to get reworked anyways
+                    return null;
+                }
             }
-            return result;
         }
 
         public void ReportRecovery(long worldLine, WorkerVersion latestRecoveredVersion)
@@ -187,11 +195,18 @@ namespace FASTER.libdpr
                 ResendGraph(id, stateObject); // This breaks something inside the Dpr Finder backend somehow
             lock (dprFinderConnLock)
             {
-                dprFinderConn.SendAddWorkerCommand(id);
-                ProcessRespResponse();
-                lastKnownClusterState ??= new ClusterState();
-                lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
-                return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));
+                try
+                {
+                    dprFinderConn.SendAddWorkerCommand(id);
+                    ProcessRespResponse();
+                    lastKnownClusterState ??= new ClusterState();
+                    lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
+                    return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));
+                } catch (SocketException)
+                {
+                    ResetDprFinderConnSafe();
+                    return -1;
+                }
             }
         }
 
@@ -199,9 +214,15 @@ namespace FASTER.libdpr
         {
             lock (dprFinderConnLock)
             {
-                dprFinderConn.SendDeleteWorkerCommand(id);
-                var received = dprFinderConn.ReceiveFailFast(recvBuffer);
-                Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
+                try
+                {
+                    dprFinderConn.SendDeleteWorkerCommand(id);
+                    var received = dprFinderConn.ReceiveFailFast(recvBuffer);
+                    Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
+                } catch (SocketException)
+                {
+                    ResetDprFinderConnSafe();
+                }
             }
         }
 

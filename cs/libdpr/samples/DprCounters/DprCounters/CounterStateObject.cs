@@ -51,7 +51,6 @@ namespace DprCounters
             // Once the content of the checkpoint is established (we have read a current snapshot of value), it is ok
             // to write to disk asynchronously and allow other operations to continue. In SimpleStateObject, 
             // operations are blocked before PerformCheckpoint return.
-            // var serializationBuffer = new byte[sizeof(long) + sizeof(int) + deps.Length];
             var serializationBuffer = new byte[deps.Length];
             unsafe {
                 fixed (byte* s = serializationBuffer) {
@@ -78,42 +77,33 @@ namespace DprCounters
             // small) stash of in-memory snapshots to quickly handle this call.
             if (prevCounters.TryGetValue(version, out value)) return;
             
-            lock(prevCounters)
-            {
-                var fileName = Path.Join(checkpointDirectory, version.ToString());
-                using var fs = File.Open(fileName, FileMode.Open, FileAccess.Read, FileShare.None);
+            var fileName = Path.Join(checkpointDirectory, version.ToString());
+            using var fs = File.Open(fileName, FileMode.Open, FileAccess.Read, FileShare.None);
 
-                var bytes = new byte[sizeof(long)];
-                fs.Read(bytes, 0, sizeof(long));
-                value = BitConverter.ToInt64(bytes, 0);
-            }
+            var bytes = new byte[sizeof(long)];
+            fs.Read(bytes, 0, sizeof(long));
+            value = BitConverter.ToInt64(bytes, 0);
         }
         
         public override void PruneVersion(long version)
         {
-            lock(prevCounters)
-            {
-                var fileToDelete = Path.Join(checkpointDirectory, version.ToString());
-                prevCounters.TryRemove(version, out _);
-                File.Delete(fileToDelete);
-            }
+            var fileToDelete = Path.Join(checkpointDirectory, version.ToString());
+            prevCounters.TryRemove(version, out _);
+            File.Delete(fileToDelete);
         }
 
         public override IEnumerable<(byte[], int)> GetUnprunedVersions()
         {
-            lock(prevCounters)
+            (byte[], int)[] unpruned = new (byte[], int)[prevCounters.Count()];
+            int index = 0;
+            foreach(var (version, _) in prevCounters)
             {
-                (byte[], int)[] unpruned = new (byte[], int)[prevCounters.Count()];
-                int index = 0;
-                foreach(var (version, _) in prevCounters)
-                {
-                    var fileToOpen = Path.Join(checkpointDirectory, version.ToString());
-                    var fileBytes = File.ReadAllBytes(fileToOpen);
-                    unpruned[index] = (fileBytes, 0);
-                    index++;
-                }
-                return unpruned;
+                var fileToOpen = Path.Join(checkpointDirectory, version.ToString());
+                var fileBytes = File.ReadAllBytes(fileToOpen);
+                unpruned[index] = (fileBytes, 0);
+                index++;
             }
+            return unpruned;
         }
     }
 }

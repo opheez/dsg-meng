@@ -47,14 +47,6 @@ namespace FASTER.libdpr
             this.backend = backend;
         }
 
-        public EnhancedDprFinderServer(string ip, int port, EnhancedDprFinderBackend backend, bool debug)
-        {
-            this.ip = ip;
-            this.port = port;
-            this.backend = backend;
-
-        }
-
         public EnhancedDprFinderServer(string ip, int port, EnhancedDprFinderBackend backend, ClusterBackend clusterBackend)
         {
             this.ip = ip;

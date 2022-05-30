@@ -191,6 +191,7 @@ namespace FASTER.libdpr
 
         internal static int SerializeDictionary(IDictionary<Worker, EndPoint> workers, byte[] buf, int head)
         {
+            // method used to FetchCluster w/out K8s. Will be reworked to be functional very soon
             if (head + DictionarySerializedSize(workers) > buf.Length) return 0;
             Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), workers.Count);
             head += sizeof(int);
@@ -198,7 +199,7 @@ namespace FASTER.libdpr
             {
                 Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), entry.Key.guid);
                 head += sizeof(long);
-                var ipValue = (IPEndPoint)(entry.Value); // TODO(Nikola): This will stop working if I am sending DNS stuff this way...
+                var ipValue = (IPEndPoint)(entry.Value); // TODO(Nikola): This will stop working if I am sending DNS stuff this way... 
                 var ipBytes = ipValue.Address.GetAddressBytes();
                 Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), BitConverter.ToInt32(ipBytes, 0));
                 head += sizeof(int);

@@ -77,9 +77,15 @@ namespace FASTER.libdpr
         {
             state.dprFinder.Refresh(); // added a refresh here so that we can have the lastknowncut ready to go
             var v = state.dprFinder.NewWorker(state.me, stateObject);
+            if(v == -1)
+            {
+                // Scenario where we try to connect while the DPR Finder is down, or it suddenly goes down
+                // I know we don't love recursion, but wasn't sure what else to do
+                Thread.Sleep(1000);
+                ConnectToCluster();
+            }
             if (v != 0)
             {
-                // state.dprFinder.Refresh();
                 // If worker is recovering from failure, need to load a previous checkpoint
                 state.rollbackProgress = new ManualResetEventSlim();
                 var separate = state.dprFinder.SafeVersion(state.me);
@@ -92,7 +98,6 @@ namespace FASTER.libdpr
             {
                 return;
             }, state.dprFinder.SystemWorldLine());
-            // state.dprFinder.Refresh();
         }
 
         /// <summary></summary>
@@ -121,36 +126,24 @@ namespace FASTER.libdpr
         public void TryRefreshAndCheckpoint(long checkpointPeriodMilli, long refreshPeriodMilli)
         {
             var currentTime = state.sw.ElapsedMilliseconds;
-            // Console.WriteLine("OBSTACLE 1");
             var lastCommitted = state.dprFinder.SafeVersion(state.me);
-            // Console.WriteLine("OBSTACLE 2");
 
             if (state.lastRefreshMilli + refreshPeriodMilli < currentTime)
             {
-                // Console.WriteLine("REFRESHING DPR");
                 if (!state.dprFinder.Refresh())
                 {
-                    // Console.WriteLine("SENDING GRAPH");
                     state.dprFinder.ResendGraph(state.me, stateObject);
                 }
-                // Console.WriteLine("DONE BOTH");
-                // Console.WriteLine("OBSTACLE 3");
                 core.Utility.MonotonicUpdate(ref state.lastRefreshMilli, currentTime, out _);
-                // Console.WriteLine("OBSTACLE 4");
                 TryAdvanceWorldLineTo(state.dprFinder.SystemWorldLine());
-                // Console.WriteLine("DONE");
             }
-            // Console.WriteLine("OBSTACLE 3");
-            // Console.WriteLine("MIGHT SEND: " + currentTime.ToString());
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
                 var toprint = Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion());
-                // Console.WriteLine("FED INTO BEGIN: " + toprint.ToString());
                 stateObject.BeginCheckpoint(ComputeCheckpointMetadata,
                     toprint);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
             }
-            // Console.WriteLine("OBSTACLE 4");
 
             // Can prune dependency information of committed versions
             var newCommitted = state.dprFinder.SafeVersion(state.me);

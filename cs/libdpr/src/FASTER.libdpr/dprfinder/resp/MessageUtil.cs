@@ -26,7 +26,6 @@ namespace FASTER.libdpr
             {
                 SerializationUtil.DeserializeCheckpointMetadata(bytes, offset,
                     out var worldLine, out var wv, out var deps);
-                // head += RespUtil.WriteRedisArrayHeader(4, buf, 0);
                 head += RespUtil.WriteRedisArrayHeader(4, buf, head);
                 head += RespUtil.WriteRedisBulkString("NewCheckpoint", buf, head);
                 head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
@@ -35,7 +34,7 @@ namespace FASTER.libdpr
                 if (minVersion > wv.Version) minVersion = wv.Version;
                 numRequests++;
             }
-            if (numRequests == 0) return 0; // NIKOLA: Commented this out since it's always true
+            if (numRequests == 0) return 0;
             head += RespUtil.WriteRedisArrayHeader(2, buf, head);
             head += RespUtil.WriteRedisBulkString("GraphResent", buf, head);
             var committedVersion = new WorkerVersion(worker, minVersion == long.MaxValue ? 0 : minVersion);
@@ -215,10 +214,8 @@ namespace FASTER.libdpr
             private static bool HandleReceiveCompletion(SocketAsyncEventArgs e)
             {
                 var connState = (DprFinderRedisProtocolConnState) e.UserToken;
-                // Console.WriteLine("HANDLING STARTED");
                 if (e.BytesTransferred == 0 || e.SocketError != SocketError.Success)
                 {
-                    // Console.WriteLine("FAILED");
                     connState.socket.Dispose();
                     e.Dispose();
                     return false;
@@ -226,14 +223,10 @@ namespace FASTER.libdpr
 
                 connState.bytesRead += e.BytesTransferred;
                 string receivedFrom = ((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString();
-                // string receivedFrom = IPAddress.Parse(((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString());
                 string receivedBufferRaw = Encoding.ASCII.GetString(e.Buffer, connState.readHead, connState.bytesRead - connState.readHead);
                 Extensions.LogDebug(connStateLog, String.Format("##########\nSender:{0}\nMessage Received:\n{1}", receivedFrom, receivedBufferRaw));
-                // if(receivedBufferRaw.Contains("GraphResent"))
-                //     connState.readHead += 1;
                 for (; connState.readHead < connState.bytesRead; connState.readHead++)
-                {   
-                    // Console.WriteLine("CHECKING");
+                {
                     if (connState.parser.ProcessChar(connState.readHead, e.Buffer))
                     {
                         Extensions.LogDebug(connStateLog, "Full Message Found");
@@ -267,10 +260,8 @@ namespace FASTER.libdpr
                 {
                     do
                     {
-                        Extensions.LogDebug(connStateLog, "Calling HandleReceive");
                         // No more things to receive
                         if (!HandleReceiveCompletion(e)) return;
-                        Extensions.LogDebug(connStateLog, "Done With HandleReceive");
                     } while (!connState.socket.ReceiveAsync(e));
                 }
                 catch (ObjectDisposedException)

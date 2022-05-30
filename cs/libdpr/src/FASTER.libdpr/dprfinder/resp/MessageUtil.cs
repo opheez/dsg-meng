@@ -15,16 +15,6 @@ namespace FASTER.libdpr
         private static readonly ThreadLocalObjectPool<byte[]> reusableMessageBuffers =
             new ThreadLocalObjectPool<byte[]>(() => new byte[BatchInfo.MaxHeaderSize], 1);
 
-        internal static void Log(string logFile, string s) 
-        {
-            if(debugging)
-            {
-                using (TextWriter tw = TextWriter.Synchronized(File.AppendText(logFile)))
-                {
-                    tw.WriteLine(s);
-                }
-            }
-        }
         internal static int SendGraphReconstruction(this Socket socket, Worker worker, IStateObject stateObject)
         {
             var buf = reusableMessageBuffers.Checkout();
@@ -51,7 +41,7 @@ namespace FASTER.libdpr
             var committedVersion = new WorkerVersion(worker, minVersion == long.MaxValue ? 0 : minVersion);
             head += RespUtil.WriteRedisBulkString(committedVersion, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            MessageUtil.Log(serverLog, String.Format("#######\nNew NewCheckpoint Request:\n{0}", requestSent));
+            Extensions.LogDebug(serverLog, String.Format("#######\nNew NewCheckpoint Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             return ++numRequests;
         }
@@ -63,7 +53,7 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("AddWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(worker.guid, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -75,9 +65,9 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("DeleteWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(worker.guid, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            MessageUtil.Log(serverLog, String.Format("#######\nRequest id: \nNew Request:\n{0}", requestSent));
+            Extensions.LogDebug(serverLog, String.Format("#######\nRequest id: \nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
-            MessageUtil.Log(serverLog, "Delete Worker sent");
+            Extensions.LogDebug(serverLog, "Delete Worker sent");
             reusableMessageBuffers.Return(buf);
         }
 
@@ -91,7 +81,7 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(checkpointed, buf, head);
             head += RespUtil.WriteRedisBulkString(deps, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -105,7 +95,7 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(recovered, buf, head);
             head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -116,7 +106,7 @@ namespace FASTER.libdpr
             var head = RespUtil.WriteRedisArrayHeader(1, buf, 0);
             head += RespUtil.WriteRedisBulkString("FetchCluster", buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            MessageUtil.Log(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -238,7 +228,7 @@ namespace FASTER.libdpr
                 string receivedFrom = ((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString();
                 // string receivedFrom = IPAddress.Parse(((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString());
                 string receivedBufferRaw = Encoding.ASCII.GetString(e.Buffer, connState.readHead, connState.bytesRead - connState.readHead);
-                MessageUtil.Log(connStateLog, String.Format("##########\nSender:{0}\nMessage Received:\n{1}", receivedFrom, receivedBufferRaw));
+                Extensions.LogDebug(connStateLog, String.Format("##########\nSender:{0}\nMessage Received:\n{1}", receivedFrom, receivedBufferRaw));
                 // if(receivedBufferRaw.Contains("GraphResent"))
                 //     connState.readHead += 1;
                 for (; connState.readHead < connState.bytesRead; connState.readHead++)
@@ -246,7 +236,7 @@ namespace FASTER.libdpr
                     // Console.WriteLine("CHECKING");
                     if (connState.parser.ProcessChar(connState.readHead, e.Buffer))
                     {
-                        MessageUtil.Log(connStateLog, "Full Message Found");
+                        Extensions.LogDebug(connStateLog, "Full Message Found");
                         connState.commandHandler(connState.parser.currentCommand, connState.socket);
                         connState.commandStart = connState.readHead + 1;
                     }
@@ -277,10 +267,10 @@ namespace FASTER.libdpr
                 {
                     do
                     {
-                        MessageUtil.Log(connStateLog, "Calling HandleReceive");
+                        Extensions.LogDebug(connStateLog, "Calling HandleReceive");
                         // No more things to receive
                         if (!HandleReceiveCompletion(e)) return;
-                        MessageUtil.Log(connStateLog, "Done With HandleReceive");
+                        Extensions.LogDebug(connStateLog, "Done With HandleReceive");
                     } while (!connState.socket.ReceiveAsync(e));
                 }
                 catch (ObjectDisposedException)

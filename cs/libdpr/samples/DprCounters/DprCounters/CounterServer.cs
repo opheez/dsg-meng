@@ -12,6 +12,7 @@ namespace DprCounters
     /// </summary>
     public class CounterServer
     {
+        private readonly string errorLog = "/DprCounters/data/errors.txt";
         private Socket socket;
         private DprServer<CounterStateObject> dprServer;
         private ManualResetEventSlim termination;
@@ -48,24 +49,25 @@ namespace DprCounters
             // to simply spawn a background thread to do that. 
             var backgroundThread = new Thread(() =>
             {
-                long id = 0;
-                // while (!termination.IsSet)
-                while(true)
+                while (!termination.IsSet)
                 {
                     Thread.Sleep(10);
-                    id++;
                     // A DprServer has built-in timers to rate-limit checkpoints and refreshes if needed
                     try
                     {
                         dprServer.TryRefreshAndCheckpoint(100, 10);
                     }
-                    catch (SocketException s)
+                    catch (SocketException)
                     {
-
+                        // means the Dpr Finder failed and we are trying to reconnect to it
+                        // fine to ignore
                     } 
                     catch (Exception e) 
                     {
-                        Console.WriteLine(e.ToString());
+                        // these shouldn't happen, logging them if they do
+                        string s = "New Error Occured:\n" + e.ToString();
+                        FASTER.libdpr.Extensions.LogDebug(errorLog, s);
+                        throw e; // throwing e so that we indeed fail, sometimes beneficial to remove when debugging
                     }
                 }
             });
@@ -152,7 +154,6 @@ namespace DprCounters
 
         public void StopServer()
         {
-            // Console.WriteLine(dprServer.StateObject().value);
             socket.Dispose();
             termination.Set();
         }

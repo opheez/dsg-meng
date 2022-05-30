@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -10,12 +11,34 @@ namespace FASTER.libdpr
 {
     public static class Extensions
     {
+        private static readonly bool debugging = true;
         public static int ReceiveFailFast(this Socket conn, byte[] buffer)
         {
             int result = conn.Receive(buffer);
             if(result == 0)
                 throw new SocketException(32);
             return result;
+        }
+
+        private static void Write(string file, string text)
+        {
+                using (TextWriter tw = TextWriter.Synchronized(File.AppendText(file)))
+                {
+                    tw.WriteLine(text);
+                }
+        }
+
+        public static void LogDebug(string file, string text)
+        {
+            if(debugging)
+            {
+                Write(file, text);
+            }
+        }
+
+        public static void LogBasic(string file, string text)
+        {
+            Write(file, text);
         }
     }
     public class EnhancedDprFinder : IDprFinder

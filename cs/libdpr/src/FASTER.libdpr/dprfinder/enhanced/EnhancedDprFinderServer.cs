@@ -86,7 +86,7 @@ namespace FASTER.libdpr
         /// </summary>
         public void StartServer()
         {
-            MessageUtil.Log(debugLogFile, "##############\n\nSERVER STARTED");
+            Extensions.LogDebug(debugLogFile, "##############\n\nSERVER STARTED");
             termination = new ManualResetEventSlim();
 
             processThread = new Thread(() =>
@@ -164,7 +164,7 @@ namespace FASTER.libdpr
                 case DprFinderCommand.Type.GRAPH_RESENT:
                     // FailFast();
                     backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
-                    socket.Send(OkResponse); // added this, it's probably the ack we need to unblock
+                    socket.Send(OkResponse);
                     break;
                 case DprFinderCommand.Type.SYNC:
                     var precomputedResponse = backend.GetPrecomputedResponse();

@@ -55,20 +55,10 @@ namespace DprCounters
             var serializationBuffer = new byte[deps.Length];
             unsafe {
                 fixed (byte* s = serializationBuffer) {
-                    // *(long*) s = value;
-                    // *(int*) (s + sizeof(long)) = deps.Length;
                     deps.CopyTo(new Span<byte>(s, deps.Length));
-                    // deps.CopyTo(new Span<byte>(s + sizeof(long) + sizeof(int), deps.Length));
                 }
             } 
-            // fs.WriteAsync(BitConverter.GetBytes(value), 0, sizeof(long)).ContinueWith(token =>
-            // {
-            //     if (!token.IsCompletedSuccessfully)
-            //         Console.WriteLine($"Error {token} during checkpoint");
-            //     // We need to invoke onPersist() to inform DPR when a checkpoint is on disk
-            //     onPersist();
-            //     fs.Dispose();
-            // });
+
             fs.WriteAsync(serializationBuffer).AsTask().ContinueWith(token =>
             {
                 if (!token.IsCompletedSuccessfully)
@@ -88,12 +78,15 @@ namespace DprCounters
             // small) stash of in-memory snapshots to quickly handle this call.
             if (prevCounters.TryGetValue(version, out value)) return;
             
-            var fileName = Path.Join(checkpointDirectory, version.ToString());
-            using var fs = File.Open(fileName, FileMode.Open, FileAccess.Read, FileShare.None);
+            lock(prevCounters)
+            {
+                var fileName = Path.Join(checkpointDirectory, version.ToString());
+                using var fs = File.Open(fileName, FileMode.Open, FileAccess.Read, FileShare.None);
 
-            var bytes = new byte[sizeof(long)];
-            fs.Read(bytes, 0, sizeof(long));
-            value = BitConverter.ToInt64(bytes, 0);
+                var bytes = new byte[sizeof(long)];
+                fs.Read(bytes, 0, sizeof(long));
+                value = BitConverter.ToInt64(bytes, 0);
+            }
         }
         
         public override void PruneVersion(long version)
@@ -104,12 +97,11 @@ namespace DprCounters
                 prevCounters.TryRemove(version, out _);
                 File.Delete(fileToDelete);
             }
-            // TODO: Remove the file with the version
         }
 
         public override IEnumerable<(byte[], int)> GetUnprunedVersions()
         {
-            lock(prevCounters) // TODO(Nikola): This fixes the below problem (I think), figure out if the scope can be made tighter
+            lock(prevCounters)
             {
                 (byte[], int)[] unpruned = new (byte[], int)[prevCounters.Count()];
                 int index = 0;
@@ -122,8 +114,6 @@ namespace DprCounters
                 }
                 return unpruned;
             }
-            // return Enumerable.Empty<(byte[], int)>();
-            // TODO: pairs of byte arrays (deps) from each file with the dep byte starting at zero, size of array
         }
     }
 }

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter-server-svc
+  labels:
+    app: counter-server
+spec:
+  ports:
+  - port: 80
+    name: counter
+  clusterIP: None
+  selector:
+    app: counter-server

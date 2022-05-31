@@ -13,6 +13,7 @@ namespace DprCounters
     public class CounterServer
     {
         private readonly string errorLog = "/DprCounters/data/errors.txt";
+        private readonly string basicLog = "/DprCounters/data/basic.txt";
         private Socket socket;
         private DprServer<CounterStateObject> dprServer;
         private ManualResetEventSlim termination;
@@ -43,7 +44,8 @@ namespace DprCounters
         public void RunServer()
         {
             dprServer.ConnectToCluster();
-            
+            Extensions.LogBasic(basicLog, "Server started");
+
             termination = new ManualResetEventSlim();
             // DprServer must be continually refreshed and checkpointed for the system to make progress. It is easiest
             // to simply spawn a background thread to do that. 
@@ -125,6 +127,8 @@ namespace DprCounters
                     result = dprServer.StateObject().value;
                     dprServer.StateObject().value +=
                         BitConverter.ToInt64(new Span<byte>(inBuffer, sizeof(int) + size - sizeof(long), sizeof(long)));
+                    string updateString = "New value update:\nOld value: " + result.ToString() + "\nNew value: " + dprServer.StateObject().value.ToString();
+                    Extensions.LogBasic(basicLog, updateString);
                     
                     // Once requests are done executing, stop protecting this batch so DPR can progress
                     dprServer.StateObject().VersionScheme().Leave();

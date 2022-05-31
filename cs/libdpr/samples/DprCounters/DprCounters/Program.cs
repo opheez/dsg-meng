@@ -72,7 +72,7 @@ namespace DprCounters
 
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("TESTTTTT");
+            Console.Out.WriteLine("TES");
             if(args.Length == 0 || args[0] == "single")
             {
                 runWithoutKubernetes();

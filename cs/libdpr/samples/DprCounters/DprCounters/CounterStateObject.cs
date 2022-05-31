@@ -51,12 +51,14 @@ namespace DprCounters
             // Once the content of the checkpoint is established (we have read a current snapshot of value), it is ok
             // to write to disk asynchronously and allow other operations to continue. In SimpleStateObject, 
             // operations are blocked before PerformCheckpoint return.
-            var serializationBuffer = new byte[deps.Length];
+
+            var serializationBuffer = new byte[deps.Length + sizeof(long)];
             unsafe {
                 fixed (byte* s = serializationBuffer) {
-                    deps.CopyTo(new Span<byte>(s, deps.Length));
+                    *(long*) s = value;
+                    deps.CopyTo(new Span<byte>(s + sizeof(long), deps.Length));
                 }
-            } 
+            }
 
             fs.WriteAsync(serializationBuffer).AsTask().ContinueWith(token =>
             {
@@ -100,7 +102,8 @@ namespace DprCounters
             {
                 var fileToOpen = Path.Join(checkpointDirectory, version.ToString());
                 var fileBytes = File.ReadAllBytes(fileToOpen);
-                unpruned[index] = (fileBytes, 0);
+
+                unpruned[index] = (fileBytes, sizeof(long));
                 index++;
             }
             return unpruned;

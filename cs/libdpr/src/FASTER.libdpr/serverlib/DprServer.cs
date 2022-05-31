@@ -89,6 +89,7 @@ namespace FASTER.libdpr
                 // If worker is recovering from failure, need to load a previous checkpoint
                 state.rollbackProgress = new ManualResetEventSlim();
                 var separate = state.dprFinder.SafeVersion(state.me);
+                Extensions.LogBasic("/DprCounters/data/basic.txt", "RESTORING TO VERSION" + separate.ToString());
                 stateObject.BeginRestore(separate);
                 // Wait for user to signal end of restore;
                 state.rollbackProgress.Wait();

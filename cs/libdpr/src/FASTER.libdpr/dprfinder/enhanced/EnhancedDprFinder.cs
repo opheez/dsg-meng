@@ -43,6 +43,7 @@ namespace FASTER.libdpr
     }
     public class EnhancedDprFinder : IDprFinder
     {
+        private static readonly string basicLog = "/DprCounters/data/basic.txt";
         private Socket dprFinderConn;
         object dprFinderConnLock; // locking on this since dprFinderConn object might change
         string ip;
@@ -87,6 +88,7 @@ namespace FASTER.libdpr
             try
             {
                 ResetDprFinderConn();
+                Extensions.LogBasic(basicLog, "Connection was reset");
             } catch (Exception)
             {
                 return;
@@ -191,8 +193,8 @@ namespace FASTER.libdpr
 
         public long NewWorker(Worker id, IStateObject stateObject)
         {
-            if (stateObject != null) // Why is this necessary? It is never null (with the current code)
-                ResendGraph(id, stateObject); // This breaks something inside the Dpr Finder backend somehow
+            if (stateObject != null)
+                ResendGraph(id, stateObject);
             lock (dprFinderConnLock)
             {
                 try

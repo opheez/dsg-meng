@@ -135,6 +135,7 @@ namespace FASTER.libdpr
     /// </summary>
     public class EnhancedDprFinderBackend
     {
+        private static readonly string basicLog = "/DprCounters/data/basic.txt";
         // Used to send add/delete worker requests to processing thread
         private readonly ConcurrentQueue<(Worker, Action<(long, long)>)> addQueue =
             new ConcurrentQueue<(Worker, Action<(long, long)>)>();
@@ -398,6 +399,7 @@ namespace FASTER.libdpr
             if (!recoveryState.RecoveryComplete()) throw new InvalidOperationException();
 
             versionTable.TryAdd(worker, 0);
+            Extensions.LogBasic(basicLog, "Worker added. Id: " + worker.guid.ToString());
             (long, long) result;
             if (volatileClusterState.worldLinePrefix.TryAdd(worker, 0))
             {
@@ -526,7 +528,7 @@ namespace FASTER.libdpr
 
                 // Only mark recovery complete after we have reached that conclusion
                 recoveryComplete = true;
-                Console.WriteLine("RECOVERY COMPLETE");
+                Extensions.LogBasic(basicLog, "Recovery Complete");
             }
         }
     }

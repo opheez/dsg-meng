@@ -1,4 +1,5 @@
 from ctypes import ArgumentError
+from posixpath import basename
 from kubernetes import client, config
 import os
 import time
@@ -102,6 +103,28 @@ class KubernetesCluster():
     def stopCounterServers(self) -> void:
         self.apps.delete_namespaced_stateful_set(name="counter", namespace = "default")
         self.core.delete_namespaced_service(name="counter-server-svc", namespace="default")
+    
+    def patchConfigMap(self) -> void:
+        portPatch = dict()
+        portPatch["data"] = dict()
+        portPatch["data"]["6379"] = "default/dpr-finder-svc:3000"
+        base_number = 6380
+        base_string = "default/counter-server-svc-"
+        for id in range(len(self.servers)):
+            portPatch["data"][str(base_number + id)] = base_string + str(id) + ":80"
+        ret = self.core.patch_namespaced_config_map("tcp-services", "ingress-nginx", portPatch)
+    
+    def patchIngress(self, ingressFile:str = None) -> void:
+        if not ingressFile:
+            ingressFile = os.path.join(self.directory, "yaml/IngressPatch.yaml")
+        with open(ingressFile) as f:
+            patch = yaml.safe_load(f.read())
+        ports = patch["spec"]["template"]["spec"]["containers"][0]["ports"]
+        basePort = 6380
+        for id in range(len(self.servers)):
+            ports.append({"containerPort": basePort + id, "hostPort": basePort + id})
+        ret = self.apps.patch_namespaced_deployment("ingress-nginx-controller", "ingress-nginx", patch)
+
 
     def stopCluster(self) -> void:
         self.stopDprFinder()
@@ -111,10 +134,16 @@ class KubernetesCluster():
         self.startDprFinder()
         while not self.isDprFinderRunning():
             time.sleep(1)
+        self.patchConfigMap()
         self.startCounterServers()
+    
+    def testing(self) -> void:
+        pass
+
 
 def main():
     testt = KubernetesCluster()
+    testt.addServer("counter")
     testt.addServer("counter")
     testt.addServer("counter")
     testt.start()

@@ -1,0 +1,12 @@
+spec:
+  template:
+    spec:
+      containers:
+      - name: controller
+        ports:
+         - containerPort: 6379
+           hostPort: 6379
+         - containerPort: 6380
+           hostPort: 6380
+         - containerPort: 6381
+           hostPort: 6381

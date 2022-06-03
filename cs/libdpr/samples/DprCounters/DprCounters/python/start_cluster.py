@@ -135,6 +135,7 @@ class KubernetesCluster():
         while not self.isDprFinderRunning():
             time.sleep(1)
         self.patchConfigMap()
+        self.patchIngress()
         self.startCounterServers()
     
     def testing(self) -> void:

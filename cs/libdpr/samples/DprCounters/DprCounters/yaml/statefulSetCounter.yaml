@@ -1,40 +1,92 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: counter-server-svc
+  name: counter-server-svc-0
   labels:
-    app: counter-server
+    app: counter-server-0
 spec:
-  clusterIP: None
   ports:
   - port: 80
-    name: counter
+    name: counter-0
   selector:
-    app: counter-server
+    app: counter-server-0
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: counter
+  name: counter-0
 spec:
-  serviceName: "counter-server-svc"
-  replicas: 2
+  serviceName: "counter-server-svc-0"
+  replicas: 1
   selector:
     matchLabels:
-      app: counter-server
+      app: counter-server-0
   template:
     metadata:
       labels:
-        app: counter-server
+        app: counter-server-0
     spec:
       containers:
-      - name: counter-server
+      - name: counter-server-0
         image: cetko24/meng_project
         imagePullPolicy: Never
         args: ["counter"]
         ports:
         - containerPort: 80
-          name: counter
+          name: counter-0
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: counter-storage
+          mountPath: /DprCounters/data
+  volumeClaimTemplates:
+  - metadata:
+      name: counter-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter-server-svc-1
+  labels:
+    app: counter-server-1
+spec:
+  ports:
+  - port: 80
+    name: counter-1
+  selector:
+    app: counter-server-1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: counter-1
+spec:
+  serviceName: "counter-server-svc-1"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: counter-server-1
+  template:
+    metadata:
+      labels:
+        app: counter-server-1
+    spec:
+      containers:
+      - name: counter-server-1
+        image: cetko24/meng_project
+        imagePullPolicy: Never
+        args: ["counter"]
+        ports:
+        - containerPort: 80
+          name: counter-1
         env:
         - name: POD_NAME
           valueFrom:

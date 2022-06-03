@@ -70,9 +70,27 @@ namespace DprCounters
                 client.RefreshDpr();
         }
 
+        static void runClientLeft()
+        {
+            var client = new CounterClient(new EnhancedDprFinder("192.168.49.2", 6379));
+            Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
+            Worker w0 = new Worker(0);
+            Worker w1 = new Worker(1);
+            cluster[w0] = new IPEndPoint(IPAddress.Parse("192.168.49.2"), 6380);
+            cluster[w1] = new IPEndPoint(IPAddress.Parse("192.168.49.2"), 6381);
+            client.RefreshDpr();
+            var session = client.GetSession(cluster);        
+            var op0 = session.Increment(new Worker(0), 42, out _);
+            var op1 = session.Increment(new Worker(1), 2, out _);
+            var op2 = session.Increment(new Worker(1), 7, out _);
+            var op3 = session.Increment(new Worker(0), 10, out _);
+            while (!session.Committed(op3))
+                client.RefreshDpr();
+        }
+
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("TES");
+            Console.Out.WriteLine("TESTTTTT");
             if(args.Length == 0 || args[0] == "single")
             {
                 runWithoutKubernetes();
@@ -96,6 +114,12 @@ namespace DprCounters
             {
                 runClient();
                 return;
+            }
+            if(args[0] == "clientLeft")
+            {
+                Console.WriteLine("Starting client from the outside");
+                runClientLeft();
+                Console.WriteLine("SUCCESS!!!");
             }
         }
     }

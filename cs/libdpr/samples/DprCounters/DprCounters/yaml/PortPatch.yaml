@@ -1,5 +1,0 @@
----
-data:
-  '6379': default/dpr-finder-svc:3000
-  '6380': default/counter-server-svc-0:80
-  '6381': default/counter-server-svc-1:80

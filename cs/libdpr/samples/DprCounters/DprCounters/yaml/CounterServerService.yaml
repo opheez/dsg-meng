@@ -8,6 +8,5 @@ spec:
   ports:
   - port: 80
     name: counter
-  clusterIP: None
   selector:
     app: counter-server

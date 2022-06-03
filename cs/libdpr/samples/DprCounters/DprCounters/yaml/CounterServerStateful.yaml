@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: counter
+spec:
+  serviceName: "counter-server-svc"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: counter-server
+  template:
+    metadata:
+      labels:
+        app: counter-server
+    spec:
+      containers:
+      - name: counter-server
+        image: cetko24/meng_project
+        imagePullPolicy: Never
+        args: ["counter"]
+        ports:
+        - containerPort: 80
+          name: counter
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: counter-storage
+          mountPath: /DprCounters/data
+  volumeClaimTemplates:
+  - metadata:
+      name: counter-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi

@@ -17,7 +17,7 @@ namespace FASTER.libdpr
         internal readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
 
         internal readonly IDprFinder dprFinder;
-        internal readonly Worker me;
+        internal readonly WorkerInformation me;
         internal readonly ConcurrentDictionary<long, LightDependencySet> versions;
 
         internal readonly SimpleVersionScheme worldlineTracker;
@@ -26,7 +26,7 @@ namespace FASTER.libdpr
 
         internal Stopwatch sw = Stopwatch.StartNew();
 
-        internal DprWorkerState(IDprFinder dprFinder, Worker me)
+        internal DprWorkerState(IDprFinder dprFinder, WorkerInformation me)
         {
             this.dprFinder = dprFinder;
             this.me = me;
@@ -55,7 +55,7 @@ namespace FASTER.libdpr
         /// <param name="dprFinder"> interface to the cluster's DPR finder component </param>
         /// <param name="me"> unique id of the DPR server </param>
         /// <param name="stateObject"> underlying state object </param>
-        public DprServer(IDprFinder dprFinder, Worker me, TStateObject stateObject)
+        public DprServer(IDprFinder dprFinder, WorkerInformation me, TStateObject stateObject)
         {
             state = new DprWorkerState(dprFinder, me);
             this.stateObject = stateObject;
@@ -66,7 +66,7 @@ namespace FASTER.libdpr
 
         /// <summary></summary>
         /// <returns> Worker ID of this DprServer instance </returns>
-        public Worker Me() => state.me;
+        public Worker Me() => state.me.worker;
 
         /// <summary>
         /// At the start (restart) of processing, connect to the rest of the DPR cluster. If the worker restarted from
@@ -88,7 +88,7 @@ namespace FASTER.libdpr
             {
                 // If worker is recovering from failure, need to load a previous checkpoint
                 state.rollbackProgress = new ManualResetEventSlim();
-                var separate = state.dprFinder.SafeVersion(state.me);
+                var separate = state.dprFinder.SafeVersion(state.me.worker);
                 Extensions.LogBasic("/DprCounters/data/basic.txt", "RESTORING TO VERSION" + separate.ToString());
                 stateObject.BeginRestore(separate);
                 // Wait for user to signal end of restore;
@@ -112,7 +112,7 @@ namespace FASTER.libdpr
         {
             var deps = state.versions[version];
             var size = SerializationUtil.SerializeCheckpointMetadata(depSerializationArray, 0,
-                state.worldlineTracker.Version(), new WorkerVersion(state.me, version), deps);
+                state.worldlineTracker.Version(), new WorkerVersion(state.me.worker, version), deps);
             Debug.Assert(size > 0);
             return new ReadOnlySpan<byte>(depSerializationArray, 0, size);
         }
@@ -127,13 +127,13 @@ namespace FASTER.libdpr
         public void TryRefreshAndCheckpoint(long checkpointPeriodMilli, long refreshPeriodMilli)
         {
             var currentTime = state.sw.ElapsedMilliseconds;
-            var lastCommitted = state.dprFinder.SafeVersion(state.me);
+            var lastCommitted = state.dprFinder.SafeVersion(state.me.worker);
 
             if (state.lastRefreshMilli + refreshPeriodMilli < currentTime)
             {
                 if (!state.dprFinder.Refresh())
                 {
-                    state.dprFinder.ResendGraph(state.me, stateObject);
+                    state.dprFinder.ResendGraph(state.me.worker, stateObject);
                 }
                 core.Utility.MonotonicUpdate(ref state.lastRefreshMilli, currentTime, out _);
                 TryAdvanceWorldLineTo(state.dprFinder.SystemWorldLine());
@@ -147,7 +147,7 @@ namespace FASTER.libdpr
             }
 
             // Can prune dependency information of committed versions
-            var newCommitted = state.dprFinder.SafeVersion(state.me);
+            var newCommitted = state.dprFinder.SafeVersion(state.me.worker);
             for (var i = lastCommitted; i < newCommitted; i++)
                 stateObject.PruneVersion(i);
         }
@@ -157,7 +157,7 @@ namespace FASTER.libdpr
             state.worldlineTracker.TryAdvanceVersion((vOld, vNew) =>
             {
                 state.rollbackProgress = new ManualResetEventSlim();
-                stateObject.BeginRestore(state.dprFinder.SafeVersion(state.me));
+                stateObject.BeginRestore(state.dprFinder.SafeVersion(state.me.worker));
                 // Wait for user to signal end of restore;
                 state.rollbackProgress.Wait();
             }, targetWorldline);

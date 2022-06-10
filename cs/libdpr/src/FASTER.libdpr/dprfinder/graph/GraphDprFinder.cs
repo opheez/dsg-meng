@@ -102,14 +102,14 @@ namespace FASTER.libdpr
             }
         }
 
-        public long NewWorker(Worker id, IStateObject stateObject)
+        public long NewWorker(WorkerInformation workerInfo, IStateObject stateObject)
         {
             lock (dprFinderConn)
             {
-                dprFinderConn.SendAddWorkerCommand(id);
+                dprFinderConn.SendAddWorkerCommand(workerInfo);
                 ProcessRespResponse();
                 lastKnownState ??= new GraphDprFinderBackend.State();
-                lastKnownState.GetCurrentWorldLines()[id] = BitConverter.ToInt64(recvBuffer, parser.stringStart);
+                lastKnownState.GetCurrentWorldLines()[workerInfo.worker] = BitConverter.ToInt64(recvBuffer, parser.stringStart);
                 return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));
             }
         }
@@ -124,9 +124,9 @@ namespace FASTER.libdpr
             }
         }
 
-        public Dictionary<Worker, EndPoint> FetchCluster()
+        public Dictionary<Worker, (int, string)> FetchCluster()
         {
-            return null;
+            throw new NotImplementedException("Only enhanced Dpr Finder has FetchCluster implemented");
         }
         public void ResendGraph(Worker worker, IStateObject stateObject)
         {

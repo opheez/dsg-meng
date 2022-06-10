@@ -53,6 +53,7 @@ namespace FASTER.libdpr
         internal Type commandType;
         internal WorkerVersion wv;
         internal Worker w;
+        internal WorkerInformation wi;
         internal long worldLine;
         internal List<WorkerVersion> deps;
     }
@@ -204,6 +205,12 @@ namespace FASTER.libdpr
                     {
                         var workerId = BitConverter.ToInt64(buf, stringStart);
                         currentCommand.w = new Worker(workerId);
+                        if(currentCommand.commandType == DprFinderCommand.Type.ADD_WORKER)
+                        {
+                            var workerPort = (int)BitConverter.ToInt64(buf, stringStart + sizeof(long));
+                            var type = BitConverter.ToInt64(buf, stringStart + 2 * sizeof(long)); // TODO(Nikola): Make the type actually be relevant by mapping type_int -> type_str
+                            currentCommand.wi = new WorkerInformation(currentCommand.w, workerPort, 0);
+                        }
                         commandParserState = CommandParserState.NONE;
                         size = -1;
                         return true;

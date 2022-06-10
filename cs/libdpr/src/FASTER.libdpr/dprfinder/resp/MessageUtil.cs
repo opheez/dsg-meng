@@ -10,7 +10,6 @@ namespace FASTER.libdpr
 {
     internal static class MessageUtil
     {
-        private static readonly bool debugging = false;
         private static readonly string serverLog = "/DprCounters/data/server.txt";
         private static readonly ThreadLocalObjectPool<byte[]> reusableMessageBuffers =
             new ThreadLocalObjectPool<byte[]>(() => new byte[BatchInfo.MaxHeaderSize], 1);
@@ -45,12 +44,13 @@ namespace FASTER.libdpr
             return ++numRequests;
         }
 
-        internal static void SendAddWorkerCommand(this Socket socket, Worker worker)
+        internal static void SendAddWorkerCommand(this Socket socket, WorkerInformation workerInfo)
         {
             var buf = reusableMessageBuffers.Checkout();
+            // var head = RespUtil.WriteRedisArrayHeader(2, buf, 0);
             var head = RespUtil.WriteRedisArrayHeader(2, buf, 0);
             head += RespUtil.WriteRedisBulkString("AddWorker", buf, head);
-            head += RespUtil.WriteRedisBulkString(worker.guid, buf, head);
+            head += RespUtil.WriteRedisBulkString(workerInfo, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
             Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
@@ -105,7 +105,6 @@ namespace FASTER.libdpr
             var head = RespUtil.WriteRedisArrayHeader(1, buf, 0);
             head += RespUtil.WriteRedisBulkString("FetchCluster", buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }

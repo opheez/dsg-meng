@@ -7,6 +7,16 @@ namespace FASTER.libdpr
 {
     public static class RespUtil
     {
+        private static readonly Dictionary<string, int> typeToInt = new Dictionary<string, int>
+                                                            {
+                                                                {"counter", 0}
+                                                            };
+
+        private static readonly Dictionary<int, string> intToType = new Dictionary<int, string>
+                                                            {
+                                                                {0, "counter"}
+                                                            };
+        
         internal static unsafe int LongToDecimalString(long a, byte[] buf, int offset)
         {
             var digits = stackalloc byte[20];
@@ -114,6 +124,33 @@ namespace FASTER.libdpr
             return head - offset;
         }
 
+        internal static unsafe int WriteRedisBulkString(WorkerInformation val, byte[] buf, int offset)
+        {
+            var head = offset;
+            if (head + sizeof(byte) >= buf.Length) return 0;
+            buf[head++] = (byte) '$';
+
+            var size = LongToDecimalString(sizeof(WorkerInformation), buf, head);
+            if (size == 0) return 0;
+            head += size;
+
+            if (head + 4 + sizeof(WorkerInformation) >= buf.Length) return 0;
+            buf[head++] = (byte) '\r';
+            buf[head++] = (byte) '\n';
+
+            Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), val.worker.guid);
+            head += sizeof(long);
+            Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), val.port);
+            head += sizeof(int);
+            Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), 0); // TODO(Nikola): Make type->int mapping when relevant
+            head += sizeof(int);
+            
+
+            buf[head++] = (byte) '\r';
+            buf[head++] = (byte) '\n';
+            return head - offset;
+        }
+
         internal static unsafe int WriteRedisBulkString(IEnumerable<WorkerVersion> val, byte[] buf, int offset)
         {
             var head = offset;
@@ -168,6 +205,11 @@ namespace FASTER.libdpr
             return sizeof(int) + dict.Count * 2 * sizeof(long);
         }
 
+        internal static int DictionarySerializedSize(IDictionary<Worker, (int, int)> dict)
+        {
+            return sizeof(int) + dict.Count * (sizeof(long) + 2 * sizeof(int));
+        }
+
         internal static int DictionarySerializedSize(IDictionary<Worker, EndPoint> dict)
         {
             return sizeof(int) + dict.Count * 2 * sizeof(int) + dict.Count * sizeof(long);
@@ -189,6 +231,24 @@ namespace FASTER.libdpr
             return head;
         }
 
+        internal static int SerializeDictionary(IDictionary<Worker, (int, int)> dict, byte[] buf, int head)
+        {
+            if (head + DictionarySerializedSize(dict) > buf.Length) return 0;
+            Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), dict.Count);
+            head += sizeof(int);
+            foreach (var entry in dict)
+            {
+                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), entry.Key.guid);
+                head += sizeof(long);
+                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), entry.Value.Item1);
+                head += sizeof(int);
+                Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), entry.Value.Item2);
+                head += sizeof(int);
+            }
+
+            return head;
+        }
+
         internal static int SerializeDictionary(IDictionary<Worker, EndPoint> workers, byte[] buf, int head)
         {
             // method used to FetchCluster w/out K8s. Will be reworked to be functional very soon
@@ -199,7 +259,7 @@ namespace FASTER.libdpr
             {
                 Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), entry.Key.guid);
                 head += sizeof(long);
-                var ipValue = (IPEndPoint)(entry.Value); // TODO(Nikola): This will stop working if I am sending DNS stuff this way... 
+                var ipValue = (IPEndPoint)(entry.Value);
                 var ipBytes = ipValue.Address.GetAddressBytes();
                 Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), BitConverter.ToInt32(ipBytes, 0));
                 head += sizeof(int);
@@ -221,6 +281,24 @@ namespace FASTER.libdpr
                 var val = BitConverter.ToInt64(buf, head);
                 head += sizeof(long);
                 result[new Worker(workerId)] = val;
+            }
+
+            return head;
+        }
+
+        public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<Worker, (int, string)> result)
+        {
+            var size = BitConverter.ToInt32(buf, head);
+            head += sizeof(int);
+            for (var i = 0; i < size; i++)
+            {
+                var workerId = BitConverter.ToInt64(buf, head);
+                head += sizeof(long);
+                var port = BitConverter.ToInt32(buf, head);
+                head += sizeof(int);
+                var type = BitConverter.ToInt32(buf, head);
+                head += sizeof(int);
+                result[new Worker(workerId)] = (port, intToType[type]);
             }
 
             return head;

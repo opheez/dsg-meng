@@ -41,6 +41,39 @@ namespace FASTER.libdpr
             return guid.GetHashCode();
         }
     }
+    public struct WorkerInformation
+    {
+        public Worker worker { get; set; }
+        public int port { get; set; }
+        public int type { get; set; }
+
+        public WorkerInformation(Worker worker, int port, int type)
+        {
+            this.worker = worker;
+            this.port = port;
+            this.type = type;
+        }
+
+        internal bool Equals(WorkerInformation other)
+        {
+            return worker.Equals(other.worker) && port == other.port && type.Equals(other.type);
+        }
+
+        /// <inheritdoc cref="object" />
+        public override bool Equals(object obj)
+        {
+            return obj is WorkerInformation other && Equals(other);
+        }
+
+        /// <inheritdoc cref="object" />
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (worker.GetHashCode() * 397) ^ port.GetHashCode();
+            }
+        }
+    }
 
     /// <summary>
     ///     A worker-version is a tuple of worker and checkpoint version.

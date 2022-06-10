@@ -12,6 +12,7 @@ namespace FASTER.libdpr
     public static class Extensions
     {
         private static readonly bool debugging = true;
+        private static readonly bool distributed = false;
         public static int ReceiveFailFast(this Socket conn, byte[] buffer)
         {
             int result = conn.Receive(buffer);
@@ -30,7 +31,7 @@ namespace FASTER.libdpr
 
         public static void LogDebug(string file, string text)
         {
-            if(debugging)
+            if(debugging && distributed)
             {
                 Write(file, text);
             }
@@ -38,16 +39,16 @@ namespace FASTER.libdpr
 
         public static void LogBasic(string file, string text)
         {
-            Write(file, text);
+            if(distributed)
+                Write(file, text);
         }
     }
     public class EnhancedDprFinder : IDprFinder
     {
         private static readonly string basicLog = "/DprCounters/data/basic.txt";
         private Socket dprFinderConn;
-        object dprFinderConnLock; // locking on this since dprFinderConn object might change
-        string ip;
-        int port;
+        private string ip;
+        private int port;
         private ClusterState lastKnownClusterState;
         private readonly Dictionary<Worker, long> lastKnownCut = new Dictionary<Worker, long>();
         private long maxVersion;
@@ -57,14 +58,12 @@ namespace FASTER.libdpr
         public EnhancedDprFinder(Socket dprFinderConn)
         {
             this.dprFinderConn = dprFinderConn;
-            this.dprFinderConnLock = new Object();
             dprFinderConn.NoDelay = true;
         }
         public EnhancedDprFinder(string ip, int port)
         {
             this.ip = ip;
             this.port = port;
-            this.dprFinderConnLock = new Object();
             ResetDprFinderConn();
         }
 
@@ -118,7 +117,7 @@ namespace FASTER.libdpr
 
         public void ReportNewPersistentVersion(long worldLine, WorkerVersion persisted, IEnumerable<WorkerVersion> deps)
         {
-            lock (dprFinderConnLock)
+            lock (this)
             {
                 dprFinderConn.SendNewCheckpointCommand(worldLine, persisted, deps);
                 var received = dprFinderConn.ReceiveFailFast(recvBuffer);
@@ -128,7 +127,7 @@ namespace FASTER.libdpr
 
         public bool Refresh()
         {   
-            lock (dprFinderConnLock)
+            lock (this)
             {
                 try
                 {
@@ -152,10 +151,10 @@ namespace FASTER.libdpr
             return true;
         }
 
-        public Dictionary<Worker, EndPoint> FetchCluster() 
+        public Dictionary<Worker, (int, string)> FetchCluster() 
         {
-            Dictionary<Worker, EndPoint> result;
-            lock (dprFinderConnLock)
+            Dictionary<Worker, (int, string)> result;
+            lock (this)
             {
                 try
                 {
@@ -167,7 +166,7 @@ namespace FASTER.libdpr
                 } catch (SocketException) 
                 {
                     ResetDprFinderConnSafe();
-                    // leaving this unsafe for now, as FetchCluster() is about to get reworked anyways
+                    // TODO(Nikola): Make this safe
                     return null;
                 }
             }
@@ -180,7 +179,7 @@ namespace FASTER.libdpr
 
         public void ResendGraph(Worker worker, IStateObject stateObject)
         {
-            lock (dprFinderConnLock)
+            lock (this)
             {
                 var acks = dprFinderConn.SendGraphReconstruction(worker, stateObject);
                 // Wait for all of the sent commands to be acked
@@ -191,15 +190,15 @@ namespace FASTER.libdpr
             }
         }
 
-        public long NewWorker(Worker id, IStateObject stateObject)
+        public long NewWorker(WorkerInformation workerInfo, IStateObject stateObject)
         {
             if (stateObject != null)
-                ResendGraph(id, stateObject);
-            lock (dprFinderConnLock)
+                ResendGraph(workerInfo.worker, stateObject);
+            lock (this)
             {
                 try
                 {
-                    dprFinderConn.SendAddWorkerCommand(id);
+                    dprFinderConn.SendAddWorkerCommand(workerInfo);
                     ProcessRespResponse();
                     lastKnownClusterState ??= new ClusterState();
                     lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
@@ -214,7 +213,7 @@ namespace FASTER.libdpr
 
         public void DeleteWorker(Worker id)
         {
-            lock (dprFinderConnLock)
+            lock (this)
             {
                 try
                 {

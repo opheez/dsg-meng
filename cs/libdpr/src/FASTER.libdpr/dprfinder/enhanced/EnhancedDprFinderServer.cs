@@ -26,7 +26,6 @@ namespace FASTER.libdpr
         private static readonly string debugLogFile = "/DprCounters/data/serverLog.txt";
         private static readonly byte[] OkResponse = Encoding.GetEncoding("ASCII").GetBytes("+OK\r\n");
         private readonly EnhancedDprFinderBackend backend;
-        private readonly ClusterBackend clusterBackend;
         private readonly string ip;
         private readonly int port;
         private Thread processThread;
@@ -47,14 +46,6 @@ namespace FASTER.libdpr
             this.backend = backend;
         }
 
-        public EnhancedDprFinderServer(string ip, int port, EnhancedDprFinderBackend backend, ClusterBackend clusterBackend)
-        {
-            this.ip = ip;
-            this.port = port;
-            this.backend = backend;
-            this.clusterBackend = clusterBackend;
-        }
-
         /// <inheritdoc />
         public void Dispose()
         {
@@ -66,10 +57,6 @@ namespace FASTER.libdpr
             if(backend != null)
             {
                 backend.Dispose();
-            }
-            if(clusterBackend != null)
-            {
-                // clusterBackend.Dispose();
             }
         }
 
@@ -166,13 +153,13 @@ namespace FASTER.libdpr
                     precomputedResponse.rwLatch.ExitReadLock();
                     break;
                 case DprFinderCommand.Type.ADD_WORKER:
-                    backend.AddWorker(command.w, socket.SendAddWorkerResponse);
+                    backend.AddWorker(command.wi, socket.SendAddWorkerResponse);
                     break;
                 case DprFinderCommand.Type.DELETE_WORKER:
                     backend.DeleteWorker(command.w, () => socket.Send(OkResponse));
                     break;
                 case DprFinderCommand.Type.FETCH_CLUSTER:
-                    var fetchedCluster = clusterBackend.getClusterState();
+                    var fetchedCluster = backend.GetClusterState();
                     fetchedCluster.rwLatch.EnterReadLock();
                     socket.SendFetchClusterResponse(ValueTuple.Create(fetchedCluster.serializedResponse, fetchedCluster.responseEnd));
                     fetchedCluster.rwLatch.ExitReadLock();

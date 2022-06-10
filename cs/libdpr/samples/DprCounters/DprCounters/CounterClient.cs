@@ -12,21 +12,31 @@ namespace DprCounters
     public class CounterClient
     {
         private DprClient client;
-        private Dictionary<Worker, IPEndPoint> cluster;
+        private IPAddress ip;
+
+        public CounterClient(string ip, int port)
+        {
+            client = new DprClient(new EnhancedDprFinder(ip, port));
+            this.ip = IPAddress.Parse(ip);
+        }
 
         public CounterClient(IDprFinder dprFinder)
         {
+            // used when the Dpr Finder uses DNS for when the client is inside the cluster
+            // usually for testing purposes
             client = new DprClient(dprFinder);
-        }
-
-        public CounterClient(IDprFinder dprFinder, IDprFinder dprFinderApi)
-        {
-            client = new DprClient(dprFinder, dprFinderApi);
+            this.ip = null;
         }
         
         public CounterClientSession GetSession()
         {
-            return new(client.GetSession(Guid.NewGuid()), client.FetchCluster());
+            var fetchedClusterInfo = client.FetchCluster();
+            Dictionary<Worker, EndPoint> formattedCluster = new Dictionary<Worker, EndPoint>();
+            foreach (var (key, value) in fetchedClusterInfo)
+            {
+                formattedCluster[key] = new IPEndPoint(ip, value.Item1);
+            }
+            return new(client.GetSession(Guid.NewGuid()), formattedCluster);
         }
 
         public CounterClientSession GetSession(Dictionary<Worker, EndPoint> specifiedCluster)

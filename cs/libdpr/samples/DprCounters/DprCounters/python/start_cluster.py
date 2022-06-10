@@ -12,6 +12,7 @@ class KubernetesCluster():
 
     DEFAULT_STORAGE = "1Gi"
     SUPPORTED_SERVER_TYPES = ["counter"]
+    BASE_PORT = 6380
 
     class Server():
 
@@ -80,7 +81,11 @@ class KubernetesCluster():
             stateYaml["spec"]["selector"]["matchLabels"]["app"] += toAdd
             stateYaml["spec"]["template"]["metadata"]["labels"]["app"] += toAdd
             stateYaml["spec"]["template"]["spec"]["containers"][0]["name"] += toAdd
-
+        
+        def addPortEnvironmentVar(stateYaml, port):
+            addTemplate = {'name': 'FRONTEND_PORT', 'value': str(port)}
+            env = stateYaml["spec"]["template"]["spec"]["containers"][0]["env"]
+            env.append(addTemplate)
 
         if not counterServerService:
             counterServerService = os.path.join(self.directory, "yaml/CounterServerService.yaml")
@@ -94,6 +99,7 @@ class KubernetesCluster():
                 statefulYaml = yaml.safe_load(g.read())
             attachIdService(serviceYaml, id)
             attachIdStateful(statefulYaml, id)
+            addPortEnvironmentVar(statefulYaml, self.BASE_PORT + id)
             self.core.create_namespaced_service("default", serviceYaml)
             self.apps.create_namespaced_stateful_set("default", statefulYaml)
 
@@ -108,10 +114,9 @@ class KubernetesCluster():
         portPatch = dict()
         portPatch["data"] = dict()
         portPatch["data"]["6379"] = "default/dpr-finder-svc:3000"
-        base_number = 6380
         base_string = "default/counter-server-svc-"
         for id in range(len(self.servers)):
-            portPatch["data"][str(base_number + id)] = base_string + str(id) + ":80"
+            portPatch["data"][str(self.BASE_PORT + id)] = base_string + str(id) + ":80"
         ret = self.core.patch_namespaced_config_map("tcp-services", "ingress-nginx", portPatch)
     
     def patchIngress(self, ingressFile:str = None) -> void:
@@ -120,9 +125,8 @@ class KubernetesCluster():
         with open(ingressFile) as f:
             patch = yaml.safe_load(f.read())
         ports = patch["spec"]["template"]["spec"]["containers"][0]["ports"]
-        basePort = 6380
         for id in range(len(self.servers)):
-            ports.append({"containerPort": basePort + id, "hostPort": basePort + id})
+            ports.append({"containerPort": self.BASE_PORT + id, "hostPort": self.BASE_PORT + id})
         ret = self.apps.patch_namespaced_deployment("ingress-nginx-controller", "ingress-nginx", patch)
 
 
@@ -144,7 +148,6 @@ class KubernetesCluster():
 
 def main():
     testt = KubernetesCluster()
-    testt.addServer("counter")
     testt.addServer("counter")
     testt.addServer("counter")
     testt.start()

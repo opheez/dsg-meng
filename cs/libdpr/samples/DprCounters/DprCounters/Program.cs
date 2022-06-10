@@ -11,39 +11,61 @@ namespace DprCounters
 {
     class Program
     {
-        static void runWithoutKubernetes() 
+        static void RunWithoutKubernetes() 
         {
-            var cluster = new Cluster("127.0.0.1", 15721, "127.0.0.1", 15722);
-            Dictionary<Worker, IPEndPoint> temp = new Dictionary<Worker, IPEndPoint>();
+            // Use a simple pair of in-memory storage to back our DprFinder server for now. Start a local DPRFinder
+            // server for the cluster
+            var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
+            var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
+            var device = new PingPongDevice(localDevice1, localDevice2);
+            using var dprFinderServer = new EnhancedDprFinderServer("127.0.0.1", 15721, new EnhancedDprFinderBackend(device));
+            dprFinderServer.StartServer();
 
-            // Start two counter servers
-            cluster.AddWorker(0, "127.0.0.1", 15723);
-            cluster.AddWorker(1, "127.0.0.1", 15724);
+            var w0 = new Worker(0);
+            var w0Server = new CounterServer("127.0.0.1", 15722, new WorkerInformation(w0, 15722, 0), "worker0/",
+                new EnhancedDprFinder("127.0.0.1", 15721));
+            var w0Thread = new Thread(w0Server.RunServer);
+            w0Thread.Start();
+
+
+            var w1 = new Worker(1);
+            var w1Server = new CounterServer("127.0.0.1", 15723, new WorkerInformation(w1, 15723, 0), "worker1/",
+                new EnhancedDprFinder("127.0.0.1", 15721));
+            var w1Thread = new Thread(w1Server.RunServer);
+            w1Thread.Start();
+
+            Thread.Sleep(5000); // needs to sleep here until the cluster gets established
+            // TODO(Nikola): Handle things in the cluster being down from the client side as well so it doesn't fail
 
             // Start a client that performs some operations
-            var client = new CounterClient(new EnhancedDprFinder("127.0.0.1", 15721), new EnhancedDprFinder("127.0.0.1", 15722)); // passing the api ip/port to the client
-
+            var client = new CounterClient("127.0.0.1", 15721);
             var session = client.GetSession();            
-            var op0 = session.Increment(new Worker(0), 42, out _);
-            var op1 = session.Increment(new Worker(1), 2, out _);
-            var op2 = session.Increment(new Worker(1), 7, out _);
-            var op3 = session.Increment(new Worker(0), 10, out _);
+            var op0 = session.Increment(w0, 42, out _);
+            var op1 = session.Increment(w1, 2, out _);
+            var op2 = session.Increment(w1, 7, out _);
+            var op3 = session.Increment(w0, 10, out _);
             while (!session.Committed(op3))
                 client.RefreshDpr();
 
             // Shutdown
-            cluster.Stop();
+            w0Server.StopServer();
+            w0Thread.Join();
+            
+            w1Server.StopServer();
+            w1Thread.Join();
+            Console.WriteLine("SUCCESS");
         }
 
-        static void runCounterServer(string backendIp, int backendPort, int guid) 
+        static void RunCounterServer(string backendIp, int backendPort, int guid, int frontendPort) 
         {   
-            Worker worker = new Worker(guid);
-            var wServer = new CounterServer("0.0.0.0", 80, worker, "/DprCounters/data/worker" + guid.ToString() + "/",
+            // Worker worker = new Worker(guid);
+            WorkerInformation workerInfo = new WorkerInformation(new Worker(guid), frontendPort, 0);
+            var wServer = new CounterServer("0.0.0.0", 80, workerInfo, "/DprCounters/data/worker" + guid.ToString() + "/",
                 new EnhancedDprFinder(backendIp, backendPort));
             wServer.RunServer();
         }
 
-        static void runBackendServer()
+        static void RunBackendServer()
         {
             var localDevice1 = new ManagedLocalStorageDevice("/DprCounters/data/dpr1.dat", deleteOnClose: true);
             var localDevice2 = new ManagedLocalStorageDevice("/DprCounters/data/dpr2.dat", deleteOnClose: true);
@@ -52,7 +74,7 @@ namespace DprCounters
             backendServerFinder.StartServer();
         }
 
-        static void runClient()
+        static void RunClient()
         {
             var client = new CounterClient(new EnhancedDprFinder("dpr-finder-0.dpr-finder-svc", 3000));
             Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
@@ -70,16 +92,16 @@ namespace DprCounters
                 client.RefreshDpr();
         }
 
-        static void runClientLeft()
+        static void RunClientLeft()
         {
-            var client = new CounterClient(new EnhancedDprFinder("192.168.49.2", 6379));
+            var client = new CounterClient("192.168.49.2", 6379);
             Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
             Worker w0 = new Worker(0);
             Worker w1 = new Worker(1);
             cluster[w0] = new IPEndPoint(IPAddress.Parse("192.168.49.2"), 6380);
             cluster[w1] = new IPEndPoint(IPAddress.Parse("192.168.49.2"), 6381);
             client.RefreshDpr();
-            var session = client.GetSession(cluster);        
+            var session = client.GetSession();        
             var op0 = session.Increment(new Worker(0), 42, out _);
             var op1 = session.Increment(new Worker(1), 2, out _);
             var op2 = session.Increment(new Worker(1), 7, out _);
@@ -90,10 +112,10 @@ namespace DprCounters
 
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("TESTTTTT");
+            Console.Out.WriteLine("TEST");
             if(args.Length == 0 || args[0] == "single")
             {
-                runWithoutKubernetes();
+                RunWithoutKubernetes();
                 return;
             }
             if(args[0] == "counter")
@@ -102,23 +124,25 @@ namespace DprCounters
                 int DPR_FINDER_PORT = 3000;
                 string name = Environment.GetEnvironmentVariable("POD_NAME");
                 int guid = Int32.Parse(name.Split("-")[1]);
-                runCounterServer(DPR_FINDER_SERVICE, DPR_FINDER_PORT, guid);
+                string frontPort = Environment.GetEnvironmentVariable("FRONTEND_PORT");
+                Console.WriteLine("MY PORT: " + frontPort);
+                RunCounterServer(DPR_FINDER_SERVICE, DPR_FINDER_PORT, guid, Int32.Parse(frontPort));
                 return;
             }
             if(args[0] == "backend")
             {   
-                runBackendServer();
+                RunBackendServer();
                 return;
             }
             if(args[0] == "client")
             {
-                runClient();
+                RunClient();
                 return;
             }
             if(args[0] == "clientLeft")
             {
                 Console.WriteLine("Starting client from the outside");
-                runClientLeft();
+                RunClientLeft();
                 Console.WriteLine("SUCCESS!!!");
             }
         }

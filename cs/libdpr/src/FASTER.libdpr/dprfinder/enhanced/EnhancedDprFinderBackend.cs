@@ -120,7 +120,6 @@ namespace FASTER.libdpr
 
             recoveryStateEnd =
                 RespUtil.SerializeDictionary(workers, serializedResponse, 0);
-            // recoveryStateEnd should point to the very end, while the serializedResponse should contain everything I need
             responseEnd = recoveryStateEnd;
         }
 
@@ -234,12 +233,10 @@ namespace FASTER.libdpr
             // see if a previously persisted state is available
             if (persistentStorage.ReadLatestCompleteWrite(out var buf))
             {
-                Console.WriteLine("Second");
                 volatileClusterState = ClusterState.FromBuffer(buf, 0, out _);
             }
             else
             {
-                Console.WriteLine("First");
                 volatileClusterState = new ClusterState();
             }
 

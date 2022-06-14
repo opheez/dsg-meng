@@ -11,6 +11,8 @@ namespace DprCounters
 {
     class Program
     {
+        static string DPR_FINDER_IP = "192.168.49.2"; // equal to $(minikube ip), which is the persistent IP of the DPR Finder
+
         static void RunWithoutKubernetes() 
         {
             // Use a simple pair of in-memory storage to back our DprFinder server for now. Start a local DPRFinder
@@ -94,12 +96,12 @@ namespace DprCounters
 
         static void RunClientLeft()
         {
-            var client = new CounterClient("192.168.49.2", 6379);
+            var client = new CounterClient(DPR_FINDER_IP, 6379);
             Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
             Worker w0 = new Worker(0);
             Worker w1 = new Worker(1);
-            cluster[w0] = new IPEndPoint(IPAddress.Parse("192.168.49.2"), 6380);
-            cluster[w1] = new IPEndPoint(IPAddress.Parse("192.168.49.2"), 6381);
+            cluster[w0] = new IPEndPoint(IPAddress.Parse(DPR_FINDER_IP), 6380);
+            cluster[w1] = new IPEndPoint(IPAddress.Parse(DPR_FINDER_IP), 6381);
             client.RefreshDpr();
             var session = client.GetSession();        
             var op0 = session.Increment(new Worker(0), 42, out _);
@@ -125,7 +127,6 @@ namespace DprCounters
                 string name = Environment.GetEnvironmentVariable("POD_NAME");
                 int guid = Int32.Parse(name.Split("-")[1]);
                 string frontPort = Environment.GetEnvironmentVariable("FRONTEND_PORT");
-                Console.WriteLine("MY PORT: " + frontPort);
                 RunCounterServer(DPR_FINDER_SERVICE, DPR_FINDER_PORT, guid, Int32.Parse(frontPort));
                 return;
             }

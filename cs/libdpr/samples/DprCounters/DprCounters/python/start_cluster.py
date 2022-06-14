@@ -147,10 +147,10 @@ class KubernetesCluster():
 
 
 def main():
-    testt = KubernetesCluster()
-    testt.addServer("counter")
-    testt.addServer("counter")
-    testt.start()
+    cluster = KubernetesCluster()
+    cluster.addServer("counter")
+    cluster.addServer("counter")
+    cluster.start()
 
 if __name__ == "__main__":
     main()

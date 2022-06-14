@@ -13,6 +13,7 @@ namespace DprCounters
     {
         private DprClient client;
         private IPAddress ip;
+        Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
 
         public CounterClient(string ip, int port)
         {
@@ -27,16 +28,20 @@ namespace DprCounters
             client = new DprClient(dprFinder);
             this.ip = null;
         }
+
+        public Dictionary<Worker, EndPoint> getCluster()
+        {
+            return cluster;
+        }
         
         public CounterClientSession GetSession()
         {
             var fetchedClusterInfo = client.FetchCluster();
-            Dictionary<Worker, EndPoint> formattedCluster = new Dictionary<Worker, EndPoint>();
             foreach (var (key, value) in fetchedClusterInfo)
             {
-                formattedCluster[key] = new IPEndPoint(ip, value.Item1);
+                cluster[key] = new IPEndPoint(ip, value.Item1);
             }
-            return new(client.GetSession(Guid.NewGuid()), formattedCluster);
+            return new(client.GetSession(Guid.NewGuid()), cluster);
         }
 
         public CounterClientSession GetSession(Dictionary<Worker, EndPoint> specifiedCluster)

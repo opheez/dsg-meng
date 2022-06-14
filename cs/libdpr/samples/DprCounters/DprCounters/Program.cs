@@ -97,13 +97,11 @@ namespace DprCounters
         static void RunClientLeft()
         {
             var client = new CounterClient(DPR_FINDER_IP, 6379);
-            Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
             Worker w0 = new Worker(0);
             Worker w1 = new Worker(1);
-            cluster[w0] = new IPEndPoint(IPAddress.Parse(DPR_FINDER_IP), 6380);
-            cluster[w1] = new IPEndPoint(IPAddress.Parse(DPR_FINDER_IP), 6381);
             client.RefreshDpr();
-            var session = client.GetSession();        
+            var session = client.GetSession();
+            var cluster = client.getCluster();
             var op0 = session.Increment(new Worker(0), 42, out _);
             var op1 = session.Increment(new Worker(1), 2, out _);
             var op2 = session.Increment(new Worker(1), 7, out _);

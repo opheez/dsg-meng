@@ -26,6 +26,20 @@ To install `kubectl` you can follow [this link](https://kubernetes.io/docs/tasks
 Finally, click [here](https://www.simplilearn.com/tutorials/docker-tutorial/how-to-install-docker-on-ubuntu) for a 
 guide to installing Docker.
 
+On a machine that has all of the above installed, simply run:
+```
+./scripts/startup.sh
+```
+and your environment will be set up.
+
+After any modification to the code, or the first time you set up the environment run:
+```
+./scripts/docker_stuff.sh
+```
+
+The startup script and the docker script need to be run once per terminal window! If the image is not getting updated
+for you, it is quite likely that you are using a new terminal in which you haven't run the scripts.
+
 ## Deploying the cluster
 
 Deploying the cluster is really simple. Simply go to `python/start_cluster.py` and modify the main function. Currently,
@@ -45,6 +59,14 @@ run independently, as discussed below.
 The only required field in the `addServer()` method is the type of the server and you can only deploy supported servers.
 In addition, it is possible to many other attributes such as specify storage, memory, limits, storage location in the method.
 Running the code will then start the server for you, same as in the simple example, and there is nothing else required.
+
+An example of how to specify some of the resources would look like this:
+```
+    cluster = KubernetesCluster()
+    cluster.addServer("counter", cpu_request="100Mi", cpu_limit="1Gi", memory_request = "100Mi", memory_limit = "1Gi")
+    cluster.addServer("counter", cpu_request="200Mi", cpu_limit="2Gi", memory_request = "200Mi", memory_limit = "2Gi")
+    cluster.start()
+```
 
 ## Starting the client
 

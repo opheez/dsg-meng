@@ -1,5 +1,6 @@
 from ctypes import ArgumentError
 from posixpath import basename
+import resource
 from kubernetes import client, config
 import os
 import time
@@ -16,12 +17,14 @@ class KubernetesCluster():
 
     class Server():
 
-        def __init__(self, type:str, storage:str = None, storage_location:str = None, memory:str = None, limit:str = None):
+        def __init__(self, type:str, storage_location:str = None, storage_capacity:str = None, cpu_request:str = None, cpu_limit:str = None, memory_request:str = None, memory_limit:str = None):
             self.type = type
-            self.storage = storage
             self.storage_location = storage_location
-            self.memory = memory
-            self.limit = limit
+            self.storage_capacity = storage_capacity
+            self.cpu_request = cpu_request
+            self.cpu_limit = cpu_limit
+            self.memory_request = memory_request
+            self.memory_limit = memory_limit
 
     def __init__(self, checkpoint_dir:str = None) -> void:
         config.load_kube_config()
@@ -33,10 +36,10 @@ class KubernetesCluster():
         else:
             self.directory = "/mnt/c/Users/cetko/OneDrive/Desktop/MEng Thesis/new_faster/cs/libdpr/samples/DprCounters/DprCounters"
 
-    def addServer(self, type:str, storage:str = None, storage_location:str = None, memory:str = None, limit:str = None):
+    def addServer(self, type:str, storage_location:str = None, storage_capacity:str = None, cpu_request:str = None, cpu_limit:str = None, memory_request:str = None, memory_limit:str = None):
         if type not in self.SUPPORTED_SERVER_TYPES:
             raise ArgumentError("Unsupported server type") 
-        self.servers.append(self.Server(type, storage, storage_location, memory, limit))
+        self.servers.append(self.Server(type, storage_location, storage_capacity, cpu_request, cpu_limit, memory_request, memory_limit))
 
     def isDprFinderRunning(self) -> bool:
         all_pods = self.core.list_namespaced_pod(namespace="default")
@@ -86,6 +89,43 @@ class KubernetesCluster():
             addTemplate = {'name': 'FRONTEND_PORT', 'value': str(port)}
             env = stateYaml["spec"]["template"]["spec"]["containers"][0]["env"]
             env.append(addTemplate)
+        
+        def specifyStorage(stateYaml, server):
+            if server.storage_location:
+                stateYaml["spec"]["template"]["spec"]["containers"][0]["volumeMounts"][0]["mountPath"] = server.storage_location
+
+        def specifyStorageCapacity(stateYaml, server):
+            if server.storage_capacity:
+                stateYaml["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"] = server.storage_capacity
+
+        def specifyCpuRequest(stateYaml, server):
+            if server.cpu_request:
+                resource_path = stateYaml["spec"]["template"]["spec"]["containers"][0]
+                resource_path["resources"] = dict()
+                resource_path["resources"]["requests"] = dict()
+                resource_path["resources"]["requests"]["cpu"] = server.cpu_request
+
+        def specifyCpuLimit(stateYaml, server):
+            if server.cpu_limit:
+                resource_path = stateYaml["spec"]["template"]["spec"]["containers"][0]
+                resource_path["resources"] = dict()
+                resource_path["resources"]["limits"] = dict()
+                resource_path["resources"]["limits"]["cpu"] = server.cpu_limit
+
+        def specifyMemoryRequest(stateYaml, server):
+            if server.memory_request:
+                resource_path = stateYaml["spec"]["template"]["spec"]["containers"][0]
+                resource_path["resources"] = dict()
+                resource_path["resources"]["requests"] = dict()
+                resource_path["resources"]["requests"]["memory"] = server.memory_request
+
+        def specifyMemoryLimit(stateYaml, server):
+            if server.memory_limit:
+                resource_path = stateYaml["spec"]["template"]["spec"]["containers"][0]
+                resource_path["resources"] = dict()
+                resource_path["resources"]["limits"] = dict()
+                resource_path["resources"]["limits"]["memory"] = server.memory_limit
+
 
         if not counterServerService:
             counterServerService = os.path.join(self.directory, "yaml/CounterServerService.yaml")
@@ -100,6 +140,12 @@ class KubernetesCluster():
             attachIdService(serviceYaml, id)
             attachIdStateful(statefulYaml, id)
             addPortEnvironmentVar(statefulYaml, self.BASE_PORT + id)
+            specifyStorage(statefulYaml, server)
+            specifyStorageCapacity(statefulYaml, server)
+            specifyCpuRequest(statefulYaml, server)
+            specifyCpuLimit(statefulYaml, server)
+            specifyMemoryRequest(statefulYaml, server)
+            specifyMemoryLimit(statefulYaml, server)
             self.core.create_namespaced_service("default", serviceYaml)
             self.apps.create_namespaced_stateful_set("default", statefulYaml)
 
@@ -148,7 +194,7 @@ class KubernetesCluster():
 
 def main():
     cluster = KubernetesCluster()
-    cluster.addServer("counter")
+    cluster.addServer("counter", cpu_request="100Mi", cpu_limit="1Gi", memory_request = "100Mi", memory_limit = "1Gi")
     cluster.addServer("counter")
     cluster.start()
 

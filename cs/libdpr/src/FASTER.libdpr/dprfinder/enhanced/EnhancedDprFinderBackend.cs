@@ -207,6 +207,8 @@ namespace FASTER.libdpr
 
         private readonly PingPongDevice persistentStorage;
 
+        private readonly PingPongDevice clusterStorage;
+
         private readonly ConcurrentDictionary<WorkerVersion, List<WorkerVersion>> precedenceGraph =
             new ConcurrentDictionary<WorkerVersion, List<WorkerVersion>>();
 
@@ -227,9 +229,10 @@ namespace FASTER.libdpr
         ///     EnhancedDprFinderBackend state, the constructor will attempt to recover from it.
         /// </summary>
         /// <param name="persistentStorage"> persistent storage backing this dpr finder </param>
-        public EnhancedDprFinderBackend(PingPongDevice persistentStorage)
+        public EnhancedDprFinderBackend(PingPongDevice persistentStorage, PingPongDevice clusterStorage)
         {
             this.persistentStorage = persistentStorage;
+            this.clusterStorage = clusterStorage;
             // see if a previously persisted state is available
             if (persistentStorage.ReadLatestCompleteWrite(out var buf))
             {
@@ -239,9 +242,15 @@ namespace FASTER.libdpr
             {
                 volatileClusterState = new ClusterState();
             }
+            
+            if(this.clusterStorage.ReadLatestCompleteWrite(out var buffer))
+            {
+                RespUtil.ReadDictionaryFromBytes(buffer, 0, workers);
+            }
 
             syncResponse = new PrecomputedSyncResponse(volatileClusterState);
             recoveryState = new RecoveryState(this);
+            configResponse = new ConfigurationResponse(workers);
         }
 
         // Try to commit a single worker version by chasing through its dependencies
@@ -480,6 +489,7 @@ namespace FASTER.libdpr
 
             workers[workerInfo.worker] = (workerInfo.port, workerInfo.type);
             configResponse = new ConfigurationResponse(workers);
+            clusterStorage.WriteReliably(configResponse.serializedResponse, 0, configResponse.responseEnd);
 
             return result;
         }
@@ -509,6 +519,7 @@ namespace FASTER.libdpr
             versionTable.TryRemove(worker, out _);
             workers.Remove(worker);
             configResponse = new ConfigurationResponse(workers);
+            clusterStorage.WriteReliably(configResponse.serializedResponse, 0, configResponse.responseEnd);
         }
 
         /// <summary></summary>

@@ -251,7 +251,6 @@ namespace FASTER.libdpr
 
         internal static int SerializeDictionary(IDictionary<Worker, EndPoint> workers, byte[] buf, int head)
         {
-            // method used to FetchCluster w/out K8s. Will be reworked to be functional very soon
             if (head + DictionarySerializedSize(workers) > buf.Length) return 0;
             Utility.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), workers.Count);
             head += sizeof(int);
@@ -299,6 +298,24 @@ namespace FASTER.libdpr
                 var type = BitConverter.ToInt32(buf, head);
                 head += sizeof(int);
                 result[new Worker(workerId)] = (port, intToType[type]);
+            }
+
+            return head;
+        }
+
+        public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<Worker, (int, int)> result)
+        {
+            var size = BitConverter.ToInt32(buf, head);
+            head += sizeof(int);
+            for (var i = 0; i < size; i++)
+            {
+                var workerId = BitConverter.ToInt64(buf, head);
+                head += sizeof(long);
+                var port = BitConverter.ToInt32(buf, head);
+                head += sizeof(int);
+                var type = BitConverter.ToInt32(buf, head);
+                head += sizeof(int);
+                result[new Worker(workerId)] = (port, type);
             }
 
             return head;

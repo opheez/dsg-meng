@@ -19,8 +19,11 @@ namespace DprCounters
             // server for the cluster
             var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
             var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
+            var localDeviceCluster1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
+            var localDeviceCluster2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
             var device = new PingPongDevice(localDevice1, localDevice2);
-            using var dprFinderServer = new EnhancedDprFinderServer("127.0.0.1", 15721, new EnhancedDprFinderBackend(device));
+            var deviceCluster = new PingPongDevice(localDevice1, localDevice2);
+            using var dprFinderServer = new EnhancedDprFinderServer("127.0.0.1", 15721, new EnhancedDprFinderBackend(device, deviceCluster));
             dprFinderServer.StartServer();
 
             var w0 = new Worker(0);
@@ -71,8 +74,11 @@ namespace DprCounters
         {
             var localDevice1 = new ManagedLocalStorageDevice("/DprCounters/data/dpr1.dat", deleteOnClose: true);
             var localDevice2 = new ManagedLocalStorageDevice("/DprCounters/data/dpr2.dat", deleteOnClose: true);
+            var localDeviceCluster1 = new ManagedLocalStorageDevice("/DprCounters/data/cluster1.dat", deleteOnClose: true);
+            var localDeviceCluster2 = new ManagedLocalStorageDevice("/DprCounters/data/cluster2.dat", deleteOnClose: true);
             var device = new PingPongDevice(localDevice1, localDevice2);
-            EnhancedDprFinderServer backendServerFinder = new EnhancedDprFinderServer("0.0.0.0", 3000, new EnhancedDprFinderBackend(device));
+            var deviceCluster = new PingPongDevice(localDeviceCluster1, localDeviceCluster2);
+            EnhancedDprFinderServer backendServerFinder = new EnhancedDprFinderServer("0.0.0.0", 3000, new EnhancedDprFinderBackend(device, deviceCluster));
             backendServerFinder.StartServer();
         }
 
@@ -113,7 +119,14 @@ namespace DprCounters
         static void Main(string[] args)
         {
             Console.Out.WriteLine("TEST");
-            if(args.Length == 0 || args[0] == "single")
+            if(args.Length == 0 || args[0] == "clientLeft")
+            {
+                Console.WriteLine("Starting client from the outside");
+                RunClientLeft();
+                Console.WriteLine("SUCCESS!!!");
+                return;
+            }
+            if(args[0] == "single")
             {
                 RunWithoutKubernetes();
                 return;
@@ -137,12 +150,6 @@ namespace DprCounters
             {
                 RunClient();
                 return;
-            }
-            if(args[0] == "clientLeft")
-            {
-                Console.WriteLine("Starting client from the outside");
-                RunClientLeft();
-                Console.WriteLine("SUCCESS!!!");
             }
         }
     }

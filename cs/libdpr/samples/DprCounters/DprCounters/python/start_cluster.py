@@ -194,7 +194,7 @@ class KubernetesCluster():
 
 def main():
     cluster = KubernetesCluster()
-    cluster.addServer("counter", cpu_request="100Mi", cpu_limit="1Gi", memory_request = "100Mi", memory_limit = "1Gi")
+    cluster.addServer("counter")
     cluster.addServer("counter")
     cluster.start()
 

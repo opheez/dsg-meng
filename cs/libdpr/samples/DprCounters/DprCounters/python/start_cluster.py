@@ -15,7 +15,12 @@ class KubernetesCluster():
     SUPPORTED_SERVER_TYPES = ["counter"]
     BASE_PORT = 6380
     LOCAL_DIRECTORY = "/mnt/c/Users/cetko/OneDrive/Desktop/MEng Thesis/new_faster/cs/libdpr/samples/DprCounters/DprCounters"
+    LOCAL_IMAGE = "cetko24/meng_project"
+    LOCAL_POLICY = "Never"
     AZURE_DIRECTORY = "/home/nikola/FASTER/cs/libdpr/samples/DprCounters/DprCounters"
+    AZURE_IMAGE = "nikolameng.azurecr.io/meng"
+    AZURE_POLICY = "Always"
+
 
     class Server():
 
@@ -33,6 +38,7 @@ class KubernetesCluster():
         self.core = client.CoreV1Api()
         self.apps = client.AppsV1Api()
         self.servers = []
+        self.azure = azure
         if checkpoint_dir:
             self.directory = checkpoint_dir
         else:
@@ -53,6 +59,17 @@ class KubernetesCluster():
                 return pod.status.phase == "Running"
 
     def startDprFinder(self, dprPath:str = None) -> void:
+
+        def specifyImage(dprYaml):
+            containersList = dprYaml["spec"]["template"]["spec"]["containers"]
+            if self.azure:
+                containersList[0]["image"] = self.AZURE_IMAGE
+                containersList[0]["imagePullPolicy"] = self.AZURE_POLICY
+            else:
+                containersList[0]["image"] = self.LOCAL_IMAGE
+                containersList[0]["imagePullPolicy"] = self.LOCAL_POLICY
+
+
         if not dprPath:
             dprPath = os.path.join(self.directory, "yaml/DprFinder.yaml")
         with open(dprPath) as f:
@@ -62,6 +79,7 @@ class KubernetesCluster():
             if k==0:
                 self.core.create_namespaced_service("default", yaml_doc)
             elif k==1:
+                specifyImage(yaml_doc)
                 self.apps.create_namespaced_stateful_set("default", yaml_doc)
             else:
                 raise ArgumentError("The yaml file provided is wrongly formatted")
@@ -131,6 +149,15 @@ class KubernetesCluster():
                 resource_path["resources"]["limits"] = dict()
                 resource_path["resources"]["limits"]["memory"] = server.memory_limit
 
+        def specifyImage(stateYaml):
+            containersList = stateYaml["spec"]["template"]["spec"]["containers"]
+            if self.azure:
+                containersList[0]["image"] = self.AZURE_IMAGE
+                containersList[0]["imagePullPolicy"] = self.AZURE_POLICY
+            else:
+                containersList[0]["image"] = self.LOCAL_IMAGE
+                containersList[0]["imagePullPolicy"] = self.LOCAL_POLICY
+
 
         if not counterServerService:
             counterServerService = os.path.join(self.directory, "yaml/CounterServerService.yaml")
@@ -151,6 +178,7 @@ class KubernetesCluster():
             specifyCpuLimit(statefulYaml, server)
             specifyMemoryRequest(statefulYaml, server)
             specifyMemoryLimit(statefulYaml, server)
+            specifyImage(statefulYaml)
             self.core.create_namespaced_service("default", serviceYaml)
             self.apps.create_namespaced_stateful_set("default", statefulYaml)
 

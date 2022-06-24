@@ -12,7 +12,7 @@ namespace FASTER.libdpr
     public static class Extensions
     {
         private static readonly bool debugging = true;
-        private static readonly bool distributed = false;
+        private static readonly bool distributed = true;
         public static int ReceiveFailFast(this Socket conn, byte[] buffer)
         {
             int result = conn.Receive(buffer);

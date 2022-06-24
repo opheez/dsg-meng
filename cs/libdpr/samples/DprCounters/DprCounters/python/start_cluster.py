@@ -1,4 +1,5 @@
 from ctypes import ArgumentError
+from http import server
 from posixpath import basename
 import resource
 from kubernetes import client, config
@@ -14,6 +15,7 @@ class KubernetesCluster():
     DEFAULT_STORAGE = "1Gi"
     SUPPORTED_SERVER_TYPES = ["counter"]
     BASE_PORT = 6380
+    BASE_AZURE_PORT = 31101
     LOCAL_DIRECTORY = "/mnt/c/Users/cetko/OneDrive/Desktop/MEng Thesis/new_faster/cs/libdpr/samples/DprCounters/DprCounters"
     LOCAL_IMAGE = "cetko24/meng_project"
     LOCAL_POLICY = "Never"
@@ -192,11 +194,11 @@ class KubernetesCluster():
     def patchConfigMap(self) -> void:
         portPatch = dict()
         portPatch["data"] = dict()
-        portPatch["data"]["6379"] = "default/dpr-finder-svc:3000"
+        portPatch["data"][str(self.BASE_PORT - 1)] = "default/dpr-finder-svc:3000"
         base_string = "default/counter-server-svc-"
         for id in range(len(self.servers)):
             portPatch["data"][str(self.BASE_PORT + id)] = base_string + str(id) + ":80"
-        ret = self.core.patch_namespaced_config_map("tcp-services", "ingress-nginx", portPatch)
+        self.core.patch_namespaced_config_map("tcp-services", "ingress-nginx", portPatch)
     
     def patchIngress(self, ingressFile:str = None) -> void:
         if not ingressFile:
@@ -206,7 +208,18 @@ class KubernetesCluster():
         ports = patch["spec"]["template"]["spec"]["containers"][0]["ports"]
         for id in range(len(self.servers)):
             ports.append({"containerPort": self.BASE_PORT + id, "hostPort": self.BASE_PORT + id})
-        ret = self.apps.patch_namespaced_deployment("ingress-nginx-controller", "ingress-nginx", patch)
+        self.apps.patch_namespaced_deployment("ingress-nginx-controller", "ingress-nginx", patch)
+
+    def patchIngressServer(self) -> void:
+        serverPatch = dict()
+        serverPatch["spec"] = dict()
+        serverPatch["spec"]["ports"] = []
+        dprAddition = {"nodePort": self.BASE_AZURE_PORT - 1, "port": self.BASE_PORT-1, "name": "dpr-port"}
+        serverPatch["spec"]["ports"].append(dprAddition)
+        for id in range(len(self.servers)):
+            serverPatch.append({"nodePort": self.BASE_AZURE_PORT + id, "port": self.BASE_PORT + id, "name": "server-port-" + str(id)})
+        ret = self.core.patch_namespaced_service("ingress-nginx-controller", "ingress-nginx", serverPatch)
+        print(ret)
 
 
     def stopCluster(self) -> void:
@@ -219,6 +232,8 @@ class KubernetesCluster():
             time.sleep(1)
         self.patchConfigMap()
         self.patchIngress()
+        if self.azure:
+            self.patchIngressServer()
         self.startCounterServers()
     
     def testing(self) -> void:

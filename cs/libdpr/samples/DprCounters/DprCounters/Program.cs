@@ -82,7 +82,7 @@ namespace DprCounters
             backendServerFinder.StartServer();
         }
 
-        static void RunClient()
+        static void RunClientRight()
         {
             var client = new CounterClient(new EnhancedDprFinder("dpr-finder-0.dpr-finder-svc", 3000));
             Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
@@ -100,7 +100,7 @@ namespace DprCounters
                 client.RefreshDpr();
         }
 
-        static void RunClientLeft()
+        static void RunClient()
         {
             var client = new CounterClient(DPR_FINDER_IP, 6379);
             Worker w0 = new Worker(0);
@@ -119,10 +119,10 @@ namespace DprCounters
         static void Main(string[] args)
         {
             Console.Out.WriteLine("TEST");
-            if(args.Length == 0 || args[0] == "clientLeft")
+            if(args.Length == 0 || args[0] == "client")
             {
                 Console.WriteLine("Starting client from the outside");
-                RunClientLeft();
+                RunClient();
                 Console.WriteLine("SUCCESS!!!");
                 return;
             }
@@ -146,9 +146,9 @@ namespace DprCounters
                 RunBackendServer();
                 return;
             }
-            if(args[0] == "client")
+            if(args[0] == "clientRight")
             {
-                RunClient();
+                RunClientRight();
                 return;
             }
         }

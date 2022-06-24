@@ -14,6 +14,8 @@ class KubernetesCluster():
     DEFAULT_STORAGE = "1Gi"
     SUPPORTED_SERVER_TYPES = ["counter"]
     BASE_PORT = 6380
+    LOCAL_DIRECTORY = "/mnt/c/Users/cetko/OneDrive/Desktop/MEng Thesis/new_faster/cs/libdpr/samples/DprCounters/DprCounters"
+    AZURE_DIRECTORY = "/home/nikola/FASTER/cs/libdpr/samples/DprCounters/DprCounters"
 
     class Server():
 
@@ -26,7 +28,7 @@ class KubernetesCluster():
             self.memory_request = memory_request
             self.memory_limit = memory_limit
 
-    def __init__(self, checkpoint_dir:str = None) -> void:
+    def __init__(self, checkpoint_dir:str = None, azure:bool = False) -> void:
         config.load_kube_config()
         self.core = client.CoreV1Api()
         self.apps = client.AppsV1Api()
@@ -34,7 +36,10 @@ class KubernetesCluster():
         if checkpoint_dir:
             self.directory = checkpoint_dir
         else:
-            self.directory = "/mnt/c/Users/cetko/OneDrive/Desktop/MEng Thesis/new_faster/cs/libdpr/samples/DprCounters/DprCounters"
+            if azure:
+                self.directory = self.AZURE_DIRECTORY
+            else:
+                self.directory = self.LOCAL_DIRECTORY
 
     def addServer(self, type:str, storage_location:str = None, storage_capacity:str = None, cpu_request:str = None, cpu_limit:str = None, memory_request:str = None, memory_limit:str = None):
         if type not in self.SUPPORTED_SERVER_TYPES:
@@ -193,7 +198,7 @@ class KubernetesCluster():
 
 
 def main():
-    cluster = KubernetesCluster()
+    cluster = KubernetesCluster(azure=False)
     cluster.addServer("counter")
     cluster.addServer("counter")
     cluster.start()

@@ -11,7 +11,8 @@ namespace DprCounters
 {
     class Program
     {
-        static string DPR_FINDER_IP = "192.168.49.2"; // equal to $(minikube ip), which is the persistent IP of the DPR Finder
+        static string DPR_FINDER_IP = "20.223.12.243"; // equal to $(minikube ip), which is the persistent IP of the DPR Finder
+        // or equal to the external IP of our Kubernetes Cluster
 
         static void RunWithoutKubernetes() 
         {

@@ -217,7 +217,7 @@ class KubernetesCluster():
         dprAddition = {"nodePort": self.BASE_AZURE_PORT - 1, "port": self.BASE_PORT-1, "name": "dpr-port"}
         serverPatch["spec"]["ports"].append(dprAddition)
         for id in range(len(self.servers)):
-            serverPatch.append({"nodePort": self.BASE_AZURE_PORT + id, "port": self.BASE_PORT + id, "name": "server-port-" + str(id)})
+            serverPatch["spec"]["ports"].append({"nodePort": self.BASE_AZURE_PORT + id, "port": self.BASE_PORT + id, "name": "server-port-" + str(id)})
         ret = self.core.patch_namespaced_service("ingress-nginx-controller", "ingress-nginx", serverPatch)
         print(ret)
 

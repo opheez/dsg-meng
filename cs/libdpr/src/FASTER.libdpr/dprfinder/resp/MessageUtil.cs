@@ -39,7 +39,7 @@ namespace FASTER.libdpr
             var committedVersion = new WorkerVersion(worker, minVersion == long.MaxValue ? 0 : minVersion);
             head += RespUtil.WriteRedisBulkString(committedVersion, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Extensions.LogDebug(serverLog, String.Format("#######\nNew NewCheckpoint Request:\n{0}", requestSent));
+            Utility.LogDebug(serverLog, String.Format("#######\nNew GRAPH_RESENT Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             return ++numRequests;
         }
@@ -52,7 +52,7 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("AddWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(workerInfo, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -64,9 +64,9 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("DeleteWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(worker.guid, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Extensions.LogDebug(serverLog, String.Format("#######\nRequest id: \nNew Request:\n{0}", requestSent));
+            Utility.LogDebug(serverLog, String.Format("#######\nRequest id: \nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
-            Extensions.LogDebug(serverLog, "Delete Worker sent");
+            Utility.LogDebug(serverLog, "Delete Worker sent");
             reusableMessageBuffers.Return(buf);
         }
 
@@ -80,7 +80,7 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(checkpointed, buf, head);
             head += RespUtil.WriteRedisBulkString(deps, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -94,7 +94,7 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(recovered, buf, head);
             head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Extensions.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
@@ -223,12 +223,12 @@ namespace FASTER.libdpr
                 connState.bytesRead += e.BytesTransferred;
                 string receivedFrom = ((IPEndPoint)connState.socket.RemoteEndPoint).Address.ToString();
                 string receivedBufferRaw = Encoding.ASCII.GetString(e.Buffer, connState.readHead, connState.bytesRead - connState.readHead);
-                Extensions.LogDebug(connStateLog, String.Format("##########\nSender:{0}\nMessage Received:\n{1}", receivedFrom, receivedBufferRaw));
+                Utility.LogDebug(connStateLog, String.Format("##########\nSender:{0}\nMessage Received:\n{1}", receivedFrom, receivedBufferRaw));
                 for (; connState.readHead < connState.bytesRead; connState.readHead++)
                 {
                     if (connState.parser.ProcessChar(connState.readHead, e.Buffer))
                     {
-                        Extensions.LogDebug(connStateLog, "Full Message Found");
+                        Utility.LogDebug(connStateLog, "Full Message Found");
                         connState.commandHandler(connState.parser.currentCommand, connState.socket);
                         connState.commandStart = connState.readHead + 1;
                     }

@@ -231,6 +231,7 @@ namespace FASTER.libdpr
         /// <param name="persistentStorage"> persistent storage backing this dpr finder </param>
         public EnhancedDprFinderBackend(PingPongDevice persistentStorage, PingPongDevice clusterStorage)
         {
+            Thread.Sleep(25000);
             this.persistentStorage = persistentStorage;
             this.clusterStorage = clusterStorage;
             // see if a previously persisted state is available
@@ -461,7 +462,7 @@ namespace FASTER.libdpr
             if (!recoveryState.RecoveryComplete()) throw new InvalidOperationException();
 
             versionTable.TryAdd(workerInfo.worker, 0);
-            Extensions.LogBasic(basicLog, "Worker added. Id: " + workerInfo.worker.guid.ToString());
+            Utility.LogBasic(basicLog, "Worker added. Id: " + workerInfo.worker.guid.ToString());
             (long, long) result;
             if (volatileClusterState.worldLinePrefix.TryAdd(workerInfo.worker, 0))
             {
@@ -602,7 +603,7 @@ namespace FASTER.libdpr
 
                 // Only mark recovery complete after we have reached that conclusion
                 recoveryComplete = true;
-                Extensions.LogBasic(basicLog, "Recovery Complete");
+                Utility.LogBasic(basicLog, "Recovery Complete");
             }
         }
     }

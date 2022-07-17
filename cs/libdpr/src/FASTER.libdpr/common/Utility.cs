@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 
 namespace FASTER.libdpr
@@ -58,7 +60,38 @@ namespace FASTER.libdpr
             dictionary.Add(key, value);
             return true;
         }
-
 #endif
+
+        private static readonly bool debugging = true;
+        private static readonly bool distributed = true;
+        public static int ReceiveFailFast(this Socket conn, byte[] buffer)
+        {
+            int result = conn.Receive(buffer);
+            if(result == 0)
+                throw new SocketException(32);
+            return result;
+        }
+
+        private static void Write(string file, string text)
+        {
+                using (TextWriter tw = TextWriter.Synchronized(File.AppendText(file)))
+                {
+                    tw.WriteLine(text);
+                }
+        }
+
+        public static void LogDebug(string file, string text)
+        {
+            if(debugging && distributed)
+            {
+                Write(file, text);
+            }
+        }
+
+        public static void LogBasic(string file, string text)
+        {
+            if(distributed)
+                Write(file, text);
+        }
     }
 }

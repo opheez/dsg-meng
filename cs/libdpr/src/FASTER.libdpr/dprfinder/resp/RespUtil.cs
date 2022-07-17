@@ -11,7 +11,7 @@ namespace FASTER.libdpr
                                                             {
                                                                 {"counter", 0}
                                                             };
-
+        // TODO(Nikola): Use strings for types directly instead of ints in FetchCLuster()
         private static readonly Dictionary<int, string> intToType = new Dictionary<int, string>
                                                             {
                                                                 {0, "counter"}
@@ -59,7 +59,7 @@ namespace FASTER.libdpr
         internal static int WriteRedisBulkString(string val, byte[] buf, int offset)
         {
             var head = offset;
-            if (head + 1 >= buf.Length) return 0;
+            if (head + 1 >= buf.Length) { Console.WriteLine("REACHED THE LIMIT"); return 0; }
             buf[head++] = (byte) '$';
 
             var size = LongToDecimalString(val.Length, buf, head);

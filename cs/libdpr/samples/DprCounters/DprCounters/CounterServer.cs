@@ -44,7 +44,7 @@ namespace DprCounters
         public void RunServer()
         {
             dprServer.ConnectToCluster();
-            Extensions.LogBasic(basicLog, "Server started");
+            Utility.LogBasic(basicLog, "Server started");
 
             termination = new ManualResetEventSlim();
             // DprServer must be continually refreshed and checkpointed for the system to make progress. It is easiest
@@ -68,7 +68,7 @@ namespace DprCounters
                     {
                         // these shouldn't happen, logging them if they do
                         string s = "New Error Occured:\n" + e.ToString() + "\n###################";
-                        FASTER.libdpr.Extensions.LogDebug(errorLog, s);
+                        FASTER.libdpr.Utility.LogDebug(errorLog, s);
                         throw e; // throwing e so that we indeed fail, sometimes beneficial to remove when debugging
                     }
                 }
@@ -128,7 +128,7 @@ namespace DprCounters
                     dprServer.StateObject().value +=
                         BitConverter.ToInt64(new Span<byte>(inBuffer, sizeof(int) + size - sizeof(long), sizeof(long)));
                     string updateString = "New value update:\nOld value: " + result.ToString() + "\nNew value: " + dprServer.StateObject().value.ToString();
-                    Extensions.LogBasic(basicLog, updateString);
+                    Utility.LogBasic(basicLog, updateString);
                     
                     // Once requests are done executing, stop protecting this batch so DPR can progress
                     dprServer.StateObject().VersionScheme().Leave();

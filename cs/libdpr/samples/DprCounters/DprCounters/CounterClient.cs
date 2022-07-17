@@ -12,46 +12,40 @@ namespace DprCounters
     public class CounterClient
     {
         private DprClient client;
-        private IPAddress ip;
+        private IPAddress clusterIp;
         Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
 
-        public CounterClient(string ip, int port)
+        public CounterClient(IDprFinder dprFinder, string ip)
         {
-            client = new DprClient(new EnhancedDprFinder(ip, port));
-            this.ip = IPAddress.Parse(ip);
-        }
-
-        public CounterClient(IDprFinder dprFinder)
-        {
-            // used when the Dpr Finder uses DNS for when the client is inside the cluster
-            // usually for testing purposes
             client = new DprClient(dprFinder);
-            this.ip = null;
+            this.clusterIp = IPAddress.Parse(ip);
         }
 
-        public Dictionary<Worker, EndPoint> getCluster()
+        public Dictionary<Worker, EndPoint> GetCluster()
         {
             return cluster;
         }
         
-        public CounterClientSession GetSession()
+        private void FetchCluster()
         {
+            cluster = new Dictionary<Worker, EndPoint>();
             var fetchedClusterInfo = client.FetchCluster();
             foreach (var (key, value) in fetchedClusterInfo)
             {
-                cluster[key] = new IPEndPoint(ip, value.Item1);
+                cluster[key] = new IPEndPoint(clusterIp, value.Item1);
             }
-            return new(client.GetSession(Guid.NewGuid()), cluster);
         }
 
-        public CounterClientSession GetSession(Dictionary<Worker, EndPoint> specifiedCluster)
-        {
-            return new(client.GetSession(Guid.NewGuid()), specifiedCluster);
+        public CounterClientSession GetSession()
+        {   
+            FetchCluster();
+            return new(client.GetSession(Guid.NewGuid()), cluster);
         }
 
         public void RefreshDpr()
         {
             client.RefreshDprView();
+            // FetchCluster();
         }
     }
 }

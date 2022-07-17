@@ -39,6 +39,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: FRONTEND_PORT
+          value: "6380"
         volumeMounts:
         - name: counter-storage
           mountPath: /DprCounters/data
@@ -92,6 +94,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: FRONTEND_PORT
+          value: "6381"
         volumeMounts:
         - name: counter-storage
           mountPath: /DprCounters/data

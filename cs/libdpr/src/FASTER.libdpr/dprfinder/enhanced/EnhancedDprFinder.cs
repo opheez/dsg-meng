@@ -30,7 +30,7 @@ namespace FASTER.libdpr
         {
             this.ip = ip;
             this.port = port;
-            ResetDprFinderConn();
+            ResetUntilConnected();
             Console.WriteLine("CONNECTED");
         }
 
@@ -57,6 +57,22 @@ namespace FASTER.libdpr
             } catch (Exception)
             {
                 return;
+            }
+        }
+
+        private void ResetUntilConnected()
+        {
+            bool connected = false;
+            while(!connected)
+            {
+                try
+                {
+                    ResetDprFinderConn();
+                    connected = true;
+                } catch (Exception)
+                {
+
+                }
             }
         }
 
@@ -109,7 +125,7 @@ namespace FASTER.libdpr
                         RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
                     }
                 } catch (SocketException) {
-                    ResetDprFinderConnSafe();
+                    ResetUntilConnected();
                     return false;
                 }
             }
@@ -130,8 +146,8 @@ namespace FASTER.libdpr
                     return result;
                 } catch (SocketException) 
                 {
-                    ResetDprFinderConnSafe();
-                    return null;
+                    ResetUntilConnected();
+                    return FetchCluster();
                 }
             }
         }
@@ -145,11 +161,17 @@ namespace FASTER.libdpr
         {
             lock (this)
             {
-                var acks = dprFinderConn.SendGraphReconstruction(worker, stateObject);
-                // Wait for all of the sent commands to be acked
-                var received = 0;
-                while (received < acks * 5) {
-                    received += dprFinderConn.ReceiveFailFast(recvBuffer);
+                try {
+                    var acks = dprFinderConn.SendGraphReconstruction(worker, stateObject);
+                    // Wait for all of the sent commands to be acked
+                    var received = 0;
+                    while (received < acks * 5) {
+                        received += dprFinderConn.ReceiveFailFast(recvBuffer);
+                    }
+                } catch (SocketException)
+                {
+                    ResetUntilConnected();
+                    ResendGraph(worker, stateObject);
                 }
             }
         }
@@ -160,11 +182,18 @@ namespace FASTER.libdpr
                 ResendGraph(workerInfo.worker, stateObject);
             lock (this)
             {
-                dprFinderConn.SendAddWorkerCommand(workerInfo);
-                ProcessRespResponse();
-                lastKnownClusterState ??= new ClusterState();
-                lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
-                return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));
+                try
+                {
+                    dprFinderConn.SendAddWorkerCommand(workerInfo);
+                    ProcessRespResponse();
+                    lastKnownClusterState ??= new ClusterState();
+                    lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
+                    return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));
+                } catch (SocketException)
+                {
+                    ResetUntilConnected();
+                    return NewWorker(workerInfo, stateObject);
+                }
             }
         }
 

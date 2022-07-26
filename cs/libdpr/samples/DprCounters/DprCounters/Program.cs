@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Threading;
 using FASTER.core;
@@ -11,8 +11,8 @@ namespace DprCounters
 {
     class Program
     {
-        static string DPR_FINDER_IP = "20.223.12.243"; // equal to $(minikube ip), which is the persistent IP of the DPR Finder
-        // static string DPR_FINDER_IP = "192.168.49.2";
+        // static string DPR_FINDER_IP = "20.223.12.243"; // equal to $(minikube ip), which is the persistent IP of the DPR Finder
+        static string DPR_FINDER_IP = "192.168.49.2";
         static int DPR_FINDER_PORT_EXTERNAL = 6379;
         // or equal to the external IP of our Kubernetes Cluster
 
@@ -85,6 +85,60 @@ namespace DprCounters
             backendServerFinder.StartServer();
         }
 
+        static long SafeIncrement(CounterClientSession session, CounterClient client, Worker w, long amount, out long result)
+        {
+            long op = -1;
+            while(true)
+            {
+                try
+                {
+                    op = session.Increment(w, amount, out result);
+                    if(op == -1)
+                    {
+                        client.RefreshDpr();
+                        continue;
+                    }
+                    break;
+                } catch (SocketException)
+                {
+                } catch (DprRollbackException)
+                {
+                }
+            }
+            while(!session.Committed(op))
+            {
+                try
+                {
+                    client.RefreshDpr();
+                } catch (DprRollbackException)
+                {
+                }
+            }
+            return op;
+        }
+
+        static void IntenseClient()
+        {
+            var client = new CounterClient(new EnhancedDprFinder(DPR_FINDER_IP, DPR_FINDER_PORT_EXTERNAL), DPR_FINDER_IP);
+            client.RefreshDpr();
+            var session = client.GetSession();
+            var cluster = client.GetCluster();
+            List<Worker> clusterWorkers = new List<Worker>(cluster.Keys);
+            long target = 70000;
+            long current = 0;
+            Random rnd = new Random();
+            while(current < target)
+            {
+                long increment = rnd.NextInt64(1, Math.Min(target-current, 1500));
+                for(int i = 0; i < clusterWorkers.Count; i++)
+                {
+                    SafeIncrement(session, client, clusterWorkers[i], increment, out _);
+                }
+                current += increment;
+                Console.WriteLine("AMOUNT LEFT: " + (target - current).ToString());
+            }
+        }
+
         static void RunClient()
         {
             var client = new CounterClient(new EnhancedDprFinder(DPR_FINDER_IP, DPR_FINDER_PORT_EXTERNAL), DPR_FINDER_IP);
@@ -92,17 +146,20 @@ namespace DprCounters
             var session = client.GetSession();
             var cluster = client.GetCluster();
             List<Worker> clusterWorkers = new List<Worker>(cluster.Keys);
-            var op0 = session.Increment(clusterWorkers[0], 42, out _);
-            var op1 = session.Increment(clusterWorkers[1], 2, out _);
-            var op2 = session.Increment(clusterWorkers[1], 7, out _);
-            var op3 = session.Increment(clusterWorkers[0], 10, out _);
+            var op0 = session.Increment(clusterWorkers[1], 42, out _);
+            var op1 = session.Increment(clusterWorkers[0], 2, out _);
+            var op2 = session.Increment(clusterWorkers[0], 7, out _);
+            var op3 = session.Increment(clusterWorkers[1], 10, out _);
+            Console.WriteLine("op0: " + op0.ToString() + "op1: " + op1.ToString() + "op2: " + op2.ToString() + "op3: " + op3.ToString());
             while (!session.Committed(op3))
+            {
                 client.RefreshDpr();
+            }
         }
 
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("TESTTRRRRRRTT");
+            Console.Out.WriteLine("TESTRTRTRT");
             if(args.Length == 0 || args[0] == "client")
             {
                 Console.WriteLine("Starting client from the outside");
@@ -128,6 +185,13 @@ namespace DprCounters
             if(args[0] == "backend")
             {   
                 RunBackendServer();
+                return;
+            }
+            if(args[0] == "test")
+            {   
+                Console.WriteLine("Intense Client Starting");
+                IntenseClient();
+                Console.WriteLine("Intense Client Success!");
                 return;
             }
         }

@@ -77,13 +77,6 @@ namespace FASTER.libdpr
         {
             state.dprFinder.Refresh(); // added a refresh here so that we can have the lastknowncut ready to go
             var v = state.dprFinder.NewWorker(state.me, stateObject);
-            if(v == -1)
-            {
-                // Scenario where we try to connect while the DPR Finder is down, or it suddenly goes down
-                // I know we don't love recursion, but wasn't sure what else to do
-                Thread.Sleep(1000);
-                ConnectToCluster();
-            }
             if (v != 0)
             {
                 // If worker is recovering from failure, need to load a previous checkpoint

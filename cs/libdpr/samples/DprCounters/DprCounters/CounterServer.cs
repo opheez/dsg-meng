@@ -61,6 +61,7 @@ namespace DprCounters
                     }
                     catch (SocketException)
                     {
+                        Console.WriteLine("still catching exception");
                         // means the Dpr Finder failed and we are trying to reconnect to it
                         // fine to ignore
                     } 
@@ -99,7 +100,7 @@ namespace DprCounters
                 while (receivedBytes < sizeof(int))
                     receivedBytes += conn.Receive(inBuffer, receivedBytes, inBuffer.Length - receivedBytes,
                         SocketFlags.None);
-
+                //TODO(Nikola): Do the courtesy zero thing like we do at other places here
                 var size = BitConverter.ToInt32(inBuffer);
                 // Receive the combined message.
                 while (receivedBytes < size + sizeof(int))

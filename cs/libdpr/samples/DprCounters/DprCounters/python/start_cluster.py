@@ -2,8 +2,11 @@ from ctypes import ArgumentError
 from http import server
 from posixpath import basename
 import resource
+from venv import create
 from kubernetes import client, config
 import os
+import random
+import sys
 import time
 from numpy import void
 
@@ -226,8 +229,8 @@ class KubernetesCluster():
 
     def start(self) -> void:
         self.startDprFinder()
-        while not self.isDprFinderRunning():
-            time.sleep(1)
+        # while not self.isDprFinderRunning():
+        #     time.sleep(1)
         self.patchConfigMap()
         self.patchIngress()
         if self.azure:
@@ -237,12 +240,36 @@ class KubernetesCluster():
     def testing(self) -> void:
         pass
 
-
-def main():
+def startCluster():
     cluster = KubernetesCluster(azure=False)
     cluster.addServer("counter")
     cluster.addServer("counter")
     cluster.start()
+
+def isPodRunning(core, pod_name):
+    all_pods = core.list_namespaced_pod(namespace="default")
+    for pod in all_pods.items:
+        if pod.metadata.name == pod_name:
+            return pod.status.container_statuses is not None and pod.status.container_statuses[0].state.waiting is None
+
+def createChaosManual():
+    kills = ["counter-0-0", "counter-1-0", "dpr-finder-0"]
+    while True:
+        time.sleep(1)
+        i = random.randint(0, 2)
+        print("Killing pod: " + kills[i])
+        core = client.CoreV1Api()
+        # core.delete_namespaced_pod(kills[i], "default")
+        while not isPodRunning(core, kills[i]):
+            time.sleep(0.1)
+
+
+def main():
+    startCluster()
+    time.sleep(1)
+    createChaosManual()
+    # while True:
+    #     isPodRunning(client.CoreV1Api(), "dpr-finder-0")
 
 if __name__ == "__main__":
     main()

@@ -9,6 +9,16 @@ from numpy import void
 
 import yaml
 
+class Server():
+
+    def __init__(self, type:str, storage_location:str = None, storage_capacity:str = None, cpu_request:str = None, cpu_limit:str = None, memory_request:str = None, memory_limit:str = None):
+        self.type = type
+        self.storage_location = storage_location
+        self.storage_capacity = storage_capacity
+        self.cpu_request = cpu_request
+        self.cpu_limit = cpu_limit
+        self.memory_request = memory_request
+        self.memory_limit = memory_limit
 
 class KubernetesCluster():
 
@@ -22,18 +32,6 @@ class KubernetesCluster():
     AZURE_DIRECTORY = "/home/nikola/FASTER/cs/libdpr/samples/DprCounters/DprCounters"
     AZURE_IMAGE = "nikolameng.azurecr.io/meng"
     AZURE_POLICY = "Always"
-
-
-    class Server():
-
-        def __init__(self, type:str, storage_location:str = None, storage_capacity:str = None, cpu_request:str = None, cpu_limit:str = None, memory_request:str = None, memory_limit:str = None):
-            self.type = type
-            self.storage_location = storage_location
-            self.storage_capacity = storage_capacity
-            self.cpu_request = cpu_request
-            self.cpu_limit = cpu_limit
-            self.memory_request = memory_request
-            self.memory_limit = memory_limit
 
     def __init__(self, checkpoint_dir:str = None, azure:bool = False) -> void:
         config.load_kube_config()
@@ -52,7 +50,7 @@ class KubernetesCluster():
     def addServer(self, type:str, storage_location:str = None, storage_capacity:str = None, cpu_request:str = None, cpu_limit:str = None, memory_request:str = None, memory_limit:str = None):
         if type not in self.SUPPORTED_SERVER_TYPES:
             raise ArgumentError("Unsupported server type") 
-        self.servers.append(self.Server(type, storage_location, storage_capacity, cpu_request, cpu_limit, memory_request, memory_limit))
+        self.servers.append(Server(type, storage_location, storage_capacity, cpu_request, cpu_limit, memory_request, memory_limit))
 
     def isDprFinderRunning(self) -> bool:
         all_pods = self.core.list_namespaced_pod(namespace="default")

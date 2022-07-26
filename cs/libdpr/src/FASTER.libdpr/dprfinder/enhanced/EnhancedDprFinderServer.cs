@@ -65,7 +65,7 @@ namespace FASTER.libdpr
         /// </summary>
         public void StartServer()
         {
-            Extensions.LogDebug(debugLogFile, "##############\n\nSERVER STARTED");
+            Utility.LogDebug(debugLogFile, "##############\n\nSERVER STARTED");
             termination = new ManualResetEventSlim();
 
             processThread = new Thread(() =>

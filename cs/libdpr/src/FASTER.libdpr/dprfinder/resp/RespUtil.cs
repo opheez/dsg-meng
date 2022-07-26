@@ -11,7 +11,7 @@ namespace FASTER.libdpr
                                                             {
                                                                 {"counter", 0}
                                                             };
-
+        // TODO(Nikola): Use strings for types directly instead of ints in FetchCLuster()
         private static readonly Dictionary<int, string> intToType = new Dictionary<int, string>
                                                             {
                                                                 {0, "counter"}

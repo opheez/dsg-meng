@@ -9,40 +9,6 @@ using System.Threading;
 
 namespace FASTER.libdpr
 {
-    public static class Extensions
-    {
-        private static readonly bool debugging = true;
-        private static readonly bool distributed = true;
-        public static int ReceiveFailFast(this Socket conn, byte[] buffer)
-        {
-            int result = conn.Receive(buffer);
-            if(result == 0)
-                throw new SocketException(32);
-            return result;
-        }
-
-        private static void Write(string file, string text)
-        {
-                using (TextWriter tw = TextWriter.Synchronized(File.AppendText(file)))
-                {
-                    tw.WriteLine(text);
-                }
-        }
-
-        public static void LogDebug(string file, string text)
-        {
-            if(debugging && distributed)
-            {
-                Write(file, text);
-            }
-        }
-
-        public static void LogBasic(string file, string text)
-        {
-            if(distributed)
-                Write(file, text);
-        }
-    }
     public class EnhancedDprFinder : IDprFinder
     {
         private static readonly string basicLog = "/DprCounters/data/basic.txt";
@@ -65,6 +31,7 @@ namespace FASTER.libdpr
             this.ip = ip;
             this.port = port;
             ResetDprFinderConn();
+            Console.WriteLine("CONNECTED");
         }
 
         private void ResetDprFinderConn()
@@ -87,13 +54,11 @@ namespace FASTER.libdpr
             try
             {
                 ResetDprFinderConn();
-                Extensions.LogBasic(basicLog, "Connection was reset");
             } catch (Exception)
             {
                 return;
             }
         }
-
 
         public long SafeVersion(Worker worker)
         {
@@ -166,7 +131,6 @@ namespace FASTER.libdpr
                 } catch (SocketException) 
                 {
                     ResetDprFinderConnSafe();
-                    // TODO(Nikola): Make this safe
                     return null;
                 }
             }
@@ -196,18 +160,11 @@ namespace FASTER.libdpr
                 ResendGraph(workerInfo.worker, stateObject);
             lock (this)
             {
-                try
-                {
-                    dprFinderConn.SendAddWorkerCommand(workerInfo);
-                    ProcessRespResponse();
-                    lastKnownClusterState ??= new ClusterState();
-                    lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
-                    return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));
-                } catch (SocketException)
-                {
-                    ResetDprFinderConnSafe();
-                    return -1;
-                }
+                dprFinderConn.SendAddWorkerCommand(workerInfo);
+                ProcessRespResponse();
+                lastKnownClusterState ??= new ClusterState();
+                lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
+                return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));
             }
         }
 
@@ -215,15 +172,9 @@ namespace FASTER.libdpr
         {
             lock (this)
             {
-                try
-                {
-                    dprFinderConn.SendDeleteWorkerCommand(id);
-                    var received = dprFinderConn.ReceiveFailFast(recvBuffer);
-                    Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
-                } catch (SocketException)
-                {
-                    ResetDprFinderConnSafe();
-                }
+                dprFinderConn.SendDeleteWorkerCommand(id);
+                var received = dprFinderConn.ReceiveFailFast(recvBuffer);
+                Debug.Assert(received == 5 && Encoding.ASCII.GetString(recvBuffer, 0, received).Equals("+OK\r\n"));
             }
         }
 

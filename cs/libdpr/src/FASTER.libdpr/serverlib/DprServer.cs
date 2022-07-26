@@ -89,7 +89,7 @@ namespace FASTER.libdpr
                 // If worker is recovering from failure, need to load a previous checkpoint
                 state.rollbackProgress = new ManualResetEventSlim();
                 var separate = state.dprFinder.SafeVersion(state.me.worker);
-                Extensions.LogBasic("/DprCounters/data/basic.txt", "RESTORING TO VERSION" + separate.ToString());
+                Utility.LogBasic("/DprCounters/data/basic.txt", "RESTORING TO VERSION" + separate.ToString());
                 stateObject.BeginRestore(separate);
                 // Wait for user to signal end of restore;
                 state.rollbackProgress.Wait();
@@ -140,9 +140,8 @@ namespace FASTER.libdpr
             }
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
-                var toprint = Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion());
                 stateObject.BeginCheckpoint(ComputeCheckpointMetadata,
-                    toprint);
+                    Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion()));
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
             }
 

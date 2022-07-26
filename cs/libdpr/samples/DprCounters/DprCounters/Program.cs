@@ -12,6 +12,8 @@ namespace DprCounters
     class Program
     {
         static string DPR_FINDER_IP = "20.223.12.243"; // equal to $(minikube ip), which is the persistent IP of the DPR Finder
+        // static string DPR_FINDER_IP = "192.168.49.2";
+        static int DPR_FINDER_PORT_EXTERNAL = 6379;
         // or equal to the external IP of our Kubernetes Cluster
 
         static void RunWithoutKubernetes() 
@@ -44,7 +46,7 @@ namespace DprCounters
             // TODO(Nikola): Handle things in the cluster being down from the client side as well so it doesn't fail
 
             // Start a client that performs some operations
-            var client = new CounterClient("127.0.0.1", 15721);
+            var client = new CounterClient(new EnhancedDprFinder("127.0.0.1", 15721), "127.0.0.1");
             var session = client.GetSession();            
             var op0 = session.Increment(w0, 42, out _);
             var op1 = session.Increment(w1, 2, out _);
@@ -83,43 +85,24 @@ namespace DprCounters
             backendServerFinder.StartServer();
         }
 
-        static void RunClientRight()
-        {
-            var client = new CounterClient(new EnhancedDprFinder("dpr-finder-0.dpr-finder-svc", 3000));
-            Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
-            Worker w0 = new Worker(0);
-            Worker w1 = new Worker(1);
-            cluster[w0] = new DnsEndPoint("counter-0.counter-server-svc", 80);
-            cluster[w1] = new DnsEndPoint("counter-1.counter-server-svc", 80);
-            client.RefreshDpr();
-            var session = client.GetSession(cluster);        
-            var op0 = session.Increment(new Worker(0), 42, out _);
-            var op1 = session.Increment(new Worker(1), 2, out _);
-            var op2 = session.Increment(new Worker(1), 7, out _);
-            var op3 = session.Increment(new Worker(0), 10, out _);
-            while (!session.Committed(op3))
-                client.RefreshDpr();
-        }
-
         static void RunClient()
         {
-            var client = new CounterClient(DPR_FINDER_IP, 6379);
-            Worker w0 = new Worker(0);
-            Worker w1 = new Worker(1);
+            var client = new CounterClient(new EnhancedDprFinder(DPR_FINDER_IP, DPR_FINDER_PORT_EXTERNAL), DPR_FINDER_IP);
             client.RefreshDpr();
             var session = client.GetSession();
-            var cluster = client.getCluster();
-            var op0 = session.Increment(new Worker(0), 42, out _);
-            var op1 = session.Increment(new Worker(1), 2, out _);
-            var op2 = session.Increment(new Worker(1), 7, out _);
-            var op3 = session.Increment(new Worker(0), 10, out _);
+            var cluster = client.GetCluster();
+            List<Worker> clusterWorkers = new List<Worker>(cluster.Keys);
+            var op0 = session.Increment(clusterWorkers[0], 42, out _);
+            var op1 = session.Increment(clusterWorkers[1], 2, out _);
+            var op2 = session.Increment(clusterWorkers[1], 7, out _);
+            var op3 = session.Increment(clusterWorkers[0], 10, out _);
             while (!session.Committed(op3))
                 client.RefreshDpr();
         }
 
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("TEST");
+            Console.Out.WriteLine("TESTTRRRRRRTT");
             if(args.Length == 0 || args[0] == "client")
             {
                 Console.WriteLine("Starting client from the outside");
@@ -145,11 +128,6 @@ namespace DprCounters
             if(args[0] == "backend")
             {   
                 RunBackendServer();
-                return;
-            }
-            if(args[0] == "clientRight")
-            {
-                RunClientRight();
                 return;
             }
         }

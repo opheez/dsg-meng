@@ -54,7 +54,7 @@ namespace DprCounters
            
             // For simplicity, start a new socket every operation
             var endPoint = cluster[worker];
-            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            using var socket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             socket.Connect(endPoint);
             socket.Send(serializationBuffer, 0, sizeof(int) + header.Length + sizeof(long), SocketFlags.None);
 

@@ -220,8 +220,6 @@ class KubernetesCluster():
         for id in range(len(self.servers)):
             serverPatch["spec"]["ports"].append({"nodePort": self.BASE_AZURE_PORT + id, "port": self.BASE_PORT + id, "name": "server-port-" + str(id)})
         ret = self.core.patch_namespaced_service("ingress-nginx-controller", "ingress-nginx", serverPatch)
-        print(ret)
-
 
     def stopCluster(self) -> void:
         self.stopDprFinder()

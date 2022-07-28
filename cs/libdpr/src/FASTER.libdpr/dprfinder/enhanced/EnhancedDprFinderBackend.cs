@@ -307,7 +307,9 @@ namespace FASTER.libdpr
                     var version = currentCut.GetValueOrDefault(committed.Worker, 0);
                     // Update cut if necessary
                     if (version < committed.Version)
+                    {
                         currentCut[committed.Worker] = committed.Version;
+                    }
                     if (precedenceGraph.TryRemove(committed, out var list))
                         objectPool.Return(list);
                 }
@@ -478,7 +480,9 @@ namespace FASTER.libdpr
                 // TODO(Tianyu): This is slightly more aggressive than needed, but no worse than original DPR. Can
                 // implement more precise rollback later.
                 foreach (var entry in currentCut)
+                {
                     volatileClusterState.worldLinePrefix[entry.Key] = entry.Value;
+                }
                 // Anything in the precedence graph is rolled back and we can just remove them 
                 foreach (var list in precedenceGraph.Values)
                     objectPool.Return(list);

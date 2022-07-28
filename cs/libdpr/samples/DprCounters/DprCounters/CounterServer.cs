@@ -43,7 +43,9 @@ namespace DprCounters
 
         public void RunServer()
         {
+            Console.WriteLine("Reconnecting to cluster");
             dprServer.ConnectToCluster();
+            Console.WriteLine("Server started, succesffully connected");
             Utility.LogBasic(basicLog, "Server started");
 
             termination = new ManualResetEventSlim();
@@ -85,6 +87,7 @@ namespace DprCounters
             socket.Listen(512);
             while (!termination.IsSet)
             {
+                Console.WriteLine("Starting to listen");
                 Socket conn;
                 try
                 {
@@ -95,17 +98,19 @@ namespace DprCounters
                     return;
                 }
 
+                Console.WriteLine("Got something");
                 var receivedBytes = 0;
                 // Our protocol first reads a size field of the combined DPR header + messages
                 while (receivedBytes < sizeof(int))
                     receivedBytes += conn.Receive(inBuffer, receivedBytes, inBuffer.Length - receivedBytes,
                         SocketFlags.None);
-                //TODO(Nikola): Do the courtesy zero thing like we do at other places here
+
                 var size = BitConverter.ToInt32(inBuffer);
                 // Receive the combined message.
                 while (receivedBytes < size + sizeof(int))
                     receivedBytes += conn.Receive(inBuffer, receivedBytes, inBuffer.Length - receivedBytes,
                         SocketFlags.None);
+                Console.WriteLine("Received message");
 
                 // We can obtain the DPR header by computing the size information
                 var request = new ReadOnlySpan<byte>(inBuffer, sizeof(int), size - sizeof(int));
@@ -114,13 +119,16 @@ namespace DprCounters
 
                 int responseHeaderSize;
                 long result = 0;
+                Console.WriteLine("requesting remote batch");
                 // Before executing server-side logic, check with DPR to start tracking for the batch and make sure 
                 // we are allowed to execute it. If not, the response header will be populated and we should immediately
                 // return that to the client side libDPR.
                 if (dprServer.RequestRemoteBatchBegin(request, out var tracker))
                 {
+                    Console.WriteLine("about to enter the scheme thing");
                     // If so, protect the execution and obtain the version this batch will execute in
                     var v = dprServer.StateObject().VersionScheme().Enter();
+                    Console.WriteLine("entered the scheme thing");
                     // Add operation to version tracking using the libDPR-supplied version tracker
                     tracker.MarkOneOperationVersion(0, v);
                     
@@ -130,26 +138,32 @@ namespace DprCounters
                         BitConverter.ToInt64(new Span<byte>(inBuffer, sizeof(int) + size - sizeof(long), sizeof(long)));
                     string updateString = "New value update:\nOld value: " + result.ToString() + "\nNew value: " + dprServer.StateObject().value.ToString();
                     Utility.LogBasic(basicLog, updateString);
+                    Console.WriteLine("about to leave the scheme thing");
                     
                     // Once requests are done executing, stop protecting this batch so DPR can progress
                     dprServer.StateObject().VersionScheme().Leave();
+                    Console.WriteLine("left the scheme thing");
                     // Signal the end of execution for DPR to finish up and populate a response header
                     responseHeaderSize = dprServer.SignalRemoteBatchFinish(request, responseBuffer, tracker);
                 }
                 else
                 {
+                    Console.WriteLine("remote denied");
                     responseHeaderSize = dprServer.ComposeErrorResponse(request, responseBuffer);
                 }
 
                 // The server is then free to convey the result back to the client any way it wants, so long as it
                 // forwards the DPR response header. In this case, we are using the same format as above by concatenating
                 // the DPR response and our response
+                Console.WriteLine("writing shit to buffer");
                 BitConverter.TryWriteBytes(new Span<byte>(outBuffer, 0, sizeof(int)),
                     sizeof(long) + responseHeaderSize);
                 BitConverter.TryWriteBytes(
                     new Span<byte>(outBuffer, responseHeaderSize + sizeof(int),
                         outBuffer.Length - responseHeaderSize - sizeof(int)), result);
+                Console.WriteLine("about to send shit");
                 conn.Send(outBuffer, 0, sizeof(int) + responseHeaderSize + sizeof(long), SocketFlags.None);
+                Console.WriteLine("sent shit");
                 // One socket connection per client for simplicity
                 conn.Close();
             }

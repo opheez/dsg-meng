@@ -75,17 +75,25 @@ namespace FASTER.libdpr
         /// </summary>
         public void ConnectToCluster()
         {
+            Console.WriteLine("Refreshing");
             state.dprFinder.Refresh(); // added a refresh here so that we can have the lastknowncut ready to go
+            Console.WriteLine("Refreshing success; Sending New Worker");
             var v = state.dprFinder.NewWorker(state.me, stateObject);
+            Console.WriteLine("New worker success");
             if (v != 0)
             {
+                Console.WriteLine("getting slim shit");
                 // If worker is recovering from failure, need to load a previous checkpoint
                 state.rollbackProgress = new ManualResetEventSlim();
+                Console.WriteLine("got the slim shit");
                 var separate = state.dprFinder.SafeVersion(state.me.worker);
                 Utility.LogBasic("/DprCounters/data/basic.txt", "RESTORING TO VERSION" + separate.ToString());
+                Console.WriteLine("starting restore; Separate=" + separate.ToString());
                 stateObject.BeginRestore(separate);
                 // Wait for user to signal end of restore;
+                Console.WriteLine("waiting");
                 state.rollbackProgress.Wait();
+                Console.WriteLine("done waiting");
             }
             // This worker is recovering from some failure and we need to load said checkpoint
             state.worldlineTracker.TryAdvanceVersion((vOld, vNew) =>
@@ -133,8 +141,13 @@ namespace FASTER.libdpr
             }
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
+                long toprint = Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion());
+                if(toprint == 2)
+                {
+                    Utility.LogDebug("/DprCounters/data/errors.txt", "FIRST BEGIN CHECKPOINT");
+                }
                 stateObject.BeginCheckpoint(ComputeCheckpointMetadata,
-                    Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion()));
+                    toprint);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
             }
 
@@ -199,6 +212,10 @@ namespace FASTER.libdpr
             // can be safely executed), taking checkpoints if necessary.
             while (request.version > stateObject.Version())
             {
+                if(request.version == 2)
+                {
+                    Utility.LogDebug("/DprCounters/data/errors.txt", "SECOND BEGIN CHECKPOINT");
+                }
                 stateObject.BeginCheckpoint(ComputeCheckpointMetadata, request.version);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, state.sw.ElapsedMilliseconds, out _);
                 Thread.Yield();

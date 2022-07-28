@@ -69,7 +69,7 @@ namespace FASTER.libdpr
                 {
                     ResetDprFinderConn();
                     connected = true;
-                } catch (Exception)
+                } catch (SocketException)
                 {
 
                 }
@@ -78,12 +78,30 @@ namespace FASTER.libdpr
 
         public long SafeVersion(Worker worker)
         {
-            return lastKnownCut.TryGetValue(worker, out var result) ? result : 0;
+            // long toReturn = lastKnownCut.TryGetValue(worker, out var result) ? result : 0;
+            long toReturn = lastKnownClusterState.worldLinePrefix.TryGetValue(worker, out var result) ? result : 0;
+            if(toReturn == 1)
+            {
+                Console.WriteLine("Safe version is fucked up....");
+                Console.WriteLine("LAST KNOWN CUT:");
+                // foreach(KeyValuePair<Worker, long> entry in lastKnownCut)
+                foreach(KeyValuePair<Worker, long> entry in lastKnownClusterState.worldLinePrefix)
+                {
+                    Console.WriteLine("Worker: " + entry.Key.guid.ToString() + "; Version: " + entry.Value.ToString());
+                }
+                Console.WriteLine("LAST KNOWN CLUSTER STATE");
+                foreach(KeyValuePair<Worker, long> entry in lastKnownClusterState.worldLinePrefix)
+                {
+                    Console.WriteLine("Worker: " + entry.Key.guid.ToString() + "; Version: " + entry.Value.ToString());
+                }
+            }
+            return toReturn;
         }
 
         public IDprStateSnapshot GetStateSnapshot()
         {
-            return new DictionaryDprStateSnapshot(lastKnownCut);
+            // return new DictionaryDprStateSnapshot(lastKnownCut);
+            return new DictionaryDprStateSnapshot(lastKnownClusterState.worldLinePrefix);
         }
 
         public long SystemWorldLine()
@@ -115,15 +133,16 @@ namespace FASTER.libdpr
                     dprFinderConn.SendSyncCommand();
                     ProcessRespResponse();
 
-                    maxVersion = BitConverter.ToInt64(recvBuffer, parser.stringStart);
-                    var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart + sizeof(long), out var head);
+                    // maxVersion = BitConverter.ToInt64(recvBuffer, parser.stringStart);
+                    // var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart + sizeof(long), out var head);
+                    var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart, out var head);
                     Interlocked.Exchange(ref lastKnownClusterState, newState);
                     // Cut is unavailable, signal a resend.
-                    if (BitConverter.ToInt32(recvBuffer, head) == -1) return false;
-                    lock (lastKnownCut)
-                    {
-                        RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
-                    }
+                    // if (BitConverter.ToInt32(recvBuffer, head) == -1) return false;
+                    // lock (lastKnownCut)
+                    // {
+                    //     RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
+                    // }
                 } catch (SocketException) {
                     ResetUntilConnected();
                     return false;

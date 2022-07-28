@@ -96,22 +96,30 @@ namespace DprCounters
                     if(op == -1)
                     {
                         client.RefreshDpr();
+                        Thread.Sleep(1000);
                         continue;
                     }
                     break;
-                } catch (SocketException)
+                } catch (SocketException e)
                 {
+                    Thread.Sleep(1000);
                 } catch (DprRollbackException)
                 {
+                    Thread.Sleep(1000);
                 }
             }
-            while(!session.Committed(op))
+            while(true)
             {
                 try
                 {
+                    if(session.Committed(op))
+                        break;
                     client.RefreshDpr();
                 } catch (DprRollbackException)
                 {
+                    // means that the operation has been aborted
+                    Thread.Sleep(1000);
+                    SafeIncrement(session, client, w, amount, out result);
                 }
             }
             return op;
@@ -129,10 +137,12 @@ namespace DprCounters
             Random rnd = new Random();
             while(current < target)
             {
-                long increment = rnd.NextInt64(1, Math.Min(target-current, 1500));
+                long increment = 800;
                 for(int i = 0; i < clusterWorkers.Count; i++)
                 {
+                    Console.WriteLine("STARTING INC");
                     SafeIncrement(session, client, clusterWorkers[i], increment, out _);
+                    Console.WriteLine("DONE INC");
                 }
                 current += increment;
                 Console.WriteLine("AMOUNT LEFT: " + (target - current).ToString());
@@ -150,7 +160,7 @@ namespace DprCounters
             var op1 = session.Increment(clusterWorkers[0], 2, out _);
             var op2 = session.Increment(clusterWorkers[0], 7, out _);
             var op3 = session.Increment(clusterWorkers[1], 10, out _);
-            Console.WriteLine("op0: " + op0.ToString() + "op1: " + op1.ToString() + "op2: " + op2.ToString() + "op3: " + op3.ToString());
+            // Console.WriteLine("op0: " + op0.ToString() + "op1: " + op1.ToString() + "op2: " + op2.ToString() + "op3: " + op3.ToString());
             while (!session.Committed(op3))
             {
                 client.RefreshDpr();
@@ -159,7 +169,7 @@ namespace DprCounters
 
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("TESTRTRTRT");
+            Console.Out.WriteLine("T");
             if(args.Length == 0 || args[0] == "client")
             {
                 Console.WriteLine("Starting client from the outside");

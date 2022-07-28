@@ -89,9 +89,15 @@ namespace DprCounters
         
         public override void PruneVersion(long version)
         {
-            var fileToDelete = Path.Join(checkpointDirectory, version.ToString());
-            prevCounters.TryRemove(version, out _);
-            File.Delete(fileToDelete);
+            foreach(var (v, _) in prevCounters)
+            {
+                if(v <= version)
+                {
+                    var fileToDelete = Path.Join(checkpointDirectory, v.ToString());
+                    prevCounters.TryRemove(version, out _);
+                    File.Delete(fileToDelete);
+                }
+            }
         }
 
         public override IEnumerable<(byte[], int)> GetUnprunedVersions()

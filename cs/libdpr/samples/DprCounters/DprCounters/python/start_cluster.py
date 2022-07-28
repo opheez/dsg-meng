@@ -248,24 +248,26 @@ def isPodRunning(core, pod_name):
     all_pods = core.list_namespaced_pod(namespace="default")
     for pod in all_pods.items:
         if pod.metadata.name == pod_name:
-            return pod.status.container_statuses is not None and pod.status.container_statuses[0].state.waiting is None
+            if pod.status.container_statuses is not None:
+                return pod.status.phase == "Running"
 
-def createChaosManual():
+def createChaosManual(core):
     kills = ["counter-0-0", "counter-1-0", "dpr-finder-0"]
     while True:
-        time.sleep(1)
-        i = random.randint(0, 2)
+        time.sleep(10)
+        i = random.randint(0, len(kills) - 1)
         print("Killing pod: " + kills[i])
-        core = client.CoreV1Api()
-        # core.delete_namespaced_pod(kills[i], "default")
+        core.delete_namespaced_pod(kills[i], "default")
         while not isPodRunning(core, kills[i]):
             time.sleep(0.1)
 
 
 def main():
     startCluster()
-    time.sleep(1)
-    createChaosManual()
+    core = client.CoreV1Api()
+    while not isPodRunning(core, "dpr-finder-0") and not isPodRunning(core, "counter-0-0") and not isPodRunning(core, "counter-1-0"):
+        time.sleep(1)
+    createChaosManual(core)
     # while True:
     #     isPodRunning(client.CoreV1Api(), "dpr-finder-0")
 

@@ -169,7 +169,7 @@ namespace DprCounters
 
         static void Main(string[] args)
         {
-            Console.Out.WriteLine("T");
+            Console.Out.WriteLine("TESteteet");
             if(args.Length == 0 || args[0] == "client")
             {
                 Console.WriteLine("Starting client from the outside");

@@ -39,8 +39,8 @@ namespace FASTER.libdpr
             var committedVersion = new WorkerVersion(worker, minVersion == long.MaxValue ? 0 : minVersion);
             head += RespUtil.WriteRedisBulkString(committedVersion, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Utility.LogDebug(serverLog, String.Format("#######\nNew GRAPH_RESENT Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
+            Utility.LogDebug(serverLog, String.Format("#######\nNew GRAPH_RESENT Request:\n{0}", requestSent));
             return ++numRequests;
         }
 
@@ -52,9 +52,13 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("AddWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(workerInfo, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Console.WriteLine("About to send new worker on socket");
             socket.Send(buf, 0, head, SocketFlags.None);
+            Console.WriteLine("Sent new worker on socket");
+            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
+            Console.WriteLine("Logged");
             reusableMessageBuffers.Return(buf);
+            Console.WriteLine("returned buf");
         }
 
         internal static void SendDeleteWorkerCommand(this Socket socket, Worker worker)
@@ -64,9 +68,8 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString("DeleteWorker", buf, head);
             head += RespUtil.WriteRedisBulkString(worker.guid, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Utility.LogDebug(serverLog, String.Format("#######\nRequest id: \nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
-            Utility.LogDebug(serverLog, "Delete Worker sent");
+            Utility.LogDebug(serverLog, String.Format("#######\nRequest id: \nNew Request:\n{0}", requestSent));
             reusableMessageBuffers.Return(buf);
         }
 
@@ -80,8 +83,8 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(checkpointed, buf, head);
             head += RespUtil.WriteRedisBulkString(deps, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
+            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             reusableMessageBuffers.Return(buf);
         }
 
@@ -94,8 +97,8 @@ namespace FASTER.libdpr
             head += RespUtil.WriteRedisBulkString(recovered, buf, head);
             head += RespUtil.WriteRedisBulkString(worldLine, buf, head);
             string requestSent = Encoding.ASCII.GetString(buf, 0, head);
-            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             socket.Send(buf, 0, head, SocketFlags.None);
+            Utility.LogDebug(serverLog, String.Format("#######\nNew Request:\n{0}", requestSent));
             reusableMessageBuffers.Return(buf);
         }
 

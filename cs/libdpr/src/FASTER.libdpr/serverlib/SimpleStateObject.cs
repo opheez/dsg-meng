@@ -45,12 +45,21 @@ namespace FASTER.libdpr
         /// <inheritdoc />
         public void BeginRestore(long version)
         {
+            // versionScheme.TryAdvanceVersion((vOld, vNew) =>
+            // {
+            //     RestoreCheckpoint(version);
+            //     callbacks.OnRollbackComplete();
+            //     callbacks.BeforeNewVersion(vNew, version);
+            // });
+
+
+
             versionScheme.TryAdvanceVersion((vOld, vNew) =>
             {
                 RestoreCheckpoint(version);
                 callbacks.OnRollbackComplete();
                 callbacks.BeforeNewVersion(vNew, version);
-            });
+            }, version + 1);
         }
 
         /// <summary>

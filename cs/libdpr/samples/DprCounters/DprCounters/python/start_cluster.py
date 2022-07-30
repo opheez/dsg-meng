@@ -265,9 +265,9 @@ def createChaosManual(core):
 def main():
     startCluster()
     core = client.CoreV1Api()
-    while not isPodRunning(core, "dpr-finder-0") and not isPodRunning(core, "counter-0-0") and not isPodRunning(core, "counter-1-0"):
-        time.sleep(1)
-    createChaosManual(core)
+    # while not isPodRunning(core, "dpr-finder-0") and not isPodRunning(core, "counter-0-0") and not isPodRunning(core, "counter-1-0"):
+    #     time.sleep(1)
+    # createChaosManual(core)
     # while True:
     #     isPodRunning(client.CoreV1Api(), "dpr-finder-0")
 

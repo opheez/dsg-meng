@@ -72,7 +72,7 @@ namespace DprCounters
                         // these shouldn't happen, logging them if they do
                         string s = "New Error Occured:\n" + e.ToString() + "\n###################";
                         FASTER.libdpr.Utility.LogDebug(errorLog, s);
-                        throw e; // throwing e so that we indeed fail, sometimes beneficial to remove when debugging
+                        throw new Exception(e.ToString()); // throwing e so that we indeed fail, sometimes beneficial to remove when debugging
                     }
                 }
             });

@@ -46,7 +46,7 @@ namespace DprCounters
             // libDPR will ensure that request batches that are protected with VersionScheme.Enter() and
             // VersionScheme.Leave() will not interleave with checkpoint or recovery code. It is therefore safe
             // to read and write values without protection in this function
-            prevCounters[version] = value;
+            // prevCounters[version] = value; //TODO(Nikola): only writing when it is actually put inside a file
             
             // Once the content of the checkpoint is established (we have read a current snapshot of value), it is ok
             // to write to disk asynchronously and allow other operations to continue. In SimpleStateObject, 
@@ -64,6 +64,7 @@ namespace DprCounters
             {
                 if (!token.IsCompletedSuccessfully)
                     Console.WriteLine($"Error {token} during checkpoint");
+                prevCounters[version] = value;
                 // We need to invoke onPersist() to inform DPR when a checkpoint is on disk
                 onPersist();
                 fs.Dispose();
@@ -78,7 +79,6 @@ namespace DprCounters
             // checkpoints earlier than the committed version in the DPR cut. We can therefore rely on a (relatively
             // small) stash of in-memory snapshots to quickly handle this call.
             if (prevCounters.TryGetValue(version, out value)) return;
-            
             var fileName = Path.Join(checkpointDirectory, version.ToString());
             using var fs = File.Open(fileName, FileMode.Open, FileAccess.Read, FileShare.None);
 
@@ -89,15 +89,15 @@ namespace DprCounters
         
         public override void PruneVersion(long version)
         {
-            foreach(var (v, _) in prevCounters)
-            {
-                if(v <= version)
-                {
-                    var fileToDelete = Path.Join(checkpointDirectory, v.ToString());
-                    prevCounters.TryRemove(version, out _);
-                    File.Delete(fileToDelete);
-                }
-            }
+            // foreach(var (v, _) in prevCounters)
+            // {
+            //     if(v <= version)
+            //     {
+            var fileToDelete = Path.Join(checkpointDirectory, version.ToString());
+            prevCounters.TryRemove(version, out _);
+            File.Delete(fileToDelete);
+            //     }
+            // }
         }
 
         public override IEnumerable<(byte[], int)> GetUnprunedVersions()

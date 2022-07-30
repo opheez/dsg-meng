@@ -55,7 +55,7 @@ namespace DprCounters
             // For simplicity, start a new socket every operation
             var endPoint = cluster[worker];
             using var socket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            socket.ReceiveTimeout = 1000;
+            socket.ReceiveTimeout = 10000;
             Console.WriteLine("connecting to endPoint");
             socket.Connect(endPoint);
             Console.WriteLine("connected; sending buffer");
@@ -91,17 +91,20 @@ namespace DprCounters
                     throw new SocketException();
                 }
             }
-            Console.WriteLine("received the response");
+            Console.WriteLine("received the response; resolving batch");
             // Forward the DPR response header after we are done
             var success = session.ResolveBatch(new Span<byte>(serializationBuffer, sizeof(int), size - sizeof(long)), out var vector);
+            Console.WriteLine("batch resolved; resolving version");
             // Because we use one-off sockets, resolve batch should never fail.
             // Debug.Assert(success);
             if(!success)
             {
+                Console.WriteLine("failed op");
                 result = -1;
                 return -1;
             }
             versionTracker.Resolve(id, new WorkerVersion(worker, vector[0]));
+            Console.WriteLine("version resolved; done");
 
             // (Non-DPR) Response is 8 bytes, 
             result = BitConverter.ToInt64(serializationBuffer, sizeof(int) + size - sizeof(long));

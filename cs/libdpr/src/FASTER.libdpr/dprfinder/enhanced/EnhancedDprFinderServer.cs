@@ -154,6 +154,7 @@ namespace FASTER.libdpr
                     break;
                 case DprFinderCommand.Type.ADD_WORKER:
                     backend.AddWorker(command.wi, socket.SendAddWorkerResponse);
+                    Console.WriteLine("Added worker to queue");
                     break;
                 case DprFinderCommand.Type.DELETE_WORKER:
                     backend.DeleteWorker(command.w, () => socket.Send(OkResponse));

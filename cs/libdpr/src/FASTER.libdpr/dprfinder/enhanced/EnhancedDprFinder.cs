@@ -63,6 +63,7 @@ namespace FASTER.libdpr
         private void ResetUntilConnected()
         {
             bool connected = false;
+            int counter = 0;
             while(!connected)
             {
                 try
@@ -71,21 +72,26 @@ namespace FASTER.libdpr
                     connected = true;
                 } catch (SocketException)
                 {
-
+                    counter++;
+                    if(counter == 10000)
+                    {
+                        Console.WriteLine("sucks to suck");
+                        counter = 0;
+                    }
                 }
             }
         }
 
         public long SafeVersion(Worker worker)
         {
-            // long toReturn = lastKnownCut.TryGetValue(worker, out var result) ? result : 0;
-            long toReturn = lastKnownClusterState.worldLinePrefix.TryGetValue(worker, out var result) ? result : 0;
+            long toReturn = lastKnownCut.TryGetValue(worker, out var result) ? result : 0;
+            // long toReturn = lastKnownClusterState.worldLinePrefix.TryGetValue(worker, out var result) ? result : 0;
             if(toReturn == 1)
             {
                 Console.WriteLine("Safe version is fucked up....");
                 Console.WriteLine("LAST KNOWN CUT:");
-                // foreach(KeyValuePair<Worker, long> entry in lastKnownCut)
-                foreach(KeyValuePair<Worker, long> entry in lastKnownClusterState.worldLinePrefix)
+                foreach(KeyValuePair<Worker, long> entry in lastKnownCut)
+                // foreach(KeyValuePair<Worker, long> entry in lastKnownClusterState.worldLinePrefix)
                 {
                     Console.WriteLine("Worker: " + entry.Key.guid.ToString() + "; Version: " + entry.Value.ToString());
                 }
@@ -100,8 +106,8 @@ namespace FASTER.libdpr
 
         public IDprStateSnapshot GetStateSnapshot()
         {
-            // return new DictionaryDprStateSnapshot(lastKnownCut);
-            return new DictionaryDprStateSnapshot(lastKnownClusterState.worldLinePrefix);
+            return new DictionaryDprStateSnapshot(lastKnownCut);
+            // return new DictionaryDprStateSnapshot(lastKnownClusterState.worldLinePrefix);
         }
 
         public long SystemWorldLine()
@@ -133,16 +139,15 @@ namespace FASTER.libdpr
                     dprFinderConn.SendSyncCommand();
                     ProcessRespResponse();
 
-                    // maxVersion = BitConverter.ToInt64(recvBuffer, parser.stringStart);
-                    // var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart + sizeof(long), out var head);
-                    var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart, out var head);
+                    maxVersion = BitConverter.ToInt64(recvBuffer, parser.stringStart);
+                    var newState = ClusterState.FromBuffer(recvBuffer, parser.stringStart + sizeof(long), out var head);
                     Interlocked.Exchange(ref lastKnownClusterState, newState);
                     // Cut is unavailable, signal a resend.
-                    // if (BitConverter.ToInt32(recvBuffer, head) == -1) return false;
-                    // lock (lastKnownCut)
-                    // {
-                    //     RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
-                    // }
+                    if (BitConverter.ToInt32(recvBuffer, head) == -1) return false;
+                    lock (lastKnownCut)
+                    {
+                        RespUtil.ReadDictionaryFromBytes(recvBuffer, head, lastKnownCut);
+                    }
                 } catch (SocketException) {
                     ResetUntilConnected();
                     return false;
@@ -203,8 +208,11 @@ namespace FASTER.libdpr
             {
                 try
                 {
+                    Console.WriteLine("Trying to send new worker");
                     dprFinderConn.SendAddWorkerCommand(workerInfo);
+                    Console.WriteLine("about to process response");
                     ProcessRespResponse();
+                    Console.WriteLine("processed");
                     lastKnownClusterState ??= new ClusterState();
                     lastKnownClusterState.currentWorldLine = BitConverter.ToInt64(recvBuffer, parser.stringStart);
                     return BitConverter.ToInt64(recvBuffer, parser.stringStart + sizeof(long));

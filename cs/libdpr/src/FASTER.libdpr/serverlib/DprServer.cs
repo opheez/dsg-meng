@@ -132,20 +132,19 @@ namespace FASTER.libdpr
 
             if (state.lastRefreshMilli + refreshPeriodMilli < currentTime)
             {
-                if (!state.dprFinder.Refresh())
+                bool refreshWorked = state.dprFinder.Refresh();
+                if (!refreshWorked)
                 {
                     state.dprFinder.ResendGraph(state.me.worker, stateObject);
                 }
                 core.Utility.MonotonicUpdate(ref state.lastRefreshMilli, currentTime, out _);
                 TryAdvanceWorldLineTo(state.dprFinder.SystemWorldLine());
+                if(!refreshWorked)
+                    return;
             }
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
                 long toprint = Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion());
-                if(toprint == 2)
-                {
-                    Utility.LogDebug("/DprCounters/data/errors.txt", "FIRST BEGIN CHECKPOINT");
-                }
                 stateObject.BeginCheckpoint(ComputeCheckpointMetadata,
                     toprint);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
@@ -208,23 +207,22 @@ namespace FASTER.libdpr
             var cast = MemoryMarshal.Cast<byte, DprBatchHeader>(requestBytes);
             ref readonly var request = ref MemoryMarshal.GetReference(cast);
             
+            Console.WriteLine("1");
             // Wait for worker version to catch up to largest in batch (minimum version where all operations
             // can be safely executed), taking checkpoints if necessary.
             while (request.version > stateObject.Version())
             {
-                if(request.version == 2)
-                {
-                    Utility.LogDebug("/DprCounters/data/errors.txt", "SECOND BEGIN CHECKPOINT");
-                }
                 stateObject.BeginCheckpoint(ComputeCheckpointMetadata, request.version);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, state.sw.ElapsedMilliseconds, out _);
                 Thread.Yield();
             }
+            Console.WriteLine("2");
 
             // Enter protected region for world-lines. Because we validate requests batch-at-a-time, the world-line
             // must not shift while a batch is being processed, otherwise a message from an older world-line may be
             // processed in a new one. 
             var wl = state.worldlineTracker.Enter();
+            Console.WriteLine("3");
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
             // so client operation is not lost in a rollback that the client has already observed.
             while (request.worldLine > wl)
@@ -235,6 +233,7 @@ namespace FASTER.libdpr
                 wl = state.worldlineTracker.Enter();
             }
 
+            Console.WriteLine("4");
             // If the worker world-line is newer, the request must be rejected. 
             if (request.worldLine < wl)
             {
@@ -242,18 +241,21 @@ namespace FASTER.libdpr
                 tracker = default;
                 return false;
             }
+            Console.WriteLine("5");
 
             tracker = trackers.Checkout();
             // At this point, we are certain that the request world-line and worker world-line match, and worker
             // world-line will not advance until this thread refreshes the epoch. We can proceed to batch execution.
             Debug.Assert(request.worldLine == wl);
 
+            Console.WriteLine("6");
             // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
             // could get processed at a future version instead due to thread timing. However, this is not a correctness
             // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
             var deps = state.versions[stateObject.Version()];
             if (!request.srcWorkerId.Equals(Worker.INVALID))
                 deps.Update(request.srcWorkerId, request.version);
+            Console.WriteLine("7");
             fixed (byte* d = request.data)
             {
                 var depsHead = d + request.AdditionalDepsOffset;
@@ -264,6 +266,7 @@ namespace FASTER.libdpr
                     depsHead += sizeof(WorkerVersion);
                 }
             }
+            Console.WriteLine("8");
 
             // Exit without releasing epoch, as protection is supposed to extend until end of batch.
             return true;

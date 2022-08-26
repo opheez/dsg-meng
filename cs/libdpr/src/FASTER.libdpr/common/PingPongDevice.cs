@@ -57,7 +57,7 @@ namespace FASTER.libdpr
         {
             var header = new MetadataHeader();
             header.size = size;
-            header.version = versionCounter++;
+            header.version = ++versionCounter;
             var hash = checksumHasher.ComputeHash(buf, offset, size);
 
             fixed (byte* b = &hash[0])

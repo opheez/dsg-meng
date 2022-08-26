@@ -97,5 +97,6 @@ namespace FASTER.libdpr
         // Test Dpr Finder does not support failure handling and do not care about a dynamic cluster 
         public long NewWorker(Worker id, IStateObject stateObject) => 0;
         public void DeleteWorker(Worker id) {}
+        public Dictionary<Worker, IPEndPoint> FetchCluster() { return null; }
     }
 }

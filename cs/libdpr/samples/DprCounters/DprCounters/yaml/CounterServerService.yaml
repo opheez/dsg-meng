@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter-server-svc
+  labels:
+    app: counter-server
+spec:
+  ports:
+  - port: 80
+    name: counter
+  selector:
+    app: counter-server

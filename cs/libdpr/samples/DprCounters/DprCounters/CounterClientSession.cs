@@ -13,7 +13,7 @@ namespace DprCounters
     public class CounterClientSession
     {
         private DprClientSession session;
-        private Dictionary<Worker, IPEndPoint> cluster;
+        private Dictionary<Worker, EndPoint> cluster;
         private byte[] serializationBuffer = new byte[1 << 15];
         private long serialNum = 0;
 
@@ -24,7 +24,7 @@ namespace DprCounters
         /// </summary>
         /// <param name="session"> dpr session </param>
         /// <param name="cluster"> static cluster mapping </param>
-        public CounterClientSession(DprClientSession session, Dictionary<Worker, IPEndPoint> cluster)
+        public CounterClientSession(DprClientSession session, Dictionary<Worker, EndPoint> cluster)
         {
             this.session = session;
             this.cluster = cluster;
@@ -51,7 +51,7 @@ namespace DprCounters
                 header.Length + sizeof(long));
             header.CopyTo(new Span<byte>(serializationBuffer, sizeof(int), header.Length));
             BitConverter.TryWriteBytes(new Span<byte>(serializationBuffer, header.Length + sizeof(int), sizeof(long)), amount);
-            
+           
             // For simplicity, start a new socket every operation
             var endPoint = cluster[worker];
             using var socket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -61,18 +61,32 @@ namespace DprCounters
             // We expect the same format back from server. First read the size field
             var receivedBytes = 0;
             while (receivedBytes < sizeof(int))
-                receivedBytes += socket.Receive(serializationBuffer, receivedBytes, serializationBuffer.Length - receivedBytes, SocketFlags.None);
+            {
+                int newBytes = socket.Receive(serializationBuffer, receivedBytes, serializationBuffer.Length - receivedBytes, SocketFlags.None);
+                receivedBytes += newBytes;
+                if(newBytes == 0)
+                    throw new SocketException();
+            }
 
             var size = BitConverter.ToInt32(serializationBuffer);
             // Now wait until the entire message arrives
             while (receivedBytes < size + sizeof(int))
-                receivedBytes += socket.Receive(serializationBuffer, receivedBytes, serializationBuffer.Length - receivedBytes, SocketFlags.None);
+            {
+                int newBytes = socket.Receive(serializationBuffer, receivedBytes, serializationBuffer.Length - receivedBytes, SocketFlags.None);
+                receivedBytes += newBytes;
+                if(newBytes == 0)
+                    throw new SocketException();
+            }
 
             // Forward the DPR response header after we are done
             var success = session.ResolveBatch(new Span<byte>(serializationBuffer, sizeof(int), size - sizeof(long)), out var vector);
             // Because we use one-off sockets, resolve batch should never fail.
-            Debug.Assert(success);
-
+            // Debug.Assert(success);
+            if(!success)
+            {
+                result = -1;
+                return -1;
+            }
             versionTracker.Resolve(id, new WorkerVersion(worker, vector[0]));
 
             // (Non-DPR) Response is 8 bytes, 
@@ -92,7 +106,16 @@ namespace DprCounters
             
             var cp = versionTracker.GetCommitPoint();
             // Because the session is strictly sequential, operation will never be in exception list.
-            Debug.Assert(cp.ExcludedSerialNos.Count == 0);
+            // Debug.Assert(cp.ExcludedSerialNos.Count == 0);
+            if(cp.ExcludedSerialNos.Count > 0)
+            {
+                Console.WriteLine("EXCLUDED NOs:");
+                for(int i = 0; i < cp.ExcludedSerialNos.Count; i++)
+                {
+                    Console.WriteLine("Excluded No: " + cp.ExcludedSerialNos[i].ToString());
+                }
+                Console.WriteLine("##############");
+            }
             return seq < cp.UntilSerialNo;
         }
     }

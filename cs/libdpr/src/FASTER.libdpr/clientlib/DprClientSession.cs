@@ -23,6 +23,7 @@ namespace FASTER.libdpr
         {
             this.guid = guid;
             this.dprClient = dprClient;
+            clientWorldLine = this.dprClient.GetDprFinder().SystemWorldLine();
             deps = new LightDependencySet();
             batchTracker = new ClientBatchTracker();
         }

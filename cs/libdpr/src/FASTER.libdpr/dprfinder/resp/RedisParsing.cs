@@ -29,7 +29,6 @@ namespace FASTER.libdpr
                         stringStart = readHead + 1;
                         return false;
                     }
-
                     return readHead == stringStart + size + 1;
                 default:
                     // Nothing to do
@@ -47,12 +46,14 @@ namespace FASTER.libdpr
             ADD_WORKER,
             DELETE_WORKER,
             SYNC,
-            GRAPH_RESENT
+            GRAPH_RESENT,
+            FETCH_CLUSTER
         }
 
         internal Type commandType;
         internal WorkerVersion wv;
         internal Worker w;
+        internal WorkerInformation wi;
         internal long worldLine;
         internal List<WorkerVersion> deps;
     }
@@ -141,7 +142,9 @@ namespace FASTER.libdpr
                 case CommandParserState.NUM_ARGS:
                 {
                     if (ProcessRedisInt(readHead, buf, out var size))
+                    {
                         commandParserState = CommandParserState.COMMAND_TYPE;
+                    }
                     return false;
                 }
                 case CommandParserState.COMMAND_TYPE:
@@ -173,6 +176,11 @@ namespace FASTER.libdpr
                                 currentCommand.commandType = DprFinderCommand.Type.DELETE_WORKER;
                                 commandParserState = CommandParserState.ARG_W;
                                 break;
+                            case 'F':
+                                Debug.Assert(Encoding.ASCII.GetString(buf, stringStart, size).Equals("FetchCluster"));
+                                currentCommand.commandType = DprFinderCommand.Type.FETCH_CLUSTER;
+                                commandParserState = CommandParserState.NONE;
+                                return true;
                             case 'S':
                                 Debug.Assert(Encoding.ASCII.GetString(buf, stringStart, size).Equals("Sync"));
                                 currentCommand.commandType = DprFinderCommand.Type.SYNC;
@@ -197,6 +205,12 @@ namespace FASTER.libdpr
                     {
                         var workerId = BitConverter.ToInt64(buf, stringStart);
                         currentCommand.w = new Worker(workerId);
+                        if(currentCommand.commandType == DprFinderCommand.Type.ADD_WORKER)
+                        {
+                            var workerPort = (int)BitConverter.ToInt64(buf, stringStart + sizeof(long));
+                            var type = BitConverter.ToInt64(buf, stringStart + 2 * sizeof(long)); // TODO(Nikola): Make the type actually be relevant by mapping type_int -> type_str
+                            currentCommand.wi = new WorkerInformation(currentCommand.w, workerPort, 0);
+                        }
                         commandParserState = CommandParserState.NONE;
                         size = -1;
                         return true;
@@ -216,7 +230,10 @@ namespace FASTER.libdpr
                         else if (currentCommand.commandType == DprFinderCommand.Type.REPORT_RECOVERY)
                             commandParserState = CommandParserState.ARG_WL;
                         else if (currentCommand.commandType == DprFinderCommand.Type.GRAPH_RESENT)
+                        {
+                            commandParserState = CommandParserState.NONE;
                             return true;
+                        }
                         else
                             Debug.Assert(false);
 
@@ -261,7 +278,6 @@ namespace FASTER.libdpr
                             currentCommand.deps.Add(new WorkerVersion(workerId, version));
                             size = -1;
                         }
-
                         commandParserState = CommandParserState.NONE;
                         return true;
                     }

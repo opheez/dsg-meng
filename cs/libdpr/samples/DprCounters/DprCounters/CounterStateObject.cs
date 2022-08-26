@@ -51,7 +51,16 @@ namespace DprCounters
             // Once the content of the checkpoint is established (we have read a current snapshot of value), it is ok
             // to write to disk asynchronously and allow other operations to continue. In SimpleStateObject, 
             // operations are blocked before PerformCheckpoint return.
-            fs.WriteAsync(BitConverter.GetBytes(value), 0, sizeof(long)).ContinueWith(token =>
+
+            var serializationBuffer = new byte[deps.Length + sizeof(long)];
+            unsafe {
+                fixed (byte* s = serializationBuffer) {
+                    *(long*) s = value;
+                    deps.CopyTo(new Span<byte>(s + sizeof(long), deps.Length));
+                }
+            }
+
+            fs.WriteAsync(serializationBuffer).AsTask().ContinueWith(token =>
             {
                 if (!token.IsCompletedSuccessfully)
                     Console.WriteLine($"Error {token} during checkpoint");
@@ -63,7 +72,7 @@ namespace DprCounters
         
         // With SimpleStateObject, CounterStateObject can just implement a single-threaded blocking recovery function
         protected override void RestoreCheckpoint(long version)
-        {
+        {   
             // This is for machines that did not physically go down (otherwise they will simply
             // load the surviving version on restart). libDPR will additionally never request a worker to restore
             // checkpoints earlier than the committed version in the DPR cut. We can therefore rely on a (relatively
@@ -80,12 +89,24 @@ namespace DprCounters
         
         public override void PruneVersion(long version)
         {
+            var fileToDelete = Path.Join(checkpointDirectory, version.ToString());
             prevCounters.TryRemove(version, out _);
+            File.Delete(fileToDelete);
         }
 
         public override IEnumerable<(byte[], int)> GetUnprunedVersions()
         {
-            return Enumerable.Empty<(byte[], int)>();
+            (byte[], int)[] unpruned = new (byte[], int)[prevCounters.Count()];
+            int index = 0;
+            foreach(var (version, _) in prevCounters)
+            {
+                var fileToOpen = Path.Join(checkpointDirectory, version.ToString());
+                var fileBytes = File.ReadAllBytes(fileToOpen);
+
+                unpruned[index] = (fileBytes, sizeof(long));
+                index++;
+            }
+            return unpruned;
         }
     }
 }

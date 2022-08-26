@@ -32,11 +32,11 @@ namespace FASTER.libdpr
         }
 
         /// <inheritdoc />
-        public void BeginCheckpoint(IStateObject.DepsProvider depsProvider, long targetVersion = -1)
+        public void BeginCheckpoint(IStateObject.MetadataProvider metadataProvider, long targetVersion = -1)
         {
             versionScheme.TryAdvanceVersion((vOld, vNew) =>
             {
-                var deps = depsProvider(vOld);
+                var deps = metadataProvider(vOld);
                 PerformCheckpoint(vOld, deps, () => { callbacks.OnVersionPersistent(vOld); });
                 callbacks.BeforeNewVersion(vNew, vOld);
             }, targetVersion);

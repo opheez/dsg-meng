@@ -17,7 +17,7 @@ namespace FASTER.libdpr
         internal readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
 
         internal readonly IDprFinder dprFinder;
-        internal readonly Worker me;
+        internal readonly WorkerInformation me;
         internal readonly ConcurrentDictionary<long, LightDependencySet> versions;
 
         internal readonly SimpleVersionScheme worldlineTracker;
@@ -26,7 +26,7 @@ namespace FASTER.libdpr
 
         internal Stopwatch sw = Stopwatch.StartNew();
 
-        internal DprWorkerState(IDprFinder dprFinder, Worker me)
+        internal DprWorkerState(IDprFinder dprFinder, WorkerInformation me)
         {
             this.dprFinder = dprFinder;
             this.me = me;
@@ -55,7 +55,7 @@ namespace FASTER.libdpr
         /// <param name="dprFinder"> interface to the cluster's DPR finder component </param>
         /// <param name="me"> unique id of the DPR server </param>
         /// <param name="stateObject"> underlying state object </param>
-        public DprServer(IDprFinder dprFinder, Worker me, TStateObject stateObject)
+        public DprServer(IDprFinder dprFinder, WorkerInformation me, TStateObject stateObject)
         {
             state = new DprWorkerState(dprFinder, me);
             this.stateObject = stateObject;
@@ -66,7 +66,7 @@ namespace FASTER.libdpr
 
         /// <summary></summary>
         /// <returns> Worker ID of this DprServer instance </returns>
-        public Worker Me() => state.me;
+        public Worker Me() => state.me.worker;
 
         /// <summary>
         /// At the start (restart) of processing, connect to the rest of the DPR cluster. If the worker restarted from
@@ -75,20 +75,23 @@ namespace FASTER.libdpr
         /// </summary>
         public void ConnectToCluster()
         {
+            state.dprFinder.Refresh(); // added a refresh here so that we can have the lastknowncut ready to go
             var v = state.dprFinder.NewWorker(state.me, stateObject);
+            if (v != 0)
+            {
+                // If worker is recovering from failure, need to load a previous checkpoint
+                state.rollbackProgress = new ManualResetEventSlim();
+                var separate = state.dprFinder.SafeVersion(state.me.worker);
+                Utility.LogBasic("/DprCounters/data/basic.txt", "RESTORING TO VERSION" + separate.ToString());
+                stateObject.BeginRestore(separate);
+                // Wait for user to signal end of restore;
+                state.rollbackProgress.Wait();
+            }
             // This worker is recovering from some failure and we need to load said checkpoint
             state.worldlineTracker.TryAdvanceVersion((vOld, vNew) =>
             {
-                if (v != 0)
-                {
-                    // If worker is recovering from failure, need to load a previous checkpoint
-                    state.rollbackProgress = new ManualResetEventSlim();
-                    stateObject.BeginRestore(state.dprFinder.SafeVersion(state.me));
-                    // Wait for user to signal end of restore;
-                    state.rollbackProgress.Wait();
-                }
+                return;
             }, state.dprFinder.SystemWorldLine());
-            state.dprFinder.Refresh();
         }
 
         /// <summary></summary>
@@ -98,19 +101,13 @@ namespace FASTER.libdpr
             return stateObject;
         }
 
-        private ReadOnlySpan<byte> ComputeDependency(long version)
+        private ReadOnlySpan<byte> ComputeCheckpointMetadata(long version)
         {
             var deps = state.versions[version];
-            var head = 0;
-            foreach (var wv in deps)
-            {
-                Utility.TryWriteBytes(new Span<byte>(depSerializationArray, head, sizeof(long)), wv.Worker.guid);
-                head += sizeof(long);
-                Utility.TryWriteBytes(new Span<byte>(depSerializationArray, head, sizeof(long)), wv.Version);
-                head += sizeof(long);
-            }
-
-            return new ReadOnlySpan<byte>(depSerializationArray, 0, head);
+            var size = SerializationUtil.SerializeCheckpointMetadata(depSerializationArray, 0,
+                state.worldlineTracker.Version(), new WorkerVersion(state.me.worker, version), deps);
+            Debug.Assert(size > 0);
+            return new ReadOnlySpan<byte>(depSerializationArray, 0, size);
         }
 
         /// <summary>
@@ -123,26 +120,26 @@ namespace FASTER.libdpr
         public void TryRefreshAndCheckpoint(long checkpointPeriodMilli, long refreshPeriodMilli)
         {
             var currentTime = state.sw.ElapsedMilliseconds;
-
-            var lastCommitted = state.dprFinder.SafeVersion(state.me);
+            var lastCommitted = state.dprFinder.SafeVersion(state.me.worker);
 
             if (state.lastRefreshMilli + refreshPeriodMilli < currentTime)
             {
                 if (!state.dprFinder.Refresh())
-                    state.dprFinder.ResendGraph(state.me, stateObject);
+                {
+                    state.dprFinder.ResendGraph(state.me.worker, stateObject);
+                }
                 core.Utility.MonotonicUpdate(ref state.lastRefreshMilli, currentTime, out _);
                 TryAdvanceWorldLineTo(state.dprFinder.SystemWorldLine());
             }
-
             if (state.lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
             {
-                stateObject.BeginCheckpoint(ComputeDependency,
+                stateObject.BeginCheckpoint(ComputeCheckpointMetadata,
                     Math.Max(stateObject.Version() + 1, state.dprFinder.GlobalMaxVersion()));
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, currentTime, out _);
             }
 
             // Can prune dependency information of committed versions
-            var newCommitted = state.dprFinder.SafeVersion(state.me);
+            var newCommitted = state.dprFinder.SafeVersion(state.me.worker);
             for (var i = lastCommitted; i < newCommitted; i++)
                 stateObject.PruneVersion(i);
         }
@@ -152,7 +149,7 @@ namespace FASTER.libdpr
             state.worldlineTracker.TryAdvanceVersion((vOld, vNew) =>
             {
                 state.rollbackProgress = new ManualResetEventSlim();
-                stateObject.BeginRestore(state.dprFinder.SafeVersion(state.me));
+                stateObject.BeginRestore(state.dprFinder.SafeVersion(state.me.worker));
                 // Wait for user to signal end of restore;
                 state.rollbackProgress.Wait();
             }, targetWorldline);
@@ -202,7 +199,7 @@ namespace FASTER.libdpr
             // can be safely executed), taking checkpoints if necessary.
             while (request.version > stateObject.Version())
             {
-                stateObject.BeginCheckpoint(ComputeDependency, request.version);
+                stateObject.BeginCheckpoint(ComputeCheckpointMetadata, request.version);
                 core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, state.sw.ElapsedMilliseconds, out _);
                 Thread.Yield();
             }
@@ -347,7 +344,7 @@ namespace FASTER.libdpr
         /// <param name="targetVersion"> the version to jump to after the checkpoint, or -1 for the immediate next version</param>
         public void ForceCheckpoint(long targetVersion = -1)
         {
-            stateObject.BeginCheckpoint(ComputeDependency, targetVersion);
+            stateObject.BeginCheckpoint(ComputeCheckpointMetadata, targetVersion);
             core.Utility.MonotonicUpdate(ref state.lastCheckpointMilli, state.sw.ElapsedMilliseconds, out _);
         }
     }

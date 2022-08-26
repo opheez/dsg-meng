@@ -12,23 +12,40 @@ namespace DprCounters
     public class CounterClient
     {
         private DprClient client;
-        private Dictionary<Worker, IPEndPoint> cluster;
-        private Thread backgroundThread;
+        private IPAddress clusterIp;
+        Dictionary<Worker, EndPoint> cluster = new Dictionary<Worker, EndPoint>();
 
-        public CounterClient(IDprFinder dprFinder, Dictionary<Worker, IPEndPoint> cluster)
+        public CounterClient(IDprFinder dprFinder, string ip)
         {
             client = new DprClient(dprFinder);
-            this.cluster = cluster;
+            this.clusterIp = IPAddress.Parse(ip);
+        }
+
+        public Dictionary<Worker, EndPoint> GetCluster()
+        {
+            return cluster;
         }
         
-        public CounterClientSession GetSession()
+        private void FetchCluster()
         {
+            cluster = new Dictionary<Worker, EndPoint>();
+            var fetchedClusterInfo = client.FetchCluster();
+            foreach (var (key, value) in fetchedClusterInfo)
+            {
+                cluster[key] = new IPEndPoint(clusterIp, value.Item1);
+            }
+        }
+
+        public CounterClientSession GetSession()
+        {   
+            FetchCluster();
             return new(client.GetSession(Guid.NewGuid()), cluster);
         }
 
         public void RefreshDpr()
         {
             client.RefreshDprView();
+            // FetchCluster();
         }
     }
 }

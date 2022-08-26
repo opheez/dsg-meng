@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Net;
 using System.Collections.Concurrent;
 
 namespace FASTER.libdpr
@@ -31,6 +33,11 @@ namespace FASTER.libdpr
         {
             dprViewNumber++;
             dprFinder.Refresh();
+        }
+
+        public Dictionary<Worker, (int, string)> FetchCluster()
+        {
+            return dprFinder.FetchCluster();
         }
 
         internal IDprFinder GetDprFinder()

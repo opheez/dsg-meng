@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Net;
 
 namespace FASTER.libdpr
 {
@@ -93,7 +94,7 @@ namespace FASTER.libdpr
         /// <param name="id"> id of the worker </param>
         /// <param name="stateObject"> state object associated with the worker</param>
         /// <returns> the version state object should recover to before beginning execution, or 0 if no recovery is required </returns>
-        long NewWorker(Worker id, IStateObject stateObject);
+        long NewWorker(WorkerInformation id, IStateObject stateObject);
 
         /// <summary>
         ///     Removes the given worker from the cluster. It is up to caller to ensure that the deleted worker is not
@@ -101,5 +102,11 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="id"></param>
         void DeleteWorker(Worker id);
+
+        /// <summary>
+        ///     Forms and returns a mapping of workers to their ip end points. To be invoked as necessary, usually in
+        ///     DPR Finders used by clients in order for the clients to obtain the most fresh view of the cluster.
+        /// </summary>
+        Dictionary<Worker, (int, string)> FetchCluster();
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -22,8 +23,8 @@ namespace FASTER.libdpr
     /// </summary>
     public class EnhancedDprFinderServer : IDisposable
     {
+        private static readonly string debugLogFile = "/DprCounters/data/serverLog.txt";
         private static readonly byte[] OkResponse = Encoding.GetEncoding("ASCII").GetBytes("+OK\r\n");
-
         private readonly EnhancedDprFinderBackend backend;
         private readonly string ip;
         private readonly int port;
@@ -53,7 +54,10 @@ namespace FASTER.libdpr
 
             termination.Set();
             processThread.Join();
-            backend.Dispose();
+            if(backend != null)
+            {
+                backend.Dispose();
+            }
         }
 
         /// <summary>
@@ -61,12 +65,14 @@ namespace FASTER.libdpr
         /// </summary>
         public void StartServer()
         {
+            Utility.LogDebug(debugLogFile, "##############\n\nSERVER STARTED");
             termination = new ManualResetEventSlim();
 
             processThread = new Thread(() =>
             {
                 while (!termination.IsSet)
-                    backend.Process();
+                    if(backend != null)
+                        backend.Process();
             });
             processThread.Start();
 
@@ -111,6 +117,20 @@ namespace FASTER.libdpr
             } while (!servSocket.AcceptAsync(e));
         }
 
+        private void FailFast()
+        {   // easy way to replicate failing during recovery at any given message below
+            string path = "/DprCounters/data/failing.txt";
+            if(File.Exists(path))
+                return;
+            else
+            {
+                using(FileStream fs = File.Create(path))
+                {
+                    Environment.Exit(1);
+                }
+            }
+        }
+
         private void HandleClientCommand(DprFinderCommand command, Socket socket)
         {
             switch (command.commandType)
@@ -121,7 +141,9 @@ namespace FASTER.libdpr
                     socket.Send(OkResponse);
                     break;
                 case DprFinderCommand.Type.GRAPH_RESENT:
+                    // FailFast();
                     backend.MarkWorkerAccountedFor(command.wv.Worker, command.wv.Version);
+                    socket.Send(OkResponse);
                     break;
                 case DprFinderCommand.Type.SYNC:
                     var precomputedResponse = backend.GetPrecomputedResponse();
@@ -131,10 +153,16 @@ namespace FASTER.libdpr
                     precomputedResponse.rwLatch.ExitReadLock();
                     break;
                 case DprFinderCommand.Type.ADD_WORKER:
-                    backend.AddWorker(command.w, socket.SendAddWorkerResponse);
+                    backend.AddWorker(command.wi, socket.SendAddWorkerResponse);
                     break;
                 case DprFinderCommand.Type.DELETE_WORKER:
                     backend.DeleteWorker(command.w, () => socket.Send(OkResponse));
+                    break;
+                case DprFinderCommand.Type.FETCH_CLUSTER:
+                    var fetchedCluster = backend.GetClusterState();
+                    fetchedCluster.rwLatch.EnterReadLock();
+                    socket.SendFetchClusterResponse(ValueTuple.Create(fetchedCluster.serializedResponse, fetchedCluster.responseEnd));
+                    fetchedCluster.rwLatch.ExitReadLock();
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();

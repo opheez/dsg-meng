@@ -17,5 +17,3 @@ if __name__ == "__main__":
     host = socket.gethostbyname(socket.gethostname())
     server = socketserver.TCPServer((host, 15000), ScriptServer)
     server.serve_forever()
-
-

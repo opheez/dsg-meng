@@ -12,6 +12,8 @@ namespace DprCounters
     /// </summary>
     public class CounterServer
     {
+        private static readonly string errorLog = "/DprCounters/data/errors.txt";
+        private readonly string basicLog = "/DprCounters/data/basic.txt";
         private Socket socket;
         private DprServer<CounterStateObject> dprServer;
         private ManualResetEventSlim termination;
@@ -24,7 +26,7 @@ namespace DprCounters
         /// <param name="me"> id of worker in DPR cluster </param>
         /// <param name="checkpointDir"> directory name to write checkpoint files to </param>
         /// <param name="dprFinder"> DprFinder for the cluster </param>
-        public CounterServer(string ip, int port, Worker me, string checkpointDir, IDprFinder dprFinder)
+        public CounterServer(string ip, int port, WorkerInformation me, string checkpointDir, IDprFinder dprFinder)
         {
             // Each DPR worker should be backed by one state object. The state object exposes some methods 
             // for the DPR logic to invoke when necessary, but DPR does not otherwise mediate user interactions
@@ -42,7 +44,8 @@ namespace DprCounters
         public void RunServer()
         {
             dprServer.ConnectToCluster();
-            
+            Utility.LogBasic(basicLog, "Server started");
+
             termination = new ManualResetEventSlim();
             // DprServer must be continually refreshed and checkpointed for the system to make progress. It is easiest
             // to simply spawn a background thread to do that. 
@@ -52,7 +55,23 @@ namespace DprCounters
                 {
                     Thread.Sleep(10);
                     // A DprServer has built-in timers to rate-limit checkpoints and refreshes if needed
-                    dprServer.TryRefreshAndCheckpoint(100, 10);
+                    try
+                    {
+                        dprServer.TryRefreshAndCheckpoint(100, 10);
+                    }
+                    catch (SocketException)
+                    {
+                        Console.WriteLine("still catching exception");
+                        // means the Dpr Finder failed and we are trying to reconnect to it
+                        // fine to ignore
+                    } 
+                    catch (Exception e) 
+                    {
+                        // these shouldn't happen, logging them if they do
+                        string s = "New Error Occured:\n" + e.ToString() + "\n###################";
+                        FASTER.libdpr.Utility.LogDebug(errorLog, s);
+                        throw e; // throwing e so that we indeed fail, sometimes beneficial to remove when debugging
+                    }
                 }
             });
             backgroundThread.Start();
@@ -71,7 +90,7 @@ namespace DprCounters
                 {
                     conn = socket.Accept();
                 }
-                catch (SocketException e)
+                catch (SocketException)
                 {
                     return;
                 }
@@ -81,7 +100,7 @@ namespace DprCounters
                 while (receivedBytes < sizeof(int))
                     receivedBytes += conn.Receive(inBuffer, receivedBytes, inBuffer.Length - receivedBytes,
                         SocketFlags.None);
-
+                //TODO(Nikola): Do the courtesy zero thing like we do at other places here
                 var size = BitConverter.ToInt32(inBuffer);
                 // Receive the combined message.
                 while (receivedBytes < size + sizeof(int))
@@ -109,6 +128,8 @@ namespace DprCounters
                     result = dprServer.StateObject().value;
                     dprServer.StateObject().value +=
                         BitConverter.ToInt64(new Span<byte>(inBuffer, sizeof(int) + size - sizeof(long), sizeof(long)));
+                    string updateString = "New value update:\nOld value: " + result.ToString() + "\nNew value: " + dprServer.StateObject().value.ToString();
+                    Utility.LogBasic(basicLog, updateString);
                     
                     // Once requests are done executing, stop protecting this batch so DPR can progress
                     dprServer.StateObject().VersionScheme().Leave();

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System;
 
 namespace FASTER.libdpr
 {
@@ -24,13 +25,13 @@ namespace FASTER.libdpr
         /// <param name="previousVersion"></param>
         public void BeforeNewVersion(long version, long previousVersion)
         {
-            var worldLine = state.worldlineTracker.Enter();
+            // var worldLine = state.worldlineTracker.Enter(); // current deadlock
             var deps = state.dependencySetPool.Checkout();
             if (previousVersion != 0)
-                deps.Update(state.me, previousVersion);
+                deps.Update(state.me.worker, previousVersion);
             var success = state.versions.TryAdd(version, deps);
             Debug.Assert(success);
-            state.worldlineTracker.Leave();
+            // state.worldlineTracker.Leave();
         }
 
         /// <summary>
@@ -40,12 +41,13 @@ namespace FASTER.libdpr
         /// <param name="token">unique token that identifies the checkpoint associated with the version</param>
         public void OnVersionPersistent(long version)
         {
-            var worldLine = state.worldlineTracker.Enter();
+            // var worldLine = state.worldlineTracker.Enter();
             state.versions.TryRemove(version, out var deps);
-            var workerVersion = new WorkerVersion(state.me, version);
-            state.dprFinder.ReportNewPersistentVersion(worldLine, workerVersion, deps);
+            var workerVersion = new WorkerVersion(state.me.worker, version);
+            state.dprFinder.ReportNewPersistentVersion(state.worldlineTracker.Version(), workerVersion, deps);
+            // state.dprFinder.ReportNewPersistentVersion(worldLine, workerVersion, deps);
             state.dependencySetPool.Return(deps);
-            state.worldlineTracker.Leave();
+            // state.worldlineTracker.Leave();
         }
 
         /// <summary>

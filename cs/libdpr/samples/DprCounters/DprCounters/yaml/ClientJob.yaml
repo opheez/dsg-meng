@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: client
+spec:
+  template:
+    spec:
+      containers:
+      - name: client
+        image: cetko24/meng_project
+        args: ["client"]
+        imagePullPolicy: Never
+      restartPolicy: Never
+  backoffLimit: 4

@@ -13,7 +13,7 @@ namespace FASTER.libdpr
         private Dictionary<Worker, TestStateStore> GetTestCluster(int size)
         {
             fakeFinder = new SimpleTestDprFinderBackend(size);
-            client = new DprClient(new SimpleTestDprFinder(new Worker(1) , fakeFinder));
+            client = new DprClient(new SimpleTestDprFinder(new Worker(1) , fakeFinder), null);
             var result = new Dictionary<Worker, TestStateStore>();
             for (var i = 0; i < size; i++)
             {

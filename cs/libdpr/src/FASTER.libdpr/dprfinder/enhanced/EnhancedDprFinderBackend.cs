@@ -2,7 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
+using System.Net;
 using System.Threading;
 
 namespace FASTER.libdpr
@@ -81,6 +81,56 @@ namespace FASTER.libdpr
         }
     }
 
+    public class ConfigurationResponse
+    {
+        /// <summary>
+        ///     end offset of the serialized portion of cluster state on the response buffer
+        /// </summary>
+        public int recoveryStateEnd;
+
+        /// <summary>
+        ///     end offset of the entire response on the buffer
+        /// </summary>
+        public int responseEnd;
+
+        /// <summary>
+        ///     Reader/Writer latch that protects members --- if reading the serialized response, must do so under
+        ///     read latch to prevent concurrent modification.
+        /// </summary>
+        public ReaderWriterLockSlim rwLatch;
+
+        /// <summary>
+        ///     buffer that holds the serialized state
+        /// </summary>
+        public byte[] serializedResponse = new byte[1 << 15];
+
+        /// <summary>
+        ///     Create a new PrecomputedSyncResponse from the given cluster state. Until UpdateCut is called, the
+        ///     serialized response will have a special value for the cut to signal its absence.
+        /// </summary>
+        /// <param name="clusterState"> cluster state to serialize </param>
+        public ConfigurationResponse(Dictionary<Worker, (int, int)> workers)
+        {
+            rwLatch = new ReaderWriterLockSlim();
+            // Reserve space for dict_size + actual_dict fields
+            var serializedSize = RespUtil.DictionarySerializedSize(workers);
+            // Resize response buffer to fit
+            if (serializedSize > serializedResponse.Length)
+                serializedResponse = new byte[Math.Max(2 * serializedResponse.Length, serializedSize)];
+
+            recoveryStateEnd =
+                RespUtil.SerializeDictionary(workers, serializedResponse, 0);
+            responseEnd = recoveryStateEnd;
+        }
+
+        public static Dictionary<Worker, (int, string)> FromBuffer(byte[] buf, int offset, out int head)
+        {
+            var result = new Dictionary<Worker, (int, string)>();
+            head = RespUtil.ReadDictionaryFromBytes(buf, offset, result);
+            return result;
+        }
+    }
+
     /// <summary>
     ///     Persistent state about the DPR cluster
     /// </summary>
@@ -135,9 +185,10 @@ namespace FASTER.libdpr
     /// </summary>
     public class EnhancedDprFinderBackend
     {
+        private static readonly string basicLog = "/DprCounters/data/basic.txt";
         // Used to send add/delete worker requests to processing thread
-        private readonly ConcurrentQueue<(Worker, Action<(long, long)>)> addQueue =
-            new ConcurrentQueue<(Worker, Action<(long, long)>)>();
+        private readonly ConcurrentQueue<(WorkerInformation, Action<(long, long)>)> addQueue =
+            new ConcurrentQueue<(WorkerInformation, Action<(long, long)>)>();
 
         private readonly ReaderWriterLockSlim clusterChangeLatch = new ReaderWriterLockSlim();
         private readonly Dictionary<Worker, long> currentCut = new Dictionary<Worker, long>();
@@ -150,9 +201,13 @@ namespace FASTER.libdpr
         private readonly SimpleObjectPool<List<WorkerVersion>> objectPool =
             new SimpleObjectPool<List<WorkerVersion>>(() => new List<WorkerVersion>());
 
+        private Dictionary<Worker, (int, int)> workers = new Dictionary<Worker, (int, int)>();
+
         private readonly ConcurrentQueue<WorkerVersion> outstandingWvs = new ConcurrentQueue<WorkerVersion>();
 
         private readonly PingPongDevice persistentStorage;
+
+        private readonly PingPongDevice clusterStorage;
 
         private readonly ConcurrentDictionary<WorkerVersion, List<WorkerVersion>> precedenceGraph =
             new ConcurrentDictionary<WorkerVersion, List<WorkerVersion>>();
@@ -160,6 +215,9 @@ namespace FASTER.libdpr
         // Only used during DprFinder recovery
         private readonly RecoveryState recoveryState;
         private PrecomputedSyncResponse syncResponse;
+
+        private ConfigurationResponse configResponse;
+
         private readonly ConcurrentDictionary<Worker, long> versionTable = new ConcurrentDictionary<Worker, long>();
 
         private readonly HashSet<WorkerVersion> visited = new HashSet<WorkerVersion>();
@@ -171,17 +229,28 @@ namespace FASTER.libdpr
         ///     EnhancedDprFinderBackend state, the constructor will attempt to recover from it.
         /// </summary>
         /// <param name="persistentStorage"> persistent storage backing this dpr finder </param>
-        public EnhancedDprFinderBackend(PingPongDevice persistentStorage)
+        public EnhancedDprFinderBackend(PingPongDevice persistentStorage, PingPongDevice clusterStorage)
         {
             this.persistentStorage = persistentStorage;
+            this.clusterStorage = clusterStorage;
             // see if a previously persisted state is available
             if (persistentStorage.ReadLatestCompleteWrite(out var buf))
+            {
                 volatileClusterState = ClusterState.FromBuffer(buf, 0, out _);
+            }
             else
+            {
                 volatileClusterState = new ClusterState();
+            }
+            
+            if(this.clusterStorage.ReadLatestCompleteWrite(out var buffer))
+            {
+                RespUtil.ReadDictionaryFromBytes(buffer, 0, workers);
+            }
 
             syncResponse = new PrecomputedSyncResponse(volatileClusterState);
             recoveryState = new RecoveryState(this);
+            configResponse = new ConfigurationResponse(workers);
         }
 
         // Try to commit a single worker version by chasing through its dependencies
@@ -220,7 +289,7 @@ namespace FASTER.libdpr
                     // If node is committed as determined by the cut, ok to continue
                     if (currentCut.GetValueOrDefault(node.Worker, 0) >= node.Version) continue;
                     // Otherwise, need to check if it is persistent (and therefore present in the graph)
-                    if (!precedenceGraph.TryGetValue(node, out var val)) return false;
+                    if (!precedenceGraph.TryGetValue(node, out var val))  return false;
 
                     visited.Add(node);
                     foreach (var dep in val)
@@ -380,24 +449,25 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="worker"> worker to add to the cluster </param>
         /// <param name="callback"> callback to invoke when worker addition is persistent </param>
-        public void AddWorker(Worker worker, Action<(long, long)> callback = null)
+        public void AddWorker(WorkerInformation workerInfo, Action<(long, long)> callback = null)
         {
-            addQueue.Enqueue(ValueTuple.Create(worker, callback));
+            addQueue.Enqueue(ValueTuple.Create(workerInfo, callback));
         }
 
-        private (long, long) ProcessAddWorker(Worker worker)
+        private (long, long) ProcessAddWorker(WorkerInformation workerInfo)
         {
             // Before adding a worker, make sure all workers have already reported all (if any) locally outstanding 
             // checkpoints. We require this to be able to process the request.
             if (!recoveryState.RecoveryComplete()) throw new InvalidOperationException();
 
-            versionTable.TryAdd(worker, 0);
+            versionTable.TryAdd(workerInfo.worker, 0);
+            Utility.LogBasic(basicLog, "Worker added. Id: " + workerInfo.worker.guid.ToString());
             (long, long) result;
-            if (volatileClusterState.worldLinePrefix.TryAdd(worker, 0))
+            if (volatileClusterState.worldLinePrefix.TryAdd(workerInfo.worker, 0))
             {
                 // First time we have seen this worker --- start them at current world-line
                 result = (volatileClusterState.currentWorldLine, 0);
-                currentCut.Add(worker, 0);
+                currentCut.Add(workerInfo.worker, 0);
                 cutChanged = true;
             }
             else
@@ -413,9 +483,13 @@ namespace FASTER.libdpr
                 foreach (var list in precedenceGraph.Values)
                     objectPool.Return(list);
                 precedenceGraph.Clear();
-                var survivingVersion = currentCut[worker];
+                var survivingVersion = currentCut[workerInfo.worker];
                 result = (volatileClusterState.currentWorldLine, survivingVersion);
             }
+
+            workers[workerInfo.worker] = (workerInfo.port, workerInfo.type);
+            configResponse = new ConfigurationResponse(workers);
+            clusterStorage.WriteReliably(configResponse.serializedResponse, 0, configResponse.responseEnd);
 
             return result;
         }
@@ -443,6 +517,9 @@ namespace FASTER.libdpr
             volatileClusterState.worldLinePrefix.Remove(worker);
             volatileClusterState.worldLinePrefix.Remove(worker);
             versionTable.TryRemove(worker, out _);
+            workers.Remove(worker);
+            configResponse = new ConfigurationResponse(workers);
+            clusterStorage.WriteReliably(configResponse.serializedResponse, 0, configResponse.responseEnd);
         }
 
         /// <summary></summary>
@@ -450,6 +527,11 @@ namespace FASTER.libdpr
         public PrecomputedSyncResponse GetPrecomputedResponse()
         {
             return syncResponse;
+        }
+
+        public ConfigurationResponse GetClusterState()
+        {
+            return configResponse;
         }
 
         /// <summary></summary>
@@ -520,6 +602,7 @@ namespace FASTER.libdpr
 
                 // Only mark recovery complete after we have reached that conclusion
                 recoveryComplete = true;
+                Utility.LogBasic(basicLog, "Recovery Complete");
             }
         }
     }

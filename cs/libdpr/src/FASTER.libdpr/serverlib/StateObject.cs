@@ -11,7 +11,7 @@ namespace FASTER.libdpr
         /// <summary>
         ///     Gets all DPR information associated with a version as a byte array
         /// </summary>
-        delegate ReadOnlySpan<byte> DepsProvider(long version);
+        delegate ReadOnlySpan<byte> MetadataProvider(long version);
 
         /// <summary>
         ///     Registers a set of callbacks that libDPR expects to be called at certain points by the underlying state
@@ -39,10 +39,10 @@ namespace FASTER.libdpr
         ///     version end to obtain the bytes to write out. It is ok to ignore this requirement if a state object will
         ///     only be connected to a DprFinder backend that does not require this.
         /// </summary>
-        /// <param name="depsProvider">function to get DPR byte header to write with each checkpoint</param>
+        /// <param name="metadataProvider">function to get DPR byte header to write with each checkpoint</param>
         /// >
         /// <param name="targetVersion">The version to jump to, or -1 if unconditionally jumping to next version</param>
-        void BeginCheckpoint(DepsProvider depsProvider, long targetVersion = -1);
+        void BeginCheckpoint(MetadataProvider metadataProvider, long targetVersion = -1);
 
         /// <summary>
         ///     Recovers the state object to an earlier checkpoint, identified by the given version. After the function

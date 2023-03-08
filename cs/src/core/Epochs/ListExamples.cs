@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace FASTER.core
 {
@@ -210,6 +211,7 @@ namespace FASTER.core
         {
             var newList = new long[2 * list.Length];
             Array.Copy(list, newList, list.Length);
+            Thread.Sleep(5);
             list = newList;
         }
 
@@ -274,6 +276,13 @@ namespace FASTER.core
             {
                 case VersionSchemeState.REST:
                     obj.newList = new long[obj.list.Length * 2];
+                    Task.Run(() =>
+                    {
+                        Array.Copy(obj.list, obj.newList, obj.list.Length);
+                        copyDone = true;
+                        Thread.Sleep(5);
+                        epvs.TryStepStateMachine();
+                    });
                     break;
                 case COPYING:
                     obj.list = obj.newList;
@@ -286,12 +295,13 @@ namespace FASTER.core
 
         public override void AfterEnteringState(VersionSchemeState state)
         {
-            if (state.Phase == COPYING)
-            {
-                Array.Copy(obj.list, obj.newList, obj.list.Length);
-                copyDone = true;
-                epvs.TryStepStateMachine();
-            }
+            // if (state.Phase == COPYING)
+            // {
+            //     Array.Copy(obj.list, obj.newList, obj.list.Length);
+            //     copyDone = true;
+            //     epvs.TryStepStateMachine();
+            //     Thread.Sleep(5);
+            // }
         }  
     }
 
@@ -345,13 +355,13 @@ namespace FASTER.core
             try
             {
                 var state = epvs.Enter();
+                if (index < 0 || index >= count)
+                    throw new IndexOutOfRangeException();
                 // Write operation is not allowed during copy because we don't know about the copy progress
-                while (state.Phase == ListGrowthStateMachine.COPYING)
+                while (state.Phase == ListGrowthStateMachine.COPYING || index >= list.Length)
                 {
                     state = epvs.Refresh();
-                    Thread.Yield();
                 }
-                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
                 list[index] = value;
             }
             finally
@@ -364,10 +374,8 @@ namespace FASTER.core
         {
             try
             {
-                var result = Interlocked.Increment(ref count) - 1;
-                
                 var state = epvs.Enter();
-
+                var result = Interlocked.Increment(ref count) - 1;
                 // Write the entry into the correct underlying array
                 while (true)
                 {

@@ -61,7 +61,7 @@ namespace FASTER.core
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static VersionSchemeState Make(byte phase, long version)
+        public static VersionSchemeState Make(byte phase, long version)
         {
             var info = default(VersionSchemeState);
             info.Phase = phase;

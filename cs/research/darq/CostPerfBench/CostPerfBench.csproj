@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net6.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <ServerGarbageCollection>true</ServerGarbageCollection>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\remote\src\FASTER.client\FASTER.client.csproj" />
+      <ProjectReference Include="..\..\..\remote\src\FASTER.common\FASTER.common.csproj" />
+      <ProjectReference Include="..\..\..\remote\src\FASTER.server\FASTER.server.csproj" />
+      <ProjectReference Include="..\..\..\src\core\FASTER.core.csproj" />
+      <ProjectReference Include="..\..\..\src\devices\AzureStorageDevice\FASTER.devices.AzureStorageDevice.csproj" />
+      <ProjectReference Include="..\..\libdpr\src\FASTER.libdpr\FASTER.libdpr.csproj" />
+      <ProjectReference Include="..\FASTER.darq\FASTER.darq.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="CommandLineParser" Version="2.9.1" />
+    </ItemGroup>
+
+</Project>

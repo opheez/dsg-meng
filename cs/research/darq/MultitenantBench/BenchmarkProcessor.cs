@@ -10,18 +10,16 @@ namespace microbench
     public unsafe class BenchmarkProcessor : IDarqProcessor
     {
         private IDarqProcessorClientCapabilities capabilities;
-        private StepRequest request;
         private List<BlockingCollection<DarqMessage>> workerQueues;
         private List<Thread> threads;
         private CountdownEvent countdownEvent;
 
         public BenchmarkProcessor(WorkerId me, int numTenants, int numSteps)
         {
-            request = new StepRequest(null);
             workerQueues = new List<BlockingCollection<DarqMessage>>();
             threads = new List<Thread>();
             countdownEvent = new CountdownEvent(numTenants);
-            
+
             for (var i = 0; i < numTenants; i++)
             {
                 var collection = new BlockingCollection<DarqMessage>(1);
@@ -29,7 +27,9 @@ namespace microbench
                 var thread = new Thread(() =>
                 {
                     Span<byte> buf = stackalloc byte[8];
-                    while (!collection.IsCompleted)
+                    StepRequest request = new StepRequest(null);
+
+                    while (true)
                     {
                         var m = collection.Take();
                         var partitionId = BitConverter.ToInt32(m.GetMessageBody());
@@ -37,7 +37,7 @@ namespace microbench
 
                         if (numTasksLeft % 10000 == 0)
                             Console.WriteLine($"{numTasksLeft} messages left to process");
-                        
+
                         SerialPi(numSteps);
                         BitConverter.TryWriteBytes(buf, partitionId);
                         BitConverter.TryWriteBytes(buf.Slice(sizeof(int)), --numTasksLeft);
@@ -46,12 +46,13 @@ namespace microbench
                             .AddOutMessage(me, buf)
                             .FinishStep());
                         m.Dispose();
+
+                        if (numTasksLeft == 0) break;
                     }
                 });
                 threads.Add(thread);
                 thread.Start();
             }
-
         }
 
         public bool ProcessMessage(DarqMessage m)
@@ -62,7 +63,6 @@ namespace microbench
             var collection = workerQueues[partitionId];
             if (numTasksLeft == 0)
             {
-                collection.CompleteAdding();
                 m.Dispose();
                 threads[partitionId].Join();
                 return !countdownEvent.Signal();
@@ -77,7 +77,7 @@ namespace microbench
         {
             this.capabilities = capabilities;
         }
-        
+
         static double SerialPi(int numSteps)
         {
             double sum = 0.0;
@@ -87,6 +87,7 @@ namespace microbench
                 double x = (i + 0.5) * step;
                 sum += 4.0 / (1.0 + x * x);
             }
+
             return step * sum;
         }
     }

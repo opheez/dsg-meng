@@ -30,6 +30,10 @@ namespace microbench
         [Option('d', "colocate-darq", Required = false, Default = false,
             HelpText = "whether to use one DARQ underneath")]
         public bool ColocateDarq { get; set; }
+        
+        [Option('i', "checkpoint-interval", Required = false, Default = 5,
+            HelpText = "checkpoint interval of DARQ, in milli")]
+        public int CheckpointInterval { get; set; }
     }
 
     public class Program
@@ -46,7 +50,7 @@ namespace microbench
                     logDevice = new LocalMemoryDevice((1L << 32), 1L << 30, 1);
                     break;
                 case "SSD":
-                    logDevice = new LocalStorageDevice($"D:\\w{me.guid}.log", deleteOnClose: true);
+                    logDevice = new LocalStorageDevice($"E:\\w{me.guid}.log", deleteOnClose: true);
                     break;
                 case "BLOB":
                     logDevice = new AzureStorageDevice(CONN_STRING, "test", "recovery", "log", deleteOnClose: true);
@@ -56,7 +60,7 @@ namespace microbench
             }
 
             var commitManager = new DeviceLogCommitCheckpointManager(new LocalStorageNamedDeviceFactory(),
-                new DefaultCheckpointNamingScheme($"D:\\log-commits{me.guid}"), false);
+                new DefaultCheckpointNamingScheme($"E:\\log-commits{me.guid}"), false);
             // Clear in case of leftover files
             commitManager.RemoveAllCommits();
 
@@ -67,7 +71,7 @@ namespace microbench
                 PageSize = 1L << 24,
                 MemorySize = 1L << 25,
                 LogCommitManager = commitManager,
-                LogCommitDir = $"D:\\log-commits{me.guid}",
+                LogCommitDir = $"E:\\log-commits{me.guid}",
                 FastCommitMode = true,
                 DeleteOnClose = false
             };
@@ -79,7 +83,7 @@ namespace microbench
                 me = me,
                 DarqSettings = darqSettings,
                 ClusterInfo = clusterInfo,
-                commitIntervalMilli = 1
+                commitIntervalMilli = options.CheckpointInterval
             });
             return darqServer;
         }

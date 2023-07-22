@@ -48,6 +48,8 @@ namespace FASTER.server
 
         private void ProcessBatch(byte* buf, int offset)
         {
+            networkSender.GetResponseObject();
+
             var d = networkSender.GetResponseObjectHead();
             byte* b = buf + offset;
             var dend = networkSender.GetResponseObjectTail();

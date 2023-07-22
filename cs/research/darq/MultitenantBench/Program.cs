@@ -21,6 +21,10 @@ namespace microbench
         [Option('t', "num-tenants", Required = true,
             HelpText = "number of tenants to put on a single DARQ")]
         public int NumTenants { get; set; }
+        
+        [Option('i', "checkpoint-interval", Required = false, Default = 5,
+            HelpText = "checkpoint interval of DARQ, in milli")]
+        public int CheckpointInterval { get; set; }
     }
 
     public unsafe class Program
@@ -30,9 +34,9 @@ namespace microbench
         public static void RunDarq(Options options)
         {
                         
-            var logDevice = new LocalMemoryDevice((1L << 32), 1L << 30, 1);
+            var logDevice = new LocalStorageDevice($"E:\\w0.log", deleteOnClose: true);
             var commitManager = new DeviceLogCommitCheckpointManager(new LocalStorageNamedDeviceFactory(),
-                new DefaultCheckpointNamingScheme($"D:\\log-commits"), false);
+                new DefaultCheckpointNamingScheme($"E:\\log-commits"), false);
             // Clear in case of leftover files
             commitManager.RemoveAllCommits();
 
@@ -43,7 +47,7 @@ namespace microbench
                 PageSize = 1L << 24,
                 MemorySize = 1L << 25,
                 LogCommitManager = commitManager,
-                LogCommitDir = $"D:\\log-commits",
+                LogCommitDir = $"E:\\log-commits",
                 FastCommitMode = true,
                 DeleteOnClose = false
             };
@@ -55,20 +59,17 @@ namespace microbench
                 me = new WorkerId(0),
                 DarqSettings = darqSettings,
                 ClusterInfo = clusterInfo,
-                commitIntervalMilli = 5
+                commitIntervalMilli = options.CheckpointInterval
             });
             darqServer.Start();
+            var processor = new BenchmarkProcessor(new WorkerId(0), options.NumTenants, options.ComputeScale);
+            var client =
+                new ColocatedDarqProcessorClient(darqServer.GetDarq());
             Console.WriteLine("Starting processor...");
-            var me = darqServer.GetDarq().Me();
-            var processor = new BenchmarkProcessor(me, options.NumTenants, options.ComputeScale);
-
-            IDarqProcessorClient client;
-            client = new ColocatedDarqProcessorClient(darqServer.GetDarq());
             client.StartProcessing(processor);
             darqServer.Dispose();
-            // TODO(Tianyu): Need to explicitly deallocate underlying log?
         }
-        
+
         public static void Main(string[] args)
         {
             ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
@@ -79,7 +80,10 @@ namespace microbench
             clusterInfo = new HardCodedClusterInfo().SetDprFinder(null, 0)
                 .AddWorker(new WorkerId(0), "", "127.0.0.1", 15721);
 
-            var thread = new Thread(() => RunDarq(options));
+            var thread = new Thread(() =>
+            {
+                RunDarq(options);
+            });
             thread.Start();
 
             // Give time for the new threads to setup
@@ -98,7 +102,7 @@ namespace microbench
             darqClient.ForceFlush();
             thread.Join();
             stopwatch.Stop();
-            Console.WriteLine(1000.0 * options.NumMessages / stopwatch.ElapsedMilliseconds);
+            Console.WriteLine(1000.0 * options.NumMessages * options.NumTenants / stopwatch.ElapsedMilliseconds);
         }
     }
 }

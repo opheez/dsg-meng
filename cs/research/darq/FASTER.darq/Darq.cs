@@ -132,7 +132,11 @@ namespace FASTER.darq
             if (settings.DeleteOnClose)
                 settings.LogCommitManager.RemoveAllCommits();
             log.Dispose();
-            settings.LogDevice.Dispose();
+            try
+            {
+                settings.LogDevice.Dispose();
+            }
+            catch(Exception e) {}
             settings.LogCommitManager.Dispose();
         }
 

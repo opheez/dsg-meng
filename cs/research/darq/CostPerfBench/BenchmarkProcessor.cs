@@ -30,14 +30,16 @@ namespace microbench
                 return false;
             }
 
-            if (numTasksLeft % 10000 == 0)
-                Console.WriteLine($"processed {numTasksLeft} messages");
+            if (numTasksLeft % 100 == 0)
+                Console.WriteLine($"{numTasksLeft} messages left to process");
 
             ParallelPi(numSteps);
-            --numTasksLeft;
+            Span<byte> newMessage = stackalloc byte[sizeof(int)];
+            BitConverter.TryWriteBytes(newMessage, --numTasksLeft);
+            
             capabilities.Step(new StepRequestBuilder(request, me)
                 .MarkMessageConsumed(m.GetLsn())
-                .AddOutMessage(other, new Span<byte>((byte*) &numTasksLeft, sizeof(int)))
+                .AddOutMessage(other, newMessage)
                 .FinishStep());
             m.Dispose();
             return numTasksLeft != 0;
@@ -48,7 +50,7 @@ namespace microbench
             this.capabilities = capabilities;
         }
         
-        static double ParallelPi(int numSteps = 100_000_000)
+        static double ParallelPi(int numSteps)
         {
             double sum = 0.0;
             double step = 1.0 / numSteps;

@@ -11,12 +11,12 @@ namespace microbench
 {
     public class Options
     {
-        [Option('n', "num-tasks", Required = false, Default = 10000,
+        [Option('n', "num-tasks", Required = false, Default = 1000,
             HelpText = "number of messages to fill DARQ with initially")]
         public int NumMessages { get; set; }
 
-        [Option('c', "compute-scale", Required = false, Default = 100,
-            HelpText = "each task computes pi in parallel to compute-scale * 1000_000 iterations")]
+        [Option('c', "compute-scale", Required = false, Default = 1000000,
+            HelpText = "each task computes pi in parallel to compute-scale iterations")]
         public int ComputeScale { get; set; }
 
         [Option('t', "darq-type", Required = true,
@@ -46,7 +46,7 @@ namespace microbench
                     logDevice = new LocalMemoryDevice((1L << 32), 1L << 30, 1);
                     break;
                 case "SSD":
-                    logDevice = new LocalStorageDevice($"E:\\w{me.guid}.log", deleteOnClose: true);
+                    logDevice = new LocalStorageDevice($"D:\\w{me.guid}.log", deleteOnClose: true);
                     break;
                 case "BLOB":
                     logDevice = new AzureStorageDevice(CONN_STRING, "test", "recovery", "log", deleteOnClose: true);
@@ -56,7 +56,7 @@ namespace microbench
             }
 
             var commitManager = new DeviceLogCommitCheckpointManager(new LocalStorageNamedDeviceFactory(),
-                new DefaultCheckpointNamingScheme($"E:\\log-commits{me.guid}"), false);
+                new DefaultCheckpointNamingScheme($"D:\\log-commits{me.guid}"), false);
             // Clear in case of leftover files
             commitManager.RemoveAllCommits();
 
@@ -67,7 +67,7 @@ namespace microbench
                 PageSize = 1L << 24,
                 MemorySize = 1L << 25,
                 LogCommitManager = commitManager,
-                LogCommitDir = $"E:\\log-commits{me.guid}",
+                LogCommitDir = $"D:\\log-commits{me.guid}",
                 FastCommitMode = true,
                 DeleteOnClose = false
             };
@@ -79,15 +79,13 @@ namespace microbench
                 me = me,
                 DarqSettings = darqSettings,
                 ClusterInfo = clusterInfo,
-                commitIntervalMilli = 5
+                commitIntervalMilli = 1
             });
-            darqServer.Start();
             return darqServer;
         }
 
         private static void RunDarqProcessor(DarqServer darqServer, Options options)
         {
-            Console.WriteLine("Starting processor...");
             var me = darqServer.GetDarq().Me();
             var other = options.ColocateDarq ? me : new WorkerId((me.guid + 1) % 2);
             var processor = new BenchmarkProcessor(me, other, options.ComputeScale);

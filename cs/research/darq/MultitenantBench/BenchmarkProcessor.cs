@@ -36,7 +36,8 @@ namespace microbench
                         var numTasksLeft = BitConverter.ToInt32(m.GetMessageBody().Slice(sizeof(int)));
 
                         if (numTasksLeft % 10000 == 0)
-                            Console.WriteLine($"partition {partitionId} processed {numTasksLeft} messages");
+                            Console.WriteLine($"{numTasksLeft} messages left to process");
+                        
                         SerialPi(numSteps);
                         BitConverter.TryWriteBytes(buf, partitionId);
                         BitConverter.TryWriteBytes(buf.Slice(sizeof(int)), --numTasksLeft);
@@ -77,7 +78,7 @@ namespace microbench
             this.capabilities = capabilities;
         }
         
-        static double SerialPi(int numSteps = 100_000_000)
+        static double SerialPi(int numSteps)
         {
             double sum = 0.0;
             double step = 1.0 / numSteps;

@@ -12,7 +12,7 @@ namespace FASTER.libdpr
     /// </summary>
     public sealed class LightDependencySet : IEnumerable<WorkerVersion>, IDisposable
     {
-        private const int MaxSizeBits = 8;
+        private const int MaxSizeBits = 3;
 
         /**
          * The maximum number of workers in a cluster this light dependency set can support. Compile-time constant.

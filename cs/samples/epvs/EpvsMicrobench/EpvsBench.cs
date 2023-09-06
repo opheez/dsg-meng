@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
+using CommandLine;
 using FASTER.core;
 
 namespace epvs
@@ -160,7 +161,7 @@ namespace epvs
             LightEpoch.InitializeStatic(options.EpochTableSize, options.DrainListSize);
             tested = new SimpleVersionScheme();
             testedLatch = new SemaphoreSlim(1, 1);
-
+            
             var threads = new List<Thread>();
             var random = new Random();
             for (var i = 0; i < options.NumThreads; i++)

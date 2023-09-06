@@ -69,6 +69,9 @@ namespace epvs
                 case "latched":
                     new ResizableListBench<LatchedResizableList>(new LatchedResizableList()).RunExperiment(options);
                     break;
+                case "bravo":
+                    new ResizableListBench<BravoResizableList>(new BravoResizableList()).RunExperiment(options);
+                    break;
                 case "simple-version":
                     new ResizableListBench<SimpleVersionSchemeResizableList>(new SimpleVersionSchemeResizableList()).RunExperiment(options);
                     break;

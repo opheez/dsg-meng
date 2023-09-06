@@ -87,6 +87,74 @@ namespace FASTER.core
         }
     }
 
+    public class BravoResizableList : IResizableList
+    {
+        private BravoLatch rwLatch = new();
+        private long[] list = new long[16];
+        private int count = 0;
+
+        public int Count() => Math.Min(count, list.Length);
+
+        public long Read(int index)
+        {
+            if (index < 0) throw new IndexOutOfRangeException();
+            try
+            {
+                rwLatch.EnterReadLock();
+                if (index < list.Length) return list[index];
+                if (index < count) return default;
+                throw new IndexOutOfRangeException();
+            }
+            finally
+            {
+                rwLatch.ExitReadLock();
+            }
+        }
+
+        public void Write(int index, long value)
+        {
+            rwLatch.EnterReadLock();
+            list[index] = value;
+            rwLatch.ExitReadLock();
+        }
+
+        private void Resize()
+        {
+            try
+            {
+                rwLatch.EnterWriteLock();
+                var newList = new long[2 * list.Length];
+                Array.Copy(list, newList, list.Length);
+                list = newList;
+            }
+            finally
+            {
+                rwLatch.ExitWriteLock();
+            }
+        }
+
+        public int Push(long value)
+        {
+            var result = Interlocked.Increment(ref count) - 1;
+            while (true)
+            {
+                if (result == list.Length)
+                    Resize();
+                try
+                {
+                    rwLatch.EnterReadLock();
+                    if (result >= list.Length) continue;
+                    list[result] = value;
+                    return result;
+                }
+                finally
+                {
+                    rwLatch.ExitReadLock();
+                }
+            }
+        }
+    }
+
     public class LatchedResizableList : IResizableList
     {
         private ReaderWriterLockSlim rwLatch;

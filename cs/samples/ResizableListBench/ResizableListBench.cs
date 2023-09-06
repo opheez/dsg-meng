@@ -12,6 +12,7 @@ namespace epvs
     {
         PUSH, READ, WRITE
     }
+    
     internal class ResizableListBench<ListType> where ListType : IResizableList
     {
         internal ListType tested;

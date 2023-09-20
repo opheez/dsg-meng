@@ -32,9 +32,9 @@ namespace FASTER.core
     {
         private EpochProtectedVersionScheme versionScheme;
 
-        public SimpleVersionScheme()
+        public SimpleVersionScheme(LightEpoch epoch)
         {
-            versionScheme = new EpochProtectedVersionScheme(new LightEpoch());
+            versionScheme = new EpochProtectedVersionScheme(epoch);
         }
 
         public long Enter() => versionScheme.Enter().Version;

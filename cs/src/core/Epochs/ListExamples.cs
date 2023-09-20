@@ -238,7 +238,7 @@ namespace FASTER.core
 
         public SimpleVersionSchemeResizableList()
         {
-            svs = new SimpleVersionScheme();
+            svs = new SimpleVersionScheme(new LightEpoch());
             list = new long[16];
             count = 0;
         }

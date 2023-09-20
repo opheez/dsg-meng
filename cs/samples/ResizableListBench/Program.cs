@@ -41,7 +41,7 @@ namespace epvs
         [Option('s', "latency-sample-rate", Default = 1e-3)]
         public double LatencySampleRate { get; set; }
         
-        [Option('i', "initial-count", Default = 128)]
+        [Option('i', "initial-count", Default = 1000000)]
         public int InitialCount { get; set; }
         
         [Option('u', "output-file", Default = "")]

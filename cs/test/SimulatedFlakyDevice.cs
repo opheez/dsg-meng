@@ -27,7 +27,7 @@ namespace FASTER.test
             this.options = options;
             permanentlyFailedRangesStart = new List<long>();
             permanentlyFailedRangesEnd = new List<long>();
-            versionScheme = new SimpleVersionScheme();
+            versionScheme = new SimpleVersionScheme(new LightEpoch());
             random = new ThreadLocal<Random>(() => new Random());
         }
 

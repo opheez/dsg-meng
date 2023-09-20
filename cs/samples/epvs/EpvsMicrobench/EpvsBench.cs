@@ -159,7 +159,7 @@ namespace epvs
             hashBytes = new byte[8];
             new Random().NextBytes(hashBytes);
             LightEpoch.InitializeStatic(options.EpochTableSize, options.DrainListSize);
-            tested = new SimpleVersionScheme();
+            tested = new SimpleVersionScheme(new LightEpoch());
             testedLatch = new SemaphoreSlim(1, 1);
             
             var threads = new List<Thread>();

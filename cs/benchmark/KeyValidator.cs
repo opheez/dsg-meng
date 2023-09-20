@@ -41,7 +41,7 @@ namespace FASTER.benchmark
         public EpvsKeyValidator()
         {
             validationMap = new Dictionary<int, byte>();
-            svs = new SimpleVersionScheme();
+            svs = new SimpleVersionScheme(new LightEpoch());
             for (var i = 0; i < 16384; i++)
                 validationMap.Add(i, 0);
             

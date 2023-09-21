@@ -10,6 +10,7 @@ namespace epvs
         "\n    latch-free" +
         "\n    epvs" +
         "\n    epvs-refresh" +
+        "\n    bravo" +
         "\n    latch")]
         public string SynchronizationMode { get; set; }
 

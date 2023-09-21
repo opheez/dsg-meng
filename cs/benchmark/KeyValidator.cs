@@ -36,12 +36,12 @@ namespace FASTER.benchmark
     public class EpvsKeyValidator
     {
         private Dictionary<int, byte> validationMap;
-        private SimpleVersionScheme svs;
+        private EpochProtectedVersionScheme svs;
 
         public EpvsKeyValidator()
         {
             validationMap = new Dictionary<int, byte>();
-            svs = new SimpleVersionScheme(new LightEpoch());
+            svs = new EpochProtectedVersionScheme(new LightEpoch());
             for (var i = 0; i < 16384; i++)
                 validationMap.Add(i, 0);
             

@@ -56,7 +56,7 @@ namespace epvs
             var options = Parser.Default.ParseArguments<Options>(args).Value;
 
             options.WriteProbability = options.ReadProbability = 0.5 * (1 - options.PushProbability);
-            LightEpoch.InitializeStatic(128, 16);
+            LightEpoch.InitializeStatic(4096, 16);
 
             switch (options.DataStructureType)
             {

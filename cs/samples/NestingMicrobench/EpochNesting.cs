@@ -10,7 +10,7 @@ namespace epvs
 {
     internal class EpochNesting
     {
-        internal List<SimpleVersionScheme> tested;
+        internal List<EpochProtectedVersionScheme> tested;
         internal List<BravoLatch> testedBravo;
         internal LightEpoch underlyingEpoch;
         internal byte[] hashBytes;
@@ -113,13 +113,13 @@ namespace epvs
             hashBytes = new byte[8];
             new Random().NextBytes(hashBytes);
             LightEpoch.InitializeStatic(512, 16);
-            tested = new List<SimpleVersionScheme>();
+            tested = new List<EpochProtectedVersionScheme>();
             testedBravo = new List<BravoLatch>();
             underlyingEpoch = new LightEpoch();
             for (var i = 0; i < options.NumInstances; i++)
             {
                 testedBravo.Add(new BravoLatch());
-                tested.Add(new SimpleVersionScheme(options.SynchronizationMode.Equals("epvs-share") ? underlyingEpoch : new LightEpoch()));
+                tested.Add(new EpochProtectedVersionScheme(options.SynchronizationMode.Equals("epvs-share") ? underlyingEpoch : new LightEpoch()));
             }
 
             var threads = new List<Thread>();

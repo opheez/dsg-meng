@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -151,6 +152,31 @@ namespace FASTER.core
         public abstract void AfterEnteringState(VersionSchemeState state);
     }
 
+    internal class SimpleVersionSchemeStateMachine : VersionSchemeStateMachine
+    {
+        private Action<long, long> criticalSection;
+
+        public SimpleVersionSchemeStateMachine(Action<long, long> criticalSection, EpochProtectedVersionScheme epvs, long toVersion = -1) : base(epvs, toVersion)
+        {
+            this.criticalSection = criticalSection;
+        }
+        
+        public override bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState)
+        {
+            Debug.Assert(currentState.Phase == VersionSchemeState.REST);
+            nextState = VersionSchemeState.Make(VersionSchemeState.REST, ToVersion() == -1 ? currentState.Version + 1 : ToVersion());
+            return true;
+        }
+
+        public override void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
+        {
+            Debug.Assert(fromState.Phase == VersionSchemeState.REST && toState.Phase == VersionSchemeState.REST);
+            criticalSection(fromState.Version, toState.Version);
+        }
+
+        public override void AfterEnteringState(VersionSchemeState state) {}
+    }
+    
     public enum StateMachineExecutionStatus
     {
         OK, RETRY, FAIL
@@ -168,6 +194,7 @@ namespace FASTER.core
             currentMachine = null;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public VersionSchemeState CurrentState() => state;
         
         // Atomic transition from expectedState -> nextState
@@ -180,6 +207,7 @@ namespace FASTER.core
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public VersionSchemeState Enter()
         {
             epoch.Resume();
@@ -198,6 +226,7 @@ namespace FASTER.core
             return result;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public VersionSchemeState Refresh()
         {
             epoch.ProtectAndDrain();
@@ -215,6 +244,7 @@ namespace FASTER.core
             return result;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Leave()
         {
             epoch.Suspend();
@@ -257,7 +287,6 @@ namespace FASTER.core
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void StepMachineHeavy(VersionSchemeStateMachine machineLocal, VersionSchemeState old, VersionSchemeState next)
         {
             epoch.BumpCurrentEpoch(() =>
@@ -268,6 +297,19 @@ namespace FASTER.core
                 Debug.Assert(success);
                 TryStepStateMachine(machineLocal);
             });
+        }
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool AdvanceVersion(Action<long, long> criticalSection, long toVersion = -1)
+        {
+            return ExecuteStateMachine(new SimpleVersionSchemeStateMachine(criticalSection, this, toVersion));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StateMachineExecutionStatus TryAdvanceVersion(Action<long, long> criticalSection, long toVersion = -1)
+        {
+            return TryExecuteStateMachine(
+                new SimpleVersionSchemeStateMachine(criticalSection, this, toVersion));
         }
 
         public StateMachineExecutionStatus TryExecuteStateMachine(VersionSchemeStateMachine stateMachine)

@@ -13,7 +13,7 @@ namespace FASTER.test
         [Category("FasterLog")]
         public void SimpleTest()
         {
-            var tested = new SimpleVersionScheme(new LightEpoch());
+            var tested = new EpochProtectedVersionScheme(new LightEpoch());
             var protectedVal = 0;
             var v = tested.Enter();
             
@@ -35,7 +35,7 @@ namespace FASTER.test
         [Category("FasterLog")]
         public void SingleThreadTest()
         {
-            var tested = new SimpleVersionScheme(new LightEpoch());
+            var tested = new EpochProtectedVersionScheme(new LightEpoch());
             var protectedVal = 0;
             
             var v = tested.Enter();
@@ -57,7 +57,7 @@ namespace FASTER.test
         [Category("FasterLog")]
         public void LargeConcurrentTest()
         {
-            var tested = new SimpleVersionScheme(new LightEpoch());
+            var tested = new EpochProtectedVersionScheme(new LightEpoch());
             var protectedVal = 1L;
             var termination = new ManualResetEventSlim();
 

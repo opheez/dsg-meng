@@ -1,6 +1,5 @@
 using System;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+using System.Data;
 using System.Threading;
 
 namespace FASTER.core
@@ -43,7 +42,8 @@ namespace FASTER.core
         private ReaderWriterLockSlim underlying = new();
 
         private static VisibleReadersTable visibleReadersTable = new();
-
+        [ThreadStatic] static bool readerLockHeld;
+        
         public void EnterReadLock()
         {
             if (rBias)
@@ -57,17 +57,22 @@ namespace FASTER.core
 
             // Slowpath
             underlying.EnterReadLock();
+            readerLockHeld = true;
             if (!rBias && DateTime.Now > inhibitUntil)
                 rBias = true;
         }
 
         public void ExitReadLock()
         {
-            ref var slot = ref visibleReadersTable.GetSlotForCurrentThread();
-            if (slot != null)
-                slot = null;
-            else
+            if (readerLockHeld)
+            {
                 underlying.ExitReadLock();
+                readerLockHeld = false;
+            }
+            else
+            {
+                visibleReadersTable.GetSlotForCurrentThread() = null;
+            }
         }
 
         public void EnterWriteLock()
@@ -75,6 +80,7 @@ namespace FASTER.core
             underlying.EnterWriteLock();
             if (rBias)
             {
+                rBias = false;
                 var start = DateTime.Now;
                 visibleReadersTable.WaitUntilReaderEmpty(this);
                 var elapsedTime = DateTime.Now - start;

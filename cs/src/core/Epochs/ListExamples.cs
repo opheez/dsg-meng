@@ -113,9 +113,16 @@ namespace FASTER.core
 
         public void Write(int index, long value)
         {
-            rwLatch.EnterReadLock();
-            list[index] = value;
-            rwLatch.ExitReadLock();
+            try
+            {
+                rwLatch.EnterReadLock();
+                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
+                list[index] = value;
+            }
+            finally
+            {
+                rwLatch.ExitReadLock();
+            }
         }
 
         private void Resize()
@@ -232,13 +239,13 @@ namespace FASTER.core
 
     public class SimpleVersionSchemeResizableList : IResizableList
     {
-        private SimpleVersionScheme svs;
+        private EpochProtectedVersionScheme svs;
         private long[] list;
         private int count;
 
         public SimpleVersionSchemeResizableList()
         {
-            svs = new SimpleVersionScheme(new LightEpoch());
+            svs = new EpochProtectedVersionScheme(new LightEpoch());
             list = new long[16];
             count = 0;
         }
@@ -300,7 +307,7 @@ namespace FASTER.core
 
                     svs.Leave();
                     if (result == list.Length)
-                        svs.AdvanceVersion((_, _) => Resize(), v + 1);
+                        svs.AdvanceVersion((_, _) => Resize(), v.Version + 1);
                     Thread.Yield();
                     v = svs.Enter();
                 }

@@ -113,7 +113,7 @@ namespace epvs
         {
             var workers = new List<Worker<ListType>>();
             var threads = new List<Thread>();
-            var random = new Random();
+            var random = new Random(1);
             for (var i = 0; i < options.NumThreads; i++)
             {
                 var worker = new Worker<ListType>(this, options, random, i);

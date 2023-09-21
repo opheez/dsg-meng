@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
-using CommandLine;
 using FASTER.core;
 
 namespace epvs
@@ -12,7 +11,8 @@ namespace epvs
     internal class EpvsBench
     {
         internal SemaphoreSlim testedLatch;
-        internal SimpleVersionScheme tested;
+        internal BravoLatch bravoLatch = new();
+        internal EpochProtectedVersionScheme tested;
         internal byte[] hashBytes;
 
         internal class Worker
@@ -56,9 +56,14 @@ namespace epvs
                     case "epvs-refresh":
                         syncMode = 2;
                         break;
-                    case "latch":
+                    case "bravo":
                         syncMode = 3;
                         break;
+                    case "latch":
+                        syncMode = 4;
+                        break;
+                    default:
+                        throw new NotImplementedException();
                 }
                 
             }
@@ -130,6 +135,22 @@ namespace epvs
 
                             break;
                         case 3:
+                            if (nextChangeIndex < versionChangeIndexes.Count &&
+                                i == versionChangeIndexes[nextChangeIndex])
+                            {
+                                parent.bravoLatch.EnterWriteLock();
+                                DoWork(versionChangeDelay);
+                                parent.bravoLatch.ExitWriteLock();
+                                nextChangeIndex++;
+                            }
+                            else
+                            {
+                                parent.bravoLatch.EnterReadLock();
+                                DoWork(1);
+                                parent.bravoLatch.ExitReadLock();
+                            }
+                            break;
+                        case 4:
                             parent.testedLatch.Wait();
                             if (nextChangeIndex < versionChangeIndexes.Count &&
                                 i == versionChangeIndexes[nextChangeIndex])
@@ -159,7 +180,7 @@ namespace epvs
             hashBytes = new byte[8];
             new Random().NextBytes(hashBytes);
             LightEpoch.InitializeStatic(options.EpochTableSize, options.DrainListSize);
-            tested = new SimpleVersionScheme(new LightEpoch());
+            tested = new EpochProtectedVersionScheme(new LightEpoch());
             testedLatch = new SemaphoreSlim(1, 1);
             
             var threads = new List<Thread>();

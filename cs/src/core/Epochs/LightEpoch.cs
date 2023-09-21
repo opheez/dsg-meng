@@ -261,12 +261,12 @@ namespace FASTER.core
             (*(tableAligned + entry)).localCurrentEpoch = 0;
             (*(tableAligned + entry)).threadId = 0;
 
-            threadEntryIndexCount--;
-            if (threadEntryIndexCount == 0)
-            {
-                (threadIndexAligned + threadEntryIndex)->threadId = 0;
-                threadEntryIndex = kInvalidIndex;
-            }
+            // threadEntryIndexCount--;
+            // if (threadEntryIndexCount == 0)
+            // {
+            //     (threadIndexAligned + threadEntryIndex)->threadId = 0;
+            //     threadEntryIndex = kInvalidIndex;
+            // }
         }
 
         /// <summary>
@@ -413,7 +413,7 @@ namespace FASTER.core
                             (0 == Interlocked.CompareExchange(
                             ref (threadIndexAligned+index_to_test)->threadId,
                             threadId, 0));
-
+            
                         if (success)
                         {
                             return (int)index_to_test;
@@ -421,11 +421,11 @@ namespace FASTER.core
                     }
                     ++current_iteration;
                 }
-
-                // if (current_iteration > (TableSize * 20))
-                // {
-                    // throw new FasterException("Unable to reserve an epoch entry, try increasing the epoch table size (kTableSize)");
-                // }
+            
+                if (current_iteration > (TableSize * 20))
+                {
+                    throw new FasterException("Unable to reserve an epoch entry, try increasing the epoch table size (kTableSize)");
+                }
             }
         }
 

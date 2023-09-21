@@ -19,7 +19,7 @@ namespace FASTER.test
         private ErrorSimulationOptions options;
         private ThreadLocal<Random> random;
         private List<long> permanentlyFailedRangesStart, permanentlyFailedRangesEnd;
-        private SimpleVersionScheme versionScheme;
+        private EpochProtectedVersionScheme versionScheme;
 
         public SimulatedFlakyDevice(IDevice underlying, ErrorSimulationOptions options) : base(underlying.FileName, underlying.SectorSize, underlying.Capacity)
         {
@@ -27,7 +27,7 @@ namespace FASTER.test
             this.options = options;
             permanentlyFailedRangesStart = new List<long>();
             permanentlyFailedRangesEnd = new List<long>();
-            versionScheme = new SimpleVersionScheme(new LightEpoch());
+            versionScheme = new EpochProtectedVersionScheme(new LightEpoch());
             random = new ThreadLocal<Random>(() => new Random());
         }
 

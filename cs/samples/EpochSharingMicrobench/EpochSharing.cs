@@ -12,7 +12,10 @@ namespace epvs
     {
         internal List<EpochProtectedVersionScheme> tested;
         internal List<BravoLatch> testedBravo;
-        internal LightEpoch underlyingEpoch;
+        internal List<ReaderWriterLockSlim> testedLatches;
+        internal EpochProtectedVersionScheme sharedEpoch = new();
+        internal BravoLatch sharedBravo = new();
+        internal ReaderWriterLockSlim sharedLatch = new();
         internal byte[] hashBytes;
 
         internal class Worker
@@ -25,6 +28,7 @@ namespace epvs
             private List<int> versionChangeIndexes;
             private int numOps, versionChangeDelay, numaStyle, threadId, index;
             private bool useBravo;
+            private bool useLatch;
 
             internal Worker(EpochSharing parent, Options options, Random random, int threadId)
             {
@@ -43,11 +47,9 @@ namespace epvs
                     if (random.NextDouble() < options.VersionChangeProbability)
                         versionChangeIndexes.Add(i);
                 }
-
-                Debug.Assert(options.SynchronizationMode.Equals("epvs-share") ||
-                             options.SynchronizationMode.Equals("epvs-noshare") ||
-                             options.SynchronizationMode.Equals("bravo"));
-                useBravo = options.SynchronizationMode.Equals("bravo");
+                
+                useBravo = options.SynchronizationMode.StartsWith("bravo");
+                useLatch = options.SynchronizationMode.StartsWith("latch");
             }
 
             private void DoWork(int numUnits)
@@ -80,10 +82,28 @@ namespace epvs
                         }
                         else
                         {
-                            parent.testedBravo[index].EnterReadLock();
+                            var token = parent.testedBravo[index].EnterReadLock();
                             DoWork(1);
-                            parent.testedBravo[index].ExitReadLock();
+                            parent.testedBravo[index].ExitReadLock(token);
                         }
+                    }
+                    else if (useLatch)
+                    {
+                        if (nextChangeIndex < versionChangeIndexes.Count &&
+                         i == versionChangeIndexes[nextChangeIndex])
+                        {
+                            parent.testedLatches[index].EnterWriteLock();
+                            DoWork(versionChangeDelay);
+                            parent.testedLatches[index].ExitWriteLock();
+                            nextChangeIndex++;
+                        }
+                        else
+                        {
+                            parent.testedLatches[index].EnterReadLock();
+                            DoWork(1);
+                            parent.testedLatches[index].ExitReadLock();
+                        }
+                        
                     }
                     else
                     {
@@ -109,14 +129,14 @@ namespace epvs
         {
             hashBytes = new byte[8];
             new Random().NextBytes(hashBytes);
-            LightEpoch.InitializeStatic(512, 16);
             tested = new List<EpochProtectedVersionScheme>();
             testedBravo = new List<BravoLatch>();
-            underlyingEpoch = new LightEpoch();
+            testedLatches = new List<ReaderWriterLockSlim>();
             for (var i = 0; i < options.NumInstances; i++)
             {
-                testedBravo.Add(new BravoLatch());
-                tested.Add(new EpochProtectedVersionScheme(options.SynchronizationMode.Equals("epvs-share") ? underlyingEpoch : new LightEpoch()));
+                testedBravo.Add(options.SynchronizationMode.Equals("bravo-share") ? sharedBravo : new BravoLatch());
+                tested.Add(options.SynchronizationMode.Equals("epvs-share") ? sharedEpoch :  new EpochProtectedVersionScheme());
+                testedLatches.Add(options.SynchronizationMode.Equals("latch-share") ? sharedLatch :  new ReaderWriterLockSlim());
             }
 
             var threads = new List<Thread>();

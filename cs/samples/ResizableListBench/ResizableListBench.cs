@@ -62,6 +62,7 @@ namespace epvs
                 else
                     Native32.AffinitizeThreadShardedNuma((uint) threadId, 2); // assuming two NUMA sockets
 
+                parent.tested.InitializeThread();
                 var sw = Stopwatch.StartNew();
                 foreach (var (type, index, sample) in ops)
                 {
@@ -89,6 +90,8 @@ namespace epvs
                             throw new NotImplementedException();
                     }
                 }
+                parent.tested.TeardownThread();
+
             }
         }
 
@@ -123,9 +126,12 @@ namespace epvs
             }
 
             var sw = Stopwatch.StartNew();
+            tested.InitializeThread();
             // Start off with a few entries
             for (var i = 0; i < options.InitialCount; i++)
                 tested.Push(0xDEADBEEF);
+            tested.TeardownThread();
+
 
             foreach (var t in threads)
                 t.Start();

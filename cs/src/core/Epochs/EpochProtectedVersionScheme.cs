@@ -187,9 +187,9 @@ namespace FASTER.core
         private LightEpoch epoch;
         private VersionSchemeState state;
         private VersionSchemeStateMachine currentMachine;
-        public EpochProtectedVersionScheme(LightEpoch epoch)
+        public EpochProtectedVersionScheme(LightEpoch epoch = null)
         {
-            this.epoch = epoch;
+            this.epoch = epoch ?? new LightEpoch();
             state = VersionSchemeState.Make(VersionSchemeState.REST, 1);
             currentMachine = null;
         }

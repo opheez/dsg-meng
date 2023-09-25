@@ -6,6 +6,10 @@ namespace FASTER.core
 {
     public interface IResizableList
     {
+        public void InitializeThread();
+
+        public void TeardownThread();
+        
         public int Count();
 
         public long Read(int index);
@@ -26,6 +30,11 @@ namespace FASTER.core
             list = new long[16];
             count = 0;
         }
+
+        public void InitializeThread() {}
+
+        public void TeardownThread() {}
+        
 
         public int Count() => count;
 
@@ -65,6 +74,10 @@ namespace FASTER.core
             list = new long[maxCapacity];
             count = 0;
         }
+        
+        public void InitializeThread() {}
+
+        public void TeardownThread() {}
 
         public int Count() => count;
 
@@ -93,35 +106,38 @@ namespace FASTER.core
         private long[] list = new long[16];
         private int count = 0;
 
+        public void InitializeThread() {}
+
+        public void TeardownThread() {}
         public int Count() => Math.Min(count, list.Length);
 
         public long Read(int index)
         {
             if (index < 0) throw new IndexOutOfRangeException();
+            var token = rwLatch.EnterReadLock();
             try
             {
-                rwLatch.EnterReadLock();
                 if (index < list.Length) return list[index];
                 if (index < count) return default;
                 throw new IndexOutOfRangeException();
             }
             finally
             {
-                rwLatch.ExitReadLock();
+                rwLatch.ExitReadLock(token);
             }
         }
 
         public void Write(int index, long value)
         {
+            var token = rwLatch.EnterReadLock();
             try
             {
-                rwLatch.EnterReadLock();
                 if (index < 0 || index >= count) throw new IndexOutOfRangeException();
                 list[index] = value;
             }
             finally
             {
-                rwLatch.ExitReadLock();
+                rwLatch.ExitReadLock(token);
             }
         }
 
@@ -132,6 +148,7 @@ namespace FASTER.core
                 rwLatch.EnterWriteLock();
                 var newList = new long[2 * list.Length];
                 Array.Copy(list, newList, list.Length);
+                // Thread.Sleep(10);
                 list = newList;
             }
             finally
@@ -147,16 +164,17 @@ namespace FASTER.core
             {
                 if (result == list.Length)
                     Resize();
+                var token = rwLatch.EnterReadLock();
+
                 try
                 {
-                    rwLatch.EnterReadLock();
                     if (result >= list.Length) continue;
                     list[result] = value;
                     return result;
                 }
                 finally
                 {
-                    rwLatch.ExitReadLock();
+                    rwLatch.ExitReadLock(token);
                 }
             }
         }
@@ -174,6 +192,10 @@ namespace FASTER.core
             list = new long[16];
             count = 0;
         }
+        
+        public void InitializeThread() {}
+
+        public void TeardownThread() {}
 
         public int Count() => Math.Min(count, list.Length);
 
@@ -237,6 +259,90 @@ namespace FASTER.core
         }
     }
 
+    public class PinnedEpvsResizableList : IResizableList
+    {
+        private EpochProtectedVersionScheme epvs;
+        private long[] list;
+        private int count;
+
+        public PinnedEpvsResizableList()
+        {
+            epvs = new EpochProtectedVersionScheme(new LightEpoch());
+            list = new long[16];
+            count = 0;
+        }
+
+        public void InitializeThread() => epvs.Enter();
+
+        public void TeardownThread() => epvs.Leave();
+
+        public int Count() => Math.Min(count, list.Length);
+
+        public long Read(int index)
+        {
+            if (index < 0) throw new IndexOutOfRangeException();
+            try
+            {
+                if (index < list.Length) return list[index];
+                if (index < count) return default;
+                throw new IndexOutOfRangeException();
+            }
+            finally
+            {
+                epvs.Refresh();
+            }
+        }
+
+        public void Write(int index, long value)
+        {
+            try
+            {
+                if (index < 0 || index >= count) throw new IndexOutOfRangeException();
+                list[index] = value;
+            }
+            finally
+            {
+                epvs.Refresh();
+            }
+        }
+
+        private void Resize()
+        {
+            var newList = new long[2 * list.Length];
+            Array.Copy(list, newList, list.Length);
+            // Thread.Sleep(10);
+            list = newList;
+        }
+
+        public int Push(long value)
+        {
+            try
+            {
+                var v = epvs.CurrentState();
+                var result = Interlocked.Increment(ref count) - 1;
+
+                while (true)
+                {
+                    if (result < list.Length)
+                    {
+                        list[result] = value;
+                        return result;
+                    }
+
+                    epvs.Leave();
+                    if (result == list.Length)
+                        epvs.AdvanceVersion((_, _) => Resize(), v.Version + 1);
+                    Thread.Yield();
+                    v = epvs.Enter();
+                }
+            }
+            finally
+            {
+                epvs.Refresh();
+            }
+        }
+    }
+
     public class SimpleVersionSchemeResizableList : IResizableList
     {
         private EpochProtectedVersionScheme svs;
@@ -249,6 +355,10 @@ namespace FASTER.core
             list = new long[16];
             count = 0;
         }
+        
+        public void InitializeThread() {}
+
+        public void TeardownThread() {}
 
         public int Count() => Math.Min(count, list.Length);
 
@@ -286,7 +396,7 @@ namespace FASTER.core
         {
             var newList = new long[2 * list.Length];
             Array.Copy(list, newList, list.Length);
-            Thread.Sleep(5);
+            // Thread.Sleep(10);
             list = newList;
         }
 
@@ -355,7 +465,8 @@ namespace FASTER.core
                     {
                         Array.Copy(obj.list, obj.newList, obj.list.Length);
                         copyDone = true;
-                        Thread.Sleep(5);
+                        // Thread.Sleep(10);
+                        Thread.Yield();
                         epvs.TryStepStateMachine();
                     });
                     break;
@@ -375,7 +486,6 @@ namespace FASTER.core
             //     Array.Copy(obj.list, obj.newList, obj.list.Length);
             //     copyDone = true;
             //     epvs.TryStepStateMachine();
-            //     Thread.Sleep(5);
             // }
         }  
     }
@@ -388,11 +498,15 @@ namespace FASTER.core
 
         public TwoPhaseResizableList()
         {
-            epvs = new EpochProtectedVersionScheme(new LightEpoch());
+            epvs = new EpochProtectedVersionScheme();
             list = new long[16];
             newList = null;
             count = 0;
         }
+        
+        public void InitializeThread() {}
+
+        public void TeardownThread() {}
 
         // TODO(Tianyu): How to ensure this is correct in the face of concurrent pushes?
         public int Count() => count;
@@ -434,9 +548,7 @@ namespace FASTER.core
                     throw new IndexOutOfRangeException();
                 // Write operation is not allowed during copy because we don't know about the copy progress
                 while (state.Phase == ListGrowthStateMachine.COPYING || index >= list.Length)
-                {
                     state = epvs.Refresh();
-                }
                 list[index] = value;
             }
             finally
@@ -454,21 +566,14 @@ namespace FASTER.core
                 // Write the entry into the correct underlying array
                 while (true)
                 {
-
-                    if (state.Phase == VersionSchemeState.REST && result == list.Length)
-                    {
-                        epvs.Leave();
-                        // Use explicit versioning to prevent multiple list growth resulting from same full list state
-                        epvs.ExecuteStateMachine(new ListGrowthStateMachine(this, state.Version + 1));
-                        state = epvs.Enter();
-                    }
-
                     switch (state.Phase)
                     {
                         case VersionSchemeState.REST:
                             if (result >= list.Length)
                             {
                                 epvs.Leave();
+                                if (result == list.Length)
+                                    epvs.ExecuteStateMachine(new ListGrowthStateMachine(this, state.Version + 1));
                                 Thread.Yield();
                                 state = epvs.Enter();
                                 continue;

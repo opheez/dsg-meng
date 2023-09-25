@@ -42,32 +42,36 @@ namespace FASTER.core
         private ReaderWriterLockSlim underlying = new();
 
         private static VisibleReadersTable visibleReadersTable = new();
-        [ThreadStatic] static bool readerLockHeld;
         
-        public void EnterReadLock()
+        public bool EnterReadLock()
         {
             if (rBias)
             {
-                if (Interlocked.CompareExchange(ref visibleReadersTable.GetSlotForCurrentThread(), this, null) == null)
+                var result = Interlocked.CompareExchange(ref visibleReadersTable.GetSlotForCurrentThread(), this, null);
+                if (result == null)
                 {
-                    if (rBias) return;
+                    if (rBias) return false;
                     visibleReadersTable.GetSlotForCurrentThread() = null;
                 }
-            }
 
+                // if (result != null && result != this)
+                //     Console.WriteLine("Collision across instance");
+                // else if (rBias)
+                //     Console.WriteLine("Collision within instance");
+            }
+            
             // Slowpath
             underlying.EnterReadLock();
-            readerLockHeld = true;
             if (!rBias && DateTime.Now > inhibitUntil)
                 rBias = true;
+            return true;
         }
 
-        public void ExitReadLock()
+        public void ExitReadLock(bool token)
         {
-            if (readerLockHeld)
+            if (token)
             {
                 underlying.ExitReadLock();
-                readerLockHeld = false;
             }
             else
             {

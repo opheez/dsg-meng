@@ -131,7 +131,7 @@ namespace epvs
             hashBytes = new byte[8];
             new Random().NextBytes(hashBytes);
             LightEpoch.InitializeStatic(options.EpochTableSize, options.DrainListSize);
-            tested = new EpochProtectedVersionScheme(new LightEpoch());
+            tested = new EpochProtectedVersionScheme();
 
             var threads = new List<Thread>();
             var random = new Random();

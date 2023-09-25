@@ -145,9 +145,9 @@ namespace epvs
                             }
                             else
                             {
-                                parent.bravoLatch.EnterReadLock();
+                                var token = parent.bravoLatch.EnterReadLock();
                                 DoWork(1);
-                                parent.bravoLatch.ExitReadLock();
+                                parent.bravoLatch.ExitReadLock(token);
                             }
                             break;
                         case 4:
@@ -180,7 +180,7 @@ namespace epvs
             hashBytes = new byte[8];
             new Random().NextBytes(hashBytes);
             LightEpoch.InitializeStatic(options.EpochTableSize, options.DrainListSize);
-            tested = new EpochProtectedVersionScheme(new LightEpoch());
+            tested = new EpochProtectedVersionScheme();
             testedLatch = new SemaphoreSlim(1, 1);
             
             var threads = new List<Thread>();

@@ -11,7 +11,7 @@ namespace epvs
                        "\n    bravo")]
         public string SynchronizationMode { get; set; }
         
-        [Option('i', "num-instances", Default = 16)]
+        [Option('i', "num-instances", Default = 4)]
         public int NumInstances { get; set; }
 
         [Option('o', "num-ops", Default = 1000000)]
@@ -26,11 +26,10 @@ namespace epvs
                        "\n    1 = Sharding across NUMA sockets")]
         public int NumaStyle { get; set; }
 
-        [Option('p', "probability", Default = 1e-6)]
+        [Option('p', "probability", Default = 1e-5)]
         public double VersionChangeProbability { get; set; }
 
         [Option('l', "delay", Default = 1)] public int VersionChangeDelay { get; set; }
-
 
         [Option('u', "output-file", Default = "")]
         public string OutputFile { get; set; }

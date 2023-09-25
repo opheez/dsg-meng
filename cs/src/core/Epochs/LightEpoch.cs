@@ -32,13 +32,13 @@ namespace FASTER.core
         /// <summary>
         /// Thread protection status entries.
         /// </summary>
-        private EpochTableEntry[] tableRaw;
+        private Entry[] tableRaw;
         private GCHandle tableHandle;
-        private EpochTableEntry* tableAligned;
+        private Entry* tableAligned;
 
-        private static ThreadTableEntry[] threadIndex;
+        private static Entry[] threadIndex;
         private static GCHandle threadIndexHandle;
-        private static ThreadTableEntry* threadTableAligned;
+        private static Entry* threadIndexAligned;
 
         /// <summary>
         /// List of action, epoch pairs containing actions to performed 
@@ -53,6 +53,12 @@ namespace FASTER.core
         /// </summary>
         [ThreadStatic]
         private static int threadEntryIndex;
+
+        /// <summary>
+        /// Number of instances using this entry
+        /// </summary>
+        [ThreadStatic]
+        private static int threadEntryIndexCount;
 
         [ThreadStatic]
         static int threadId;
@@ -80,13 +86,13 @@ namespace FASTER.core
             TableSize = tableSize;
             DrainListSize = drainListSize;
             // Over-allocate to do cache-line alignment
-            threadIndex = new ThreadTableEntry[TableSize + 2];
+            threadIndex = new Entry[TableSize + 2];
             threadIndexHandle = GCHandle.Alloc(threadIndex, GCHandleType.Pinned);
             long p = (long)threadIndexHandle.AddrOfPinnedObject();
 
             // Force the pointer to align to 64-byte boundaries
             long p2 = (p + (Constants.kCacheLineBytes - 1)) & ~(Constants.kCacheLineBytes - 1);
-            threadTableAligned = (ThreadTableEntry*)p2;
+            threadIndexAligned = (Entry*)p2;
         }
         
 
@@ -96,13 +102,13 @@ namespace FASTER.core
         public LightEpoch()
         {
             // Over-allocate to do cache-line alignment
-            tableRaw = new EpochTableEntry[TableSize + 2];
+            tableRaw = new Entry[TableSize + 2];
             tableHandle = GCHandle.Alloc(tableRaw, GCHandleType.Pinned);
             long p = (long)tableHandle.AddrOfPinnedObject();
 
             // Force the pointer to align to 64-byte boundaries
             long p2 = (p + (Constants.kCacheLineBytes - 1)) & ~(Constants.kCacheLineBytes - 1);
-            tableAligned = (EpochTableEntry*)p2;
+            tableAligned = (Entry*)p2;
 
             CurrentEpoch = 1;
             SafeToReclaimEpoch = 0;
@@ -130,7 +136,13 @@ namespace FASTER.core
         /// <returns>Result of the check</returns>
         public bool ThisInstanceProtected()
         {
-            return threadEntryIndex != kInvalidIndex && (tableAligned + threadEntryIndex)->threadId == threadId;
+            int entry = threadEntryIndex;
+            if (kInvalidIndex != entry)
+            {
+                if ((*(tableAligned + entry)).threadId == entry)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -141,7 +153,9 @@ namespace FASTER.core
         {
             int entry = threadEntryIndex;
             if (kInvalidIndex != entry)
-                return threadTableAligned->count > 0;
+            {
+                return threadEntryIndexCount > 0;
+            }
             return false;
         }
 
@@ -154,7 +168,7 @@ namespace FASTER.core
         {
             int entry = threadEntryIndex;
 
-            (*(tableAligned + entry)).threadId = threadId;
+            (*(tableAligned + entry)).threadId = threadEntryIndex;
             (*(tableAligned + entry)).localCurrentEpoch = CurrentEpoch;
 
             if (drainCount > 0)
@@ -223,23 +237,13 @@ namespace FASTER.core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void Acquire()
         {
-            if (threadEntryIndex == kInvalidIndex || (threadTableAligned + threadEntryIndex)->threadId != threadId)
+            if (threadEntryIndex == kInvalidIndex)
                 threadEntryIndex = ReserveEntryForThread();
 
-
-            Interlocked.Increment(ref (threadTableAligned + threadEntryIndex)->count);
-
-            // In rare races, someone might have kicked us out from the spot concurrently --- should check and rollback
-            // our increment if that happens
-            if ((threadTableAligned + threadEntryIndex)->threadId != threadId)
-            {
-                Interlocked.Decrement(ref (threadTableAligned + threadEntryIndex)->count);
-                threadEntryIndex = kInvalidIndex;
-                Acquire();
-            }
-            
             Debug.Assert((*(tableAligned + threadEntryIndex)).localCurrentEpoch == 0,
                 "Trying to acquire protected epoch. Make sure you do not re-enter FASTER from callbacks or IDevice implementations. If using tasks, use TaskCreationOptions.RunContinuationsAsynchronously.");
+
+            threadEntryIndexCount++;
         }
 
 
@@ -256,8 +260,13 @@ namespace FASTER.core
 
             (*(tableAligned + entry)).localCurrentEpoch = 0;
             (*(tableAligned + entry)).threadId = 0;
-            
-            Interlocked.Decrement(ref (threadTableAligned + threadEntryIndex)->count);
+
+            threadEntryIndexCount--;
+            if (threadEntryIndexCount == 0)
+            {
+                (threadIndexAligned + threadEntryIndex)->threadId = 0;
+                threadEntryIndex = kInvalidIndex;
+            }
         }
 
         /// <summary>
@@ -389,7 +398,7 @@ namespace FASTER.core
         /// <param name="startIndex">Start index</param>
         /// <param name="threadId">Thread id</param>
         /// <returns>Reserved entry</returns>
-        private static int ReserveEntry(int startIndex)
+        private static int ReserveEntry(int startIndex, int threadId)
         {
             int current_iteration = 0;
             for (; ; )
@@ -398,16 +407,13 @@ namespace FASTER.core
                 for (int i = 0; i < TableSize; ++i)
                 {
                     int index_to_test = 1 + ((startIndex + i) & (TableSize - 1));
-                    var entry = threadTableAligned + index_to_test;
-                    var word = entry->word;
-                    var wordThreadId = word >> 32;
-                    var wordCount = word & 0xFFFFFFFF;
-                    if (wordThreadId == 0 || wordCount == 0)
+                    if (0 == (threadIndexAligned + index_to_test)->threadId)
                     {
                         bool success =
-                            (word == Interlocked.CompareExchange(
-                                ref entry->word, ((long) threadId) << 32, word));
-            
+                            (0 == Interlocked.CompareExchange(
+                            ref (threadIndexAligned+index_to_test)->threadId,
+                            threadId, 0));
+
                         if (success)
                         {
                             return (int)index_to_test;
@@ -415,11 +421,11 @@ namespace FASTER.core
                     }
                     ++current_iteration;
                 }
-            
-                if (current_iteration > (TableSize * 20))
-                {
-                    throw new FasterException("Unable to reserve an epoch entry, try increasing the epoch table size (kTableSize)");
-                }
+
+                // if (current_iteration > (TableSize * 20))
+                // {
+                    // throw new FasterException("Unable to reserve an epoch entry, try increasing the epoch table size (kTableSize)");
+                // }
             }
         }
 
@@ -436,14 +442,14 @@ namespace FASTER.core
                 threadId = Environment.OSVersion.Platform == PlatformID.Win32NT ? (int)Native32.GetCurrentThreadId() : Thread.CurrentThread.ManagedThreadId;
                 threadIdHash = Utility.Murmur3(threadId);
             }
-            return ReserveEntry(threadIdHash);
+            return ReserveEntry(threadIdHash, threadId);
         }
 
         /// <summary>
         /// Epoch table entry (cache line size).
         /// </summary>
         [StructLayout(LayoutKind.Explicit, Size = Constants.kCacheLineBytes)]
-        private struct EpochTableEntry
+        private struct Entry
         {
             /// <summary>
             /// Thread-local value of epoch
@@ -451,8 +457,6 @@ namespace FASTER.core
             [FieldOffset(0)]
             public int localCurrentEpoch;
 
-            [FieldOffset(4)] public long word;
-            
             /// <summary>
             /// ID of thread associated with this entry.
             /// </summary>
@@ -464,33 +468,6 @@ namespace FASTER.core
 
             [FieldOffset(12)]
             public fixed int markers[13];
-        };
-        
-        /// <summary>
-        /// Epoch table entry (cache line size).
-        /// </summary>
-        [StructLayout(LayoutKind.Explicit, Size = Constants.kCacheLineBytes)]
-        private struct ThreadTableEntry
-        {
-            [FieldOffset(0)] public long word;
-            
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public static int ThreadIdFromWord(long word) => (int) (word >> 32);
-            
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public static int CountFromWord(long word) => (int) (word & 0xFFFFFFFF);
-
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public static long FormWord(int threadId, int count) => ((long)threadId << 32) | ((long)count);
-
-            /// <summary>
-            /// ID of thread associated with this entry.
-            /// </summary>
-            [FieldOffset(4)]
-            public int threadId;
-
-            [FieldOffset(8)]
-            public int count;
         };
 
         private struct EpochActionPair

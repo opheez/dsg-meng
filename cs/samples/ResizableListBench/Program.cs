@@ -11,6 +11,7 @@ namespace epvs
                        "\n    latch-free-mock" +
                        "\n    latched" +
                        "\n    simple-version" +
+                       "\n    simple-version-pinned" +
                        "\n    two-phase-version")]
         public string DataStructureType { get; set; }
 
@@ -56,7 +57,7 @@ namespace epvs
             var options = Parser.Default.ParseArguments<Options>(args).Value;
 
             options.WriteProbability = options.ReadProbability = 0.5 * (1 - options.PushProbability);
-            LightEpoch.InitializeStatic(4096, 16);
+            LightEpoch.InitializeStatic(128, 16);
 
             switch (options.DataStructureType)
             {
@@ -74,6 +75,9 @@ namespace epvs
                     break;
                 case "simple-version":
                     new ResizableListBench<SimpleVersionSchemeResizableList>(new SimpleVersionSchemeResizableList()).RunExperiment(options);
+                    break;
+                case "simple-version-pinned":
+                    new ResizableListBench<PinnedEpvsResizableList>(new PinnedEpvsResizableList()).RunExperiment(options);
                     break;
                 case "two-phase-version":
                     new ResizableListBench<TwoPhaseResizableList>(new TwoPhaseResizableList()).RunExperiment(options);

@@ -12,7 +12,7 @@ namespace epvs
     {
         internal List<EpochProtectedVersionScheme> tested;
         internal List<BravoLatch> testedBravo;
-        internal LightEpoch underlyingEpoch;
+        internal EpochProtectedVersionScheme sharedEpoch = new();
         internal byte[] hashBytes;
 
         internal class Worker
@@ -65,6 +65,7 @@ namespace epvs
                     Native32.AffinitizeThreadShardedNuma((uint)threadId, 2); // assuming two NUMA sockets
                 
                 var nextChangeIndex = 0;
+                bool[] tokens = new bool[parent.testedBravo.Count];
                 for (var i = 0; i < numOps; i++)
                 {
                     if (useBravo)
@@ -79,11 +80,12 @@ namespace epvs
                         }
                         else
                         {
+                            
                             for (var j = 0; j < parent.testedBravo.Count; j++)
-                                parent.testedBravo[j].EnterReadLock();
+                                tokens[j] = parent.testedBravo[j].EnterReadLock();
                             DoWork(1);
-                            for (var j = parent.testedBravo.Count - 1; j > 0; j++)
-                                parent.testedBravo[j].ExitReadLock();
+                            for (var j = parent.testedBravo.Count - 1; j >= 0; j--)
+                                parent.testedBravo[j].ExitReadLock(tokens[j]);
                         }
                     }
                     else
@@ -96,10 +98,10 @@ namespace epvs
                         }
                         else
                         {
-                            for (var j = 0; j < parent.testedBravo.Count; j++)
+                            for (var j = 0; j < parent.tested.Count; j++)
                                 parent.tested[j].Enter();
                             DoWork(1);
-                            for (var j = parent.testedBravo.Count - 1; j > 0; j++)
+                            for (var j = parent.tested.Count - 1; j >= 0; j--)
                                 parent.tested[j].Leave();
                         }
                     }
@@ -115,11 +117,10 @@ namespace epvs
             LightEpoch.InitializeStatic(512, 16);
             tested = new List<EpochProtectedVersionScheme>();
             testedBravo = new List<BravoLatch>();
-            underlyingEpoch = new LightEpoch();
             for (var i = 0; i < options.NumInstances; i++)
             {
                 testedBravo.Add(new BravoLatch());
-                tested.Add(new EpochProtectedVersionScheme(options.SynchronizationMode.Equals("epvs-share") ? underlyingEpoch : new LightEpoch()));
+                tested.Add(options.SynchronizationMode.Equals("epvs-share") ? sharedEpoch : new EpochProtectedVersionScheme());
             }
 
             var threads = new List<Thread>();

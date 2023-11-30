@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     /// <summary>
     ///     A DprStateSnapshot backed by a dictionary mapping from worker to version

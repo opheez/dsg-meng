@@ -5,20 +5,18 @@ using NUnit.Framework;
 namespace FASTER.libdpr
 {
     [TestFixture]
-    public class ClientTrackingTest
+    public class SimpleTests
     {
-        private SimpleTestDprFinderBackend fakeFinder;
+        private SimulatedDprFinderService simulatedFinderService = new();
         private DprClient client;
 
-        private Dictionary<Worker, TestStateStore> GetTestCluster(int size)
+        private Dictionary<WorkerId, TestStateStore> GetTestCluster(int size)
         {
-            fakeFinder = new SimpleTestDprFinderBackend(size);
-            client = new DprClient(new SimpleTestDprFinder(new Worker(1) , fakeFinder));
-            var result = new Dictionary<Worker, TestStateStore>();
+            var result = new Dictionary<WorkerId, TestStateStore>();
             for (var i = 0; i < size; i++)
             {
-                var worker = new Worker(i);
-                result.Add(worker, new TestStateStore(worker, new SimpleTestDprFinder(worker, fakeFinder)));
+                var worker = new WorkerId(i);
+                result.Add(worker, new TestStateStore(worker));
             }
 
             return result;
@@ -27,7 +25,6 @@ namespace FASTER.libdpr
         [Test]
         public void TestSingleClientSingleServer()
         {
-            var versionTracker = new ClientVersionTracker();
             var cluster = GetTestCluster(1);
             var tested = new TestClientObject(client.GetSession(Guid.NewGuid()), cluster, 0);
             for (var i = 0; i < 10; i++)

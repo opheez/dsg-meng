@@ -74,7 +74,7 @@ namespace DprCounters
             // Because the program does not simulate failures, we should never fail
             Debug.Assert(status == DprBatchStatus.OK);
 
-            versionTracker.Resolve(id, new WorkerVersion(worker, v));
+            versionTracker.Resolve(id, v);
 
             // (Non-DPR) Response is 8 bytes, 
             result = BitConverter.ToInt64(serializationBuffer, sizeof(int) + size - sizeof(long));

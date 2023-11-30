@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using FASTER.core;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     public static class RespUtil
     {
@@ -194,8 +194,7 @@ namespace FASTER.libdpr
                 head += sizeof(long);
                 var val = BitConverter.ToInt64(buf, head);
                 head += sizeof(long);
-                if (result != null)
-                    result[new WorkerId(workerId)] = val;
+                result[new WorkerId(workerId)] = val;
             }
 
             return head;

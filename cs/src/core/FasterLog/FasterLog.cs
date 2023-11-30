@@ -326,13 +326,11 @@ namespace FASTER.core
             bool isProtected = epoch.ThisInstanceProtected();
             if (!isProtected)
                 epoch.Resume();
+            var otherEntriesDone = new ManualResetEventSlim();
             try
             {
                 // Ensure all currently started entries will enqueue before we declare log closed
-                epoch.BumpCurrentEpoch(() =>
-                {
-                    CommitInternal(out _, out _, false, Array.Empty<byte>(), long.MaxValue, null);
-                });
+                epoch.BumpCurrentEpoch(() => {});
             }
             finally
             {
@@ -340,6 +338,7 @@ namespace FASTER.core
                     epoch.Suspend();
             }
 
+            CommitInternal(out _, out _, false, Array.Empty<byte>(), long.MaxValue, null);
             if (spinWait)
                 WaitForCommit(TailAddress, long.MaxValue);
         }

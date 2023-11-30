@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <LangVersion>8.0</LangVersion>
+        <Platforms>AnyCPU;x64</Platforms>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\remote\src\FASTER.common\FASTER.common.csproj" />
+      <ProjectReference Include="..\..\..\src\core\FASTER.core.csproj" />
+    </ItemGroup>
+</Project>

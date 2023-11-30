@@ -6,7 +6,7 @@ using System.Text;
 using FASTER.common;
 using FASTER.core;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     internal class DprFinderSocketReaderWriter : IDisposable
     {
@@ -131,23 +131,24 @@ namespace FASTER.libdpr
             reusableMessageBuffers.Return(buf);
         }
 
-        internal void SendSyncResponse(Span<byte> serializedBuffer)
+        internal void SendSyncResponse(long maxVersion, (byte[], int) serializedState)
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = 0;
             buf[head++] = (byte)'$';
 
-            var size = RespUtil.LongToDecimalString(serializedBuffer.Length, buf, head);
+            var size = RespUtil.LongToDecimalString(sizeof(long) + serializedState.Item2, buf, head);
             Debug.Assert(size != 0);
             head += size;
 
-            Debug.Assert(head + 4 + serializedBuffer.Length < buf.Length);
+            Debug.Assert(head + 4 + sizeof(long) + serializedState.Item2 < buf.Length);
             buf[head++] = (byte)'\r';
             buf[head++] = (byte)'\n';
 
+            BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), maxVersion);
             head += sizeof(long);
-            serializedBuffer.CopyTo(new Span<byte>(buf, head, buf.Length - head));
-            head += serializedBuffer.Length;
+            Array.Copy(serializedState.Item1, 0, buf, head, serializedState.Item2);
+            head += serializedState.Item2;
 
             buf[head++] = (byte)'\r';
             buf[head++] = (byte)'\n';

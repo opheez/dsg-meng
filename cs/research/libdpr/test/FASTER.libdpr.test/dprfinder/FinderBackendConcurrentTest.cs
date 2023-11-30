@@ -14,6 +14,7 @@ namespace FASTER.libdpr
         private long worldLine, version, lastChecked;
         private Dictionary<WorkerVersion, List<WorkerVersion>> versions;
         private Func<GraphDprFinderBackend> backend;
+        private TestPrecomputedResponse response;
         private double depProb;
         private Random random;
         private bool finished = false;
@@ -29,7 +30,9 @@ namespace FASTER.libdpr
             this.depProb = depProb;
             this.cluster = cluster;
             random = new Random();
+            response = new TestPrecomputedResponse();
             backend().AddWorker(me);
+            backend().AddResponseObjectToPrecompute(response);
         }
 
         private void SimulateOneVersion(bool generateDeps = true)
@@ -64,12 +67,11 @@ namespace FASTER.libdpr
         
         private void CheckInvariants()
         {
-            var responseObject = backend().GetPrecomputedResponse();
-            responseObject.rwLatch.EnterReadLock();
-            var deserializedState = ClusterState.FromBuffer(responseObject.serializedResponse, 0, out var offset);
-            if (BitConverter.ToInt32(responseObject.serializedResponse, offset) == -1)
+            response.rwLatch.EnterReadLock();
+            var deserializedState = response.clusterState;
+            if (response.currentCut.Count == 0)
             {
-                responseObject.rwLatch.ExitReadLock();
+                response.rwLatch.ExitReadLock();
                 worldLine = deserializedState.currentWorldLine;
                 version = deserializedState.worldLinePrefix[me];
                 versions = versions.Where(kv => kv.Key.Version <= version && kv.Key.Version > lastChecked)
@@ -79,13 +81,12 @@ namespace FASTER.libdpr
                 {
                     backend().NewCheckpoint(worldLine, wv, deps);
                 }
-                backend().MarkWorkerAccountedFor(me, lastChecked + 1);
+                backend().MarkWorkerAccountedFor(me);
                 return;
             }
 
-            var deserializedCut = new Dictionary<WorkerId, long>();
-            RespUtil.ReadDictionaryFromBytes(responseObject.serializedResponse, offset, deserializedCut);
-            responseObject.rwLatch.ExitReadLock();
+            var deserializedCut = new Dictionary<WorkerId, long>(response.currentCut);
+            response.rwLatch.ExitReadLock();
             
             var persistedUntil = deserializedCut[me];
             // Guarantees should never regress, even if backend failed
@@ -118,23 +119,24 @@ namespace FASTER.libdpr
         }
     }
 
-    internal class SimulatedDprFinder
+    internal class SimulatedCluster
     {
-        private IDevice frontDevice, backDevice;
         // Randomly reset to simulate DprFinder failure
-        private volatile GraphDprFinderBackend backend;
+        private SimulatedDprFinderService backend;
         private Thread failOver, compute;
+        private double failureProb;
+        private List<SimulatedWorker> cluster;
 
-        public SimulatedDprFinder(IDevice frontDevice, IDevice backDevice)
+        public SimulatedCluster(SimulatedDprFinderService backend, double failureProb, IEnumerable<SimulatedWorker> cluster)
         {
-            this.frontDevice = frontDevice;
-            this.backDevice = backDevice;
-            backend = new GraphDprFinderBackend(new PingPongDevice(frontDevice, backDevice));
+            this.backend = backend;
+            this.failureProb = failureProb;
+            this.cluster = cluster.ToList();
         }
 
-        public GraphDprFinderBackend GetDprFinder() => backend;
+        public GraphDprFinderBackend GetDprFinder() => backend.GetDprFinderBackend();
 
-        public void Simulate(double failureProb, int simulationTimeMilli, IEnumerable<SimulatedWorker> cluster)
+        public void Simulate(int simulationTimeMilli)
         {
             var failOverTermination = new ManualResetEventSlim();
             var workerTermination = new ManualResetEventSlim();
@@ -148,13 +150,13 @@ namespace FASTER.libdpr
                 {
                     Thread.Sleep(10);
                     if (rand.NextDouble() < failureProb)
-                        backend = new GraphDprFinderBackend(new PingPongDevice(frontDevice, backDevice));
+                        backend.FailOver(5);
                 }
             });
             compute = new Thread(() =>
             {
                 while (!backendTermination.IsSet)
-                    backend.Process();
+                    backend.ProcessOnce();
             });
             compute.Start();
             failOver.Start();
@@ -177,8 +179,6 @@ namespace FASTER.libdpr
 
             backendTermination.Set();
             compute.Join();
-            frontDevice.Dispose();
-            backDevice.Dispose();
         }
     }
 
@@ -188,37 +188,34 @@ namespace FASTER.libdpr
         [Test]
         public void ConcurrentTestDprFinderSmallNoFailure()
         {
-            var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var tested = new SimulatedDprFinder(localDevice1, localDevice2);
-            var cluster = new List<SimulatedWorker>();
+            var testedBackend = new SimulatedDprFinderService();
+            var clusterInfo = new List<SimulatedWorker>();
             for (var i = 0; i < 3; i++)
-                cluster.Add(new SimulatedWorker(new WorkerId(i), cluster, tested.GetDprFinder, 0.5));
-            tested.Simulate(0.0, 1000, cluster);
+                clusterInfo.Add(new SimulatedWorker(new WorkerId(i), clusterInfo, testedBackend.GetDprFinderBackend, 0.5));
+            var testCluster = new SimulatedCluster(testedBackend, 0.0, clusterInfo);
+            testCluster.Simulate(1000);
         }
         
         [Test]
         public void ConcurrentTestDprFinderLargeNoFailure()
         {
-            var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var tested = new SimulatedDprFinder(localDevice1, localDevice2);
-            var cluster = new List<SimulatedWorker>();
+            var testedBackend = new SimulatedDprFinderService();
+            var clusterInfo = new List<SimulatedWorker>();
             for (var i = 0; i < 30; i++)
-                cluster.Add(new SimulatedWorker(new WorkerId(i), cluster, tested.GetDprFinder, 0.75));
-            tested.Simulate(0.0, 30000, cluster);
+                clusterInfo.Add(new SimulatedWorker(new WorkerId(i), clusterInfo, testedBackend.GetDprFinderBackend, 0.75));
+            var testedCluster = new SimulatedCluster(testedBackend, 0.0, clusterInfo);
+            testedCluster.Simulate(30000);
         }
         
         [Test]
         public void ConcurrentTestDprFinderFailure()
         {
-            var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            var tested = new SimulatedDprFinder(localDevice1, localDevice2);
-            var cluster = new List<SimulatedWorker>();
+            var testedBackend = new SimulatedDprFinderService();
+            var clusterInfo = new List<SimulatedWorker>();
             for (var i = 0; i < 10; i++)
-                cluster.Add(new SimulatedWorker(new WorkerId(i), cluster, tested.GetDprFinder, 0.75));
-            tested.Simulate(0.05, 1000, cluster);
+                clusterInfo.Add(new SimulatedWorker(new WorkerId(i), clusterInfo, testedBackend.GetDprFinderBackend, 0.75));
+            var testedCluster = new SimulatedCluster(testedBackend, 0.05, clusterInfo);
+            testedCluster.Simulate(1000);
         }
     }
 }

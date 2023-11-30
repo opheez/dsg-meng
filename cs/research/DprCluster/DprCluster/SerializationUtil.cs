@@ -2,9 +2,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
-    public static class SerializationUtil
+    internal static class SerializationUtil
     {
         internal static unsafe int SerializeCheckpointMetadata(Span<byte> buffer, long worldLine,
             WorkerVersion checkpointed, IEnumerable<WorkerVersion> deps)
@@ -40,7 +40,7 @@ namespace FASTER.libdpr
             }
         }
 
-        public static unsafe int DeserializeCheckpointMetadata(ReadOnlySpan<byte> buffer, out long worldLine,
+        internal static unsafe int DeserializeCheckpointMetadata(ReadOnlySpan<byte> buffer, out long worldLine,
             out WorkerVersion checkpointed, out IEnumerable<WorkerVersion> deps)
         {
             fixed (byte* b = buffer)

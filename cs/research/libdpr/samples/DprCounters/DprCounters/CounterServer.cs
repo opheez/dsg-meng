@@ -32,7 +32,7 @@ namespace DprCounters
             var stateObject = new CounterStateObject(checkpointDir);
             // A DPR server provides DPR methods that the users should invoke at appropriate points of execution. There
             // should be one DPR server per worker in the cluster
-            dprWorker = new DprWorker<CounterStateObject>(dprFinder, me, stateObject);
+            dprWorker = new DprWorker<CounterStateObject>(me, stateObject, dprFinder);
             
             var localEndpoint = new IPEndPoint(IPAddress.Parse(ip), port); 
             socket = new Socket(localEndpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);

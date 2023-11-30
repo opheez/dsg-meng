@@ -1,13 +1,17 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using FASTER.core;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     /// <summary>
     /// Abstraction for a versioned state-store with checkpointing and rollback functionalities used in DPR.
     /// </summary>
     public interface IStateObject
     {
+        void Receive(ReadOnlySpan<byte> message);
+        
         /// <summary>
         /// Performs a checkpoint uniquely identified by the given version number along with the given metadata to be
         /// persisted. Implementers are allowed to return as soon as the checkpoint content is finalized, but before

@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.core;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     /// <summary>
     /// A DprWorker corresponds to an individual stateful failure domain (e.g., a physical machine or VM) in the system.
@@ -18,7 +18,7 @@ namespace FASTER.libdpr
     /// StateObject implementation.
     /// </summary>
     /// <typeparam name="TStateObject"> type of state object</typeparam>
-    public class DprWorker<TStateObject> where TStateObject : IStateObject
+    public unsafe class DprWorker<TStateObject> where TStateObject : IStateObject
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         protected readonly IDprFinder dprFinder;
@@ -272,7 +272,7 @@ namespace FASTER.libdpr
                 // restart from crash, at which point we should resend the graph 
                 if (!dprFinder.Refresh())
                     dprFinder.ResendGraph(me, stateObject);
-                core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
+                Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
                 if (worldLine != dprFinder.SystemWorldLine())
                     BeginRestore(dprFinder.SystemWorldLine(), dprFinder.SafeVersion(me)).GetAwaiter().GetResult(); 
             }
@@ -282,7 +282,7 @@ namespace FASTER.libdpr
                 // TODO(Tianyu): Should avoid unnecessarily performing a checkpoint when underlying state object has not changed
                 BeginCheckpoint(
                     Math.Max(versionScheme.CurrentState().Version + 1, dprFinder?.GlobalMaxVersion() ?? 0));
-                core.Utility.MonotonicUpdate(ref lastCheckpointMilli, currentTime, out _);
+                Utility.MonotonicUpdate(ref lastCheckpointMilli, currentTime, out _);
             }
 
             // Can prune dependency information of committed versions
@@ -298,6 +298,64 @@ namespace FASTER.libdpr
                 stateObject.PruneVersion(i);
         }
 
+        public void ReceiveMessage(ReadOnlySpan<byte> message)
+        {
+            var cast = MemoryMarshal.Cast<byte, DprBatchHeader>(message);
+            ref readonly var inputHeader = ref MemoryMarshal.GetReference(cast);
+
+            // Wait for worker version to catch up to largest in batch (minimum version where all operations
+            // can be safely executed), taking checkpoints if necessary.
+            while (dprFinder != null && inputHeader.version > versionScheme.CurrentState().Version)
+            {
+                // TODO(Tianyu): Decide whether we want to support a no-force variant where we postpone this message
+                // instead of checkpointing immediately.
+                if (BeginCheckpoint(inputHeader.version))
+                    Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
+                Thread.Yield();
+            }
+
+            // Enter protected region. Because we validate requests batch-at-a-time, the world-line must not shift while
+            // a batch is being processed, otherwise a message from an older world-line may be processed in a new one.
+            versionScheme.Enter();
+            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
+            // so client operation is not lost in a rollback that the client has already observed.
+            while (dprFinder != null && inputHeader.worldLine > worldLine)
+            {
+                versionScheme.Leave();
+                BeginRestore(inputHeader.worldLine, dprFinder.SafeVersion(me)).GetAwaiter().GetResult();
+                Thread.Yield();
+                versionScheme.Enter();
+            }
+
+            // If the worker world-line is newer, the request must be rejected. 
+            if (inputHeader.worldLine < worldLine)
+            {
+                versionScheme.Leave();
+                return;
+            }
+            
+            // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
+            // could get processed at a future version instead due to thread timing. However, this is not a correctness
+            // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
+            var deps = versions[versionScheme.CurrentState().Version];
+            if (!inputHeader.SrcWorkerId.Equals(WorkerId.INVALID))
+                deps.Update(inputHeader.SrcWorkerId, inputHeader.version);
+            fixed (byte* d = inputHeader.data)
+            {
+                var depsHead = d + inputHeader.ClientDepsOffset;
+                for (var i = 0; i < inputHeader.numClientDeps; i++)
+                {
+                    ref var wv = ref Unsafe.AsRef<WorkerVersion>(depsHead);
+                    deps.Update(wv.WorkerId, wv.Version);
+                    depsHead += sizeof(WorkerVersion);
+                }
+            }
+
+            // TODO(Tianyu): Slice the message correctly to omit the header
+            stateObject.Receive();
+            versionScheme.Leave();
+        }
+        
         /// <summary>
         /// When processing of messages fails to begin (because of DPR violations), compose an error DPR header
         /// to the sending DPR entity
@@ -404,7 +462,6 @@ namespace FASTER.libdpr
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void FinishProcessing()
         {
-            versionScheme.Leave();
         }
 
         /// <summary>
@@ -441,7 +498,7 @@ namespace FASTER.libdpr
         public void ForceCheckpoint(long targetVersion = -1)
         {
             if (BeginCheckpoint(targetVersion))
-                core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
+                Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
         }
     }
 }

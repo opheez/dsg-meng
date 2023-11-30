@@ -8,18 +8,16 @@ using NUnit.Framework;
 namespace FASTER.libdpr
 {
     [TestFixture]
-    public class EnhancedDprFinderTest
+    public class FinderBackendTest
     {
-        private static void CheckClusterState(GraphDprFinderBackend backend, long expectedWorldLine,
+        private static void CheckClusterState(GraphDprFinderBackend backend, TestPrecomputedResponse response, long expectedWorldLine,
             Dictionary<WorkerId, long> expectedPrefix)
         {
-            var response = backend.GetPrecomputedResponse();
             try
             {
                 response.rwLatch.EnterReadLock();
-                var newState = ClusterState.FromBuffer(response.serializedResponse, 0, out var head);
-                Assert.AreEqual(expectedWorldLine, newState.currentWorldLine);
-                Assert.AreEqual(expectedPrefix, newState.worldLinePrefix);
+                Assert.AreEqual(expectedWorldLine, response.clusterState.currentWorldLine);
+                Assert.AreEqual(expectedPrefix, response.clusterState.worldLinePrefix);
             }
             finally
             {
@@ -27,21 +25,12 @@ namespace FASTER.libdpr
             }
 
         }
-        private static void CheckDprCut(GraphDprFinderBackend backend, Dictionary<WorkerId, long> expectedCut)
+        private static void CheckDprCut(GraphDprFinderBackend backend, TestPrecomputedResponse response, Dictionary<WorkerId, long> expectedCut)
         {
-            var response = backend.GetPrecomputedResponse();
             try
             {
                 response.rwLatch.EnterReadLock();
-                if (BitConverter.ToInt32(response.serializedResponse, response.recoveryStateEnd) == -1)
-                {
-                    Assert.IsNull(expectedCut);
-                    return;
-                }
-
-                var actualCut = new Dictionary<WorkerId, long>();
-                RespUtil.ReadDictionaryFromBytes(response.serializedResponse, response.recoveryStateEnd, actualCut);
-                Assert.AreEqual(expectedCut, actualCut);
+                Assert.AreEqual(expectedCut, response.currentCut);
             }
             finally
             {
@@ -54,8 +43,9 @@ namespace FASTER.libdpr
         {
             var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
             var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
-            
+            var testResponse = new TestPrecomputedResponse();
             var testedBackend = new GraphDprFinderBackend(new PingPongDevice(localDevice1, localDevice2));
+            testedBackend.AddResponseObjectToPrecompute(testResponse);
 
             var A = new WorkerId(0);
             var B = new WorkerId(1);
@@ -67,13 +57,13 @@ namespace FASTER.libdpr
             testedBackend.AddWorker(C, _ => addComplete.Signal());
             testedBackend.Process();
             addComplete.Wait();
-            CheckClusterState(testedBackend, 1, new Dictionary<WorkerId, long>
+            CheckClusterState(testedBackend, testResponse, 1, new Dictionary<WorkerId, long>
             {
                 {A, 0},
                 {B, 0},
                 {C, 0}
             });
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 0},
                 {B, 0},
@@ -88,7 +78,7 @@ namespace FASTER.libdpr
             
             testedBackend.NewCheckpoint(1, A1, Enumerable.Empty<WorkerVersion>());
             testedBackend.Process();
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 1},
                 {B, 0},
@@ -97,7 +87,7 @@ namespace FASTER.libdpr
             
             testedBackend.NewCheckpoint(1, B1, new[] {A1});
             testedBackend.Process();
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 1},
                 {B, 1},
@@ -106,7 +96,7 @@ namespace FASTER.libdpr
             
             testedBackend.NewCheckpoint(1, A2, new []{ A1, B2 });
             testedBackend.Process();
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 1},
                 {B, 1},
@@ -115,7 +105,7 @@ namespace FASTER.libdpr
             
             testedBackend.NewCheckpoint(1, B2, new []{ B1, C2 });
             testedBackend.Process();
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 1},
                 {B, 1},
@@ -124,7 +114,7 @@ namespace FASTER.libdpr
             
             testedBackend.NewCheckpoint(1, C2, new []{ A2 });
             testedBackend.Process();
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 2},
                 {B, 2},
@@ -140,7 +130,9 @@ namespace FASTER.libdpr
         {
             var localDevice1 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
             var localDevice2 = new LocalMemoryDevice(1 << 20, 1 << 20, 1);
+            var testResponse = new TestPrecomputedResponse();
             var testedBackend = new GraphDprFinderBackend(new PingPongDevice(localDevice1, localDevice2));
+            testedBackend.AddResponseObjectToPrecompute(testResponse);
         
             var A = new WorkerId(0);
             var B = new WorkerId(1);
@@ -152,13 +144,13 @@ namespace FASTER.libdpr
             testedBackend.AddWorker(C, _ => addComplete.Signal());
             testedBackend.Process();
             addComplete.Wait();
-            CheckClusterState(testedBackend, 1, new Dictionary<WorkerId, long>
+            CheckClusterState(testedBackend, testResponse, 1, new Dictionary<WorkerId, long>
             {
                 {A, 0},
                 {B, 0},
                 {C, 0}
             });
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 0},
                 {B, 0},
@@ -177,7 +169,7 @@ namespace FASTER.libdpr
             testedBackend.NewCheckpoint(1, A2, new []{ A1, B2 });
             testedBackend.NewCheckpoint(1, B2, new []{ B1, C2 });
             testedBackend.Process();
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 1},
                 {B, 1},
@@ -185,26 +177,28 @@ namespace FASTER.libdpr
             });
             
             // Get a new test backend to simulate restart from disk
-            testedBackend = new GraphDprFinderBackend(new PingPongDevice(localDevice1, localDevice2));
-            CheckClusterState(testedBackend, 1, new Dictionary<WorkerId, long>
+            testedBackend = new GraphDprFinderBackend(new PingPongDevice(localDevice1, localDevice2)); 
+            testResponse = new TestPrecomputedResponse();
+            testedBackend.AddResponseObjectToPrecompute(testResponse);
+            CheckClusterState(testedBackend, testResponse, 1, new Dictionary<WorkerId, long>
             {
                 {A, 0},
                 {B, 0},
                 {C, 0}
             });
             // Cut should be temporarily unavailable during recovery
-            CheckDprCut(testedBackend, null);
+            CheckDprCut(testedBackend, testResponse, null);
             
             // Simulate resending of graph
             testedBackend.NewCheckpoint(1, A2, new []{ B2 });
-            testedBackend.MarkWorkerAccountedFor(A, 2);
+            testedBackend.MarkWorkerAccountedFor(A);
             testedBackend.NewCheckpoint(1, B2, new []{ C2 });
-            testedBackend.MarkWorkerAccountedFor(B, 2);
-            testedBackend.MarkWorkerAccountedFor(C, 0);
+            testedBackend.MarkWorkerAccountedFor(B);
+            testedBackend.MarkWorkerAccountedFor(C);
             testedBackend.Process();
 
             // We should reach the same cut when dpr finder recovery is complete
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 1},
                 {B, 1},
@@ -213,7 +207,7 @@ namespace FASTER.libdpr
             
             testedBackend.NewCheckpoint(1, C2, new []{ A2 });
             testedBackend.Process();
-            CheckDprCut(testedBackend, new Dictionary<WorkerId, long>
+            CheckDprCut(testedBackend, testResponse, new Dictionary<WorkerId, long>
             {
                 {A, 2},
                 {B, 2},

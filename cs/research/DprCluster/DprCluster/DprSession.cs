@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using FASTER.core;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     public enum DprBatchStatus
     {
@@ -112,7 +112,7 @@ namespace FASTER.libdpr
                 // Server uses negative worldLine to signal that the client is lower in worldline
                 if (responseHeader.worldLine < 0)
                 {
-                    core.Utility.MonotonicUpdate(ref terminalWorldLine, -responseHeader.worldLine, out _);
+                    Utility.MonotonicUpdate(ref terminalWorldLine, -responseHeader.worldLine, out _);
                     return DprBatchStatus.ROLLBACK;
                 }
 
@@ -139,7 +139,7 @@ namespace FASTER.libdpr
                 }
 
                 // Update versioning information
-                core.Utility.MonotonicUpdate(ref this.version, responseHeader.version, out _);
+                Utility.MonotonicUpdate(ref this.version, responseHeader.version, out _);
 
                 // Remove deps only if this is a response header from a server session
                 if (!responseHeader.SrcWorkerId.Equals(WorkerId.INVALID))

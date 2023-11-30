@@ -6,15 +6,80 @@ using System.Threading;
 using FASTER.common;
 using FASTER.core;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
-    public abstract class PrecomputedSyncResponseBase
+    /// <summary>
+    ///     Precomputed response to sync calls into DprFinder. Holds both serialized cluster persistent state and the
+    ///     current DPR cut.
+    /// </summary>
+    public class PrecomputedSyncResponse
     {
-        public ReaderWriterLockSlim rwLatch = new ReaderWriterLockSlim();
-        
-        public abstract void ResetClusterState(ClusterState clusterState);
+        /// <summary>
+        ///     end offset of the serialized portion of cluster state on the response buffer
+        /// </summary>
+        public int recoveryStateEnd;
 
-        public abstract void UpdateCut(Dictionary<WorkerId, long> newCut);
+        /// <summary>
+        ///     end offset of the entire response on the buffer
+        /// </summary>
+        public int responseEnd;
+
+        /// <summary>
+        ///     Reader/Writer latch that protects members --- if reading the serialized response, must do so under
+        ///     read latch to prevent concurrent modification.
+        /// </summary>
+        public ReaderWriterLockSlim rwLatch;
+
+        /// <summary>
+        ///     buffer that holds the serialized state
+        /// </summary>
+        public byte[] serializedResponse = new byte[1 << 15];
+
+        /// <summary>
+        ///     Create a new PrecomputedSyncResponse from the given cluster state. Until UpdateCut is called, the
+        ///     serialized response will have a special value for the cut to signal its absence.
+        /// </summary>
+        /// <param name="clusterState"> cluster state to serialize </param>
+        public PrecomputedSyncResponse(ClusterState clusterState)
+        {
+            rwLatch = new ReaderWriterLockSlim();
+            // Reserve space for world-line + prefix + size field of cut as a minimum
+            var serializedSize = sizeof(long) + RespUtil.DictionarySerializedSize(clusterState.worldLinePrefix) +
+                                 sizeof(int);
+            // Resize response buffer to fit
+            if (serializedSize > serializedResponse.Length)
+                serializedResponse = new byte[Math.Max(2 * serializedResponse.Length, serializedSize)];
+
+            BitConverter.TryWriteBytes(new Span<byte>(serializedResponse, 0, sizeof(long)),
+                clusterState.currentWorldLine);
+            recoveryStateEnd =
+                RespUtil.SerializeDictionary(clusterState.worldLinePrefix, serializedResponse, sizeof(long));
+            // In the absence of a cut, set cut to a special "unknown" value.
+            BitConverter.TryWriteBytes(new Span<byte>(serializedResponse, recoveryStateEnd, sizeof(int)), -1);
+            responseEnd = recoveryStateEnd + sizeof(int);
+        }
+
+        /// <summary>
+        ///     Update the PrecomputedSyncResponse to hold the given cut
+        /// </summary>
+        /// <param name="newCut"> DPR cut to serialize </param>
+        internal void UpdateCut(Dictionary<WorkerId, long> newCut)
+        {
+            // Update serialized under write latch so readers cannot see partial updates
+            rwLatch.EnterWriteLock();
+            var serializedSize = RespUtil.DictionarySerializedSize(newCut);
+
+            // Resize response buffer to fit
+            if (serializedSize > serializedResponse.Length - recoveryStateEnd)
+            {
+                var newBuffer = new byte[Math.Max(2 * serializedResponse.Length, recoveryStateEnd + serializedSize)];
+                Array.Copy(serializedResponse, newBuffer, recoveryStateEnd);
+                serializedResponse = newBuffer;
+            }
+
+            responseEnd = RespUtil.SerializeDictionary(newCut, serializedResponse, recoveryStateEnd);
+            rwLatch.ExitWriteLock();
+        }
     }
 
     /// <summary>
@@ -49,24 +114,21 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="buf"> byte buffer that holds serialized cluster state</param>
         /// <param name="offset"> offset to start scanning </param>
-        /// <returns> end of the serialized ClusterState on the buffer</returns>
-        public int PopulateFromBuffer(byte[] buf, int offset)
+        /// <param name="head"> end of the serialized ClusterState on the buffer </param>
+        /// <returns> new ClusterState from serialized bytes</returns>
+        public static ClusterState FromBuffer(byte[] buf, int offset, out int head)
         {
-            worldLinePrefix.Clear();
-            currentWorldLine = BitConverter.ToInt64(buf, offset);
-            return RespUtil.ReadDictionaryFromBytes(buf, offset + sizeof(long), worldLinePrefix);
-        }
-        
-        public byte[] SerializeToBytes()
-        {
-            // Reserve space for world-line + prefixas a minimum
-            var result = new byte[sizeof(long) + RespUtil.DictionarySerializedSize(worldLinePrefix)];
-            BitConverter.TryWriteBytes(new Span<byte>(result, 0, sizeof(long)), currentWorldLine);
-            RespUtil.SerializeDictionary(worldLinePrefix, result, sizeof(long));
+            var result = new ClusterState
+            {
+                currentWorldLine = BitConverter.ToInt64(buf, offset),
+                worldLinePrefix = new Dictionary<WorkerId, long>()
+            };
+            head = RespUtil.ReadDictionaryFromBytes(buf, offset + sizeof(long), result.worldLinePrefix);
             return result;
         }
     }
-    
+
+
     /// <summary>
     ///     Backend logic for the RespGraphDprFinderServer.
     ///     The implementation relies on state objects to persist dependencies and avoids incurring additional storage
@@ -77,30 +139,30 @@ namespace FASTER.libdpr
         // Used to send add/delete worker requests to processing thread
         private readonly ConcurrentQueue<(WorkerId, Action<(long, long)>)> addQueue =
             new ConcurrentQueue<(WorkerId, Action<(long, long)>)>();
-        private readonly ConcurrentQueue<(WorkerId, Action)> deleteQueue = new ConcurrentQueue<(WorkerId, Action)>();
-
-        private readonly ConcurrentDictionary<WorkerVersion, List<WorkerVersion>> precedenceGraph =
-            new ConcurrentDictionary<WorkerVersion, List<WorkerVersion>>();
-        private readonly SimpleObjectPool<List<WorkerVersion>> objectPool =
-            new SimpleObjectPool<List<WorkerVersion>>(() => new List<WorkerVersion>());
-        
-        private readonly PingPongDevice persistentStorage;
 
         private readonly ReaderWriterLockSlim clusterChangeLatch = new ReaderWriterLockSlim();
         private readonly Dictionary<WorkerId, long> currentCut = new Dictionary<WorkerId, long>();
-        private readonly ClusterState volatileClusterState;
-        
         private bool cutChanged;
+        private readonly ConcurrentQueue<(WorkerId, Action)> deleteQueue = new ConcurrentQueue<(WorkerId, Action)>();
         private readonly Queue<WorkerVersion> frontier = new Queue<WorkerVersion>();
+
+        private long maxVersion;
+
+        private readonly SimpleObjectPool<List<WorkerVersion>> objectPool =
+            new SimpleObjectPool<List<WorkerVersion>>(() => new List<WorkerVersion>());
+
         private readonly ConcurrentQueue<WorkerVersion> outstandingWvs = new ConcurrentQueue<WorkerVersion>();
-        private readonly HashSet<WorkerVersion> visited = new HashSet<WorkerVersion>();
-        
+
+        private readonly PingPongDevice persistentStorage;
+
+        private readonly ConcurrentDictionary<WorkerVersion, List<WorkerVersion>> precedenceGraph =
+            new ConcurrentDictionary<WorkerVersion, List<WorkerVersion>>();
+
         // Only used during DprFinder recovery
         private readonly RecoveryState recoveryState;
-
-
-        private List<PrecomputedSyncResponseBase> precomputedResponses;
-        
+        private PrecomputedSyncResponse syncResponse;
+        private readonly HashSet<WorkerVersion> visited = new HashSet<WorkerVersion>();
+        private readonly ClusterState volatileClusterState;
 
         /// <summary>
         ///     Create a new EnhancedDprFinderBackend backed by the given storage. If the storage holds a valid persisted
@@ -112,22 +174,16 @@ namespace FASTER.libdpr
             this.persistentStorage = persistentStorage;
             // see if a previously persisted state is available
             var buf = persistentStorage.ReadLatestCompleteWrite();
-            volatileClusterState = new ClusterState();
             if (buf != null)
-                volatileClusterState.PopulateFromBuffer(buf, 0);
+                volatileClusterState = ClusterState.FromBuffer(buf, 0, out _);
+            else
+                volatileClusterState = new ClusterState();
 
             foreach (var worker in volatileClusterState.worldLinePrefix.Keys)
                 currentCut.Add(worker, 0);
+            syncResponse = new PrecomputedSyncResponse(volatileClusterState);
             recoveryState = new RecoveryState(this);
         }
-
-        // Note: Only safe to call when starting the backend before processing starts.
-        public void AddResponseObjectToPrecompute(PrecomputedSyncResponseBase obj)
-        {
-            obj.ResetClusterState(volatileClusterState);
-            precomputedResponses.Add(obj);
-        }
-        
 
         // Try to commit a single worker version by chasing through its dependencies
         // The worker version supplied in the argument must already be reported as persistent
@@ -229,13 +285,10 @@ namespace FASTER.libdpr
                 }
 
                 // serialize new cluster state and persist
-                var newState = volatileClusterState.SerializeToBytes();
-                persistentStorage.WriteReliably(newState, 0, newState.Length);
-                foreach (var response in precomputedResponses)
-                {
-                    response.ResetClusterState(volatileClusterState);
-                    response.UpdateCut(currentCut);
-                }
+                var newResponse = new PrecomputedSyncResponse(volatileClusterState);
+                persistentStorage.WriteReliably(newResponse.serializedResponse, 0, newResponse.recoveryStateEnd);
+                newResponse.UpdateCut(currentCut);
+                syncResponse = newResponse;
                 clusterChangeLatch.ExitWriteLock();
 
                 foreach (var callback in callbacks)
@@ -262,8 +315,7 @@ namespace FASTER.libdpr
                 // Compute a new syncResponse for consumption
                 // No need to protect against concurrent changes to the cluster because this method is either called
                 // on the process thread or during recovery. No cluster change can interleave.
-                foreach (var response in precomputedResponses)
-                    response.UpdateCut(currentCut);
+                syncResponse.UpdateCut(currentCut);
                 cutChanged = false;
             }
         }
@@ -291,12 +343,10 @@ namespace FASTER.libdpr
                 if (worldLine != volatileClusterState.currentWorldLine
                     && wv.Version > volatileClusterState.worldLinePrefix[wv.WorkerId]) return;
 
-                // This may be a duplicate
-                if (currentCut[wv.WorkerId] >= wv.Version) return;
-                
                 var list = objectPool.Checkout();
                 list.Clear();
                 list.AddRange(deps);
+                maxVersion = Math.Max(wv.Version, maxVersion);
                 if (!precedenceGraph.TryAdd(wv, list))
                     objectPool.Return(list);
                 else
@@ -308,7 +358,7 @@ namespace FASTER.libdpr
             }
         }
 
-        public void MarkWorkerAccountedFor(WorkerId workerId)
+        public void MarkWorkerAccountedFor(WorkerId workerId, long earliestPresentVersion)
         {
             // Should only be invoked if recovery is underway. However, a new worker may send a blind graph resend. 
             if (recoveryState.RecoveryComplete()) return;
@@ -317,7 +367,10 @@ namespace FASTER.libdpr
             lock (currentCut)
             {
                 Debug.Assert(currentCut.ContainsKey(workerId));
+                // We don't know if a present version is committed or not, but all pruned versions must be committed.
+                currentCut[workerId] = Math.Max(currentCut[workerId], earliestPresentVersion - 1);
             }
+
             recoveryState.MarkWorkerAccountedFor(workerId);
         }
 
@@ -388,6 +441,20 @@ namespace FASTER.libdpr
             cutChanged = true;
             volatileClusterState.worldLinePrefix.Remove(workerId);
             volatileClusterState.worldLinePrefix.Remove(workerId);
+        }
+
+        /// <summary></summary>
+        /// <returns> PrecomputedResponse to sync calls </returns>
+        public PrecomputedSyncResponse GetPrecomputedResponse()
+        {
+            return syncResponse;
+        }
+
+        /// <summary></summary>
+        /// <returns> Largest version number seen by this DprFinder </returns>
+        public long MaxVersion()
+        {
+            return maxVersion;
         }
 
         /// <inheritdoc cref="IDisposable" />

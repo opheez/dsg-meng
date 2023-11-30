@@ -1,11 +1,11 @@
 using System;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     /// <summary>
     ///     A worker in the system manipulates uniquely exactly one state object.
     /// </summary>
-    public struct WorkerId : IEquatable<WorkerId>
+    public struct WorkerId
     {
         public static readonly WorkerId INVALID = new WorkerId(-1);
 
@@ -23,19 +23,9 @@ namespace FASTER.libdpr
             this.guid = guid;
         }
 
-        public readonly bool Equals(WorkerId other)
+        internal readonly bool Equals(WorkerId other)
         {
             return guid == other.guid;
-        }
-
-        public static bool operator ==(WorkerId left, WorkerId right)
-        {
-            return left.Equals(right);
-        }
-
-        public static bool operator !=(WorkerId left, WorkerId right)
-        {
-            return !left.Equals(right);
         }
 
         /// <inheritdoc cref="object" />
@@ -54,13 +44,13 @@ namespace FASTER.libdpr
     /// <summary>
     ///     A worker-version is a tuple of worker and checkpoint version.
     /// </summary>
-    public struct WorkerVersion : IEquatable<WorkerVersion>
+    public struct WorkerVersion
     {
         /// <summary>
         ///     Worker
         /// </summary>
         public WorkerId WorkerId { get; set; }
-        
+
         /// <summary>
         ///     Version
         /// </summary>
@@ -81,17 +71,7 @@ namespace FASTER.libdpr
         {
         }
 
-        public static bool operator ==(WorkerVersion left, WorkerVersion right)
-        {
-            return left.Equals(right);
-        }
-
-        public static bool operator !=(WorkerVersion left, WorkerVersion right)
-        {
-            return !left.Equals(right);
-        }
-
-        public bool Equals(WorkerVersion other)
+        internal bool Equals(WorkerVersion other)
         {
             return WorkerId.Equals(other.WorkerId) && Version == other.Version;
         }
@@ -111,56 +91,4 @@ namespace FASTER.libdpr
             }
         }
     }
-    
-    /// <summary>
-    ///     Speculation Unit ID
-    /// </summary>
-    public struct SUId : IEquatable<SUId>
-    {
-        /// <summary>
-        /// The EXTERNAL SU is a special SU that can be used in either messages or workers. EXTERNAL messages are always
-        /// consumed only after commit. EXTERNAL workers wait until committed to consume any message.
-        /// </summary>
-        public static readonly SUId EXTERNAL = new SUId(-1);
-
-        /// <summary>
-        ///  globally-unique worker ID within a DPR cluster
-        /// </summary>
-        public readonly long guid;
-
-        /// <summary>
-        ///     Constructs a worker with the given guid
-        /// </summary>
-        /// <param name="guid"> worker guid </param>
-        public SUId(long guid)
-        {
-            this.guid = guid;
-        }
-
-        public bool Equals(SUId other)
-        {
-            return guid == other.guid;
-        }
-
-        public static bool operator ==(SUId left, SUId right)
-        {
-            return left.Equals(right);
-        }
-
-        public static bool operator !=(SUId left, SUId right)
-        {
-            return !left.Equals(right);
-        }
-
-        /// <inheritdoc cref="object" />
-        public override bool Equals(object obj)
-        {
-            return obj is SUId other && Equals(other);
-        }
-
-        /// <inheritdoc cref="object" />
-        public override int GetHashCode()
-        {
-            return guid.GetHashCode();
-        }
-    }}
+}

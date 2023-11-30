@@ -1,12 +1,30 @@
 using System.Collections.Generic;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
-    public enum DprStatus
+    /// <summary>
+    ///     A DprTableSnapshot is a consistent view of the current DPR cut
+    /// </summary>
+    public interface IDprStateSnapshot
     {
-        COMMITTED, SPECULATIVE, ROLLEDBACK
+        /// <summary>
+        ///     For a given version, returns the largest version number that is recoverable. Method may return arbitrary
+        ///     number for a worker that is not part of the cluster.
+        /// </summary>
+        /// <param name="workerId">The worker in question</param>
+        /// <returns>
+        ///     The largest version number that is recoverable for the given version (may be arbitrary if worker is
+        ///     not part of the cluster)
+        /// </returns>
+        long SafeVersion(WorkerId workerId);
+
+        /// <summary>
+        ///     Returns the current system world-line.
+        /// </summary>
+        /// <returns>the current system world-line</returns>
+        long SystemWorldLine();
     }
-    
+
     /// <summary>
     ///     A DprFinder is the interface on each Worker/Client to report local checkpoint/recovery and receive guarantees/
     ///     rollback requests. This may implement a distributed algorithm underneath or be backed by some other backend
@@ -26,12 +44,22 @@ namespace FASTER.libdpr
         long SafeVersion(WorkerId workerId);
 
         /// <summary>
+        ///     Obtains a consistent snapshot of current DPR cut of the system.
+        /// </summary>
+        /// <returns> a consistent snapshot of current DPR cut of the system </returns>
+        IDprStateSnapshot GetStateSnapshot();
+
+        /// <summary>
         ///     Returns the current system world-line.
         /// </summary>
         /// <returns>the current system world-line</returns>
         long SystemWorldLine();
 
-        DprStatus CheckStatus(long worldLine, WorkerVersion wv);
+        /// <summary>
+        ///     Returns the max version number known across all workers in the cluster.
+        /// </summary>
+        /// <returns>the max version number known across all workers in the cluster</returns>
+        long GlobalMaxVersion();
 
         /// <summary>
         ///     Report a version as locally persistent with the given dependencies.
@@ -47,23 +75,29 @@ namespace FASTER.libdpr
         ///     Refreshes the local view of the system. This method must be called periodically to receive up-to-date
         ///     information about the rest of the cluster.
         /// </summary>
-        void Refresh(WorkerId id, IStateObject stateObject);
+        bool Refresh();
 
-        void RefreshStateless();
+        /// <summary>
+        ///     Resend locally stored dependency graph (if applicable) of the given state object
+        /// </summary>
+        /// <param name="workerId"> worker </param>
+        /// <param name="stateObject"> state object </param>
+        void ResendGraph(WorkerId workerId, IStateObject stateObject);
 
         /// <summary>
         ///     Registers the given worker and state object combination with the cluster. Worker id must be unique within
-        ///     the cluster. Must be invoked before performing any operation on the state object. One DprFinder object
-        ///     should only register one worker.
+        ///     the cluster. Must be invoked before performing any operation on the state object.
         /// </summary>
         /// <param name="id"> id of the worker </param>
+        /// <param name="stateObject"> state object associated with the worker</param>
         /// <returns> the version state object should recover to before beginning execution, or 0 if no recovery is required </returns>
-        long AddWorker(WorkerId id, IStateObject stateObject);
+        long NewWorker(WorkerId id, IStateObject stateObject);
 
         /// <summary>
-        ///     Removes the registered worker from the cluster. It is up to caller to ensure that the deleted worker is not
+        ///     Removes the given worker from the cluster. It is up to caller to ensure that the deleted worker is not
         ///     currently accepting operations and no other worker has outstanding dependencies on the deleted worker.
         /// </summary>
-        void RemoveWorker(WorkerId id);
+        /// <param name="id"></param>
+        void DeleteWorker(WorkerId id);
     }
 }

@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 
-namespace FASTER.libdpr
+namespace DprCluster
 {
     /// <summary>
     /// DPR Finder client stub that connects to a backend RespGraphDprFinderServer

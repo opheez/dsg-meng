@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFrameworks>net6.0;netstandard2.1</TargetFrameworks>
+        <TargetFramework>net7.0</TargetFramework>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <LangVersion>8.0</LangVersion>
         <Platforms>AnyCPU;x64</Platforms>
@@ -26,4 +26,17 @@
       <ProjectReference Include="..\..\..\..\src\core\FASTER.core.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf" Version="3.25.0" />
+        <PackageReference Include="Grpc.AspNetCore" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Net.Client" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Tools" Version="2.59.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Protobuf Include="dprfinder\gRPC\finder.proto" GrpcServices="Server,Client" />
+    </ItemGroup>
 </Project>

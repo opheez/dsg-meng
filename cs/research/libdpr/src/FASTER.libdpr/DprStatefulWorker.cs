@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.Arm;
 using System.Threading;
 using System.Threading.Tasks;
 using FASTER.common;
@@ -36,6 +37,7 @@ namespace FASTER.libdpr
         private List<IStateObjectAttachment> attachments = new List<IStateObjectAttachment>();
         private byte[] metadataBuffer = new byte[1 << 15];
         private readonly SUId mySU;
+        private DprMessageBuffer messageBuffer;
         
         /// <summary>
         /// Creates a new DprServer.
@@ -57,6 +59,7 @@ namespace FASTER.libdpr
             this.mySU = mySU;
             this.checkpointPeriodMilli = checkpointPeriodMilli;
             this.refreshPeriodMilli = refreshPeriodMilli;
+            messageBuffer = new DprMessageBuffer();
         }
 
         /// <summary></summary>
@@ -250,6 +253,8 @@ namespace FASTER.libdpr
                 core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
                 if (worldLine != dprFinder.SystemWorldLine())
                     BeginRestore(dprFinder.SystemWorldLine(), dprFinder.SafeVersion(me)).GetAwaiter().GetResult();
+                // This must be performed with an epoch bump to ensure that any concurrent buffering messages are not lost 
+                versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(dprFinder));
             }
 
             if (lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
@@ -273,14 +278,17 @@ namespace FASTER.libdpr
                 stateObject.PruneVersion(i);
         }
 
-        public DprReceiveStatus Receive(Span<byte> headerBytes)
+        public DprReceiveStatus TryReceive<TMessage>(Span<byte> headerBytes, TMessage m, out Task<TMessage> onReceivable) where TMessage : class
         {
+            onReceivable = null;
+            
             ref var header =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
             
             // Apply the commit ordering rule, taking checkpoints if necessary.
             while (header.version > versionScheme.CurrentState().Version)
             {
+                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
                 if (BeginCheckpoint(header.version))
                     Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
                 Thread.Yield();
@@ -295,6 +303,7 @@ namespace FASTER.libdpr
                 while (header.worldLine > worldLine)
                 {
                     versionScheme.Leave();
+                    // TODO(Tianyu): Should provide version that does not rollback on the spot?
                     BeginRestore(header.worldLine, dprFinder.SafeVersion(me)).GetAwaiter().GetResult();
                     Thread.Yield();
                     versionScheme.Enter();
@@ -302,16 +311,17 @@ namespace FASTER.libdpr
 
                 // If the worker world-line is newer, the request must be dropped. 
                 if (header.worldLine < worldLine)
-                {
                     return DprReceiveStatus.DISCARD;
-                }
 
                 // If not from the same SU, queue it for consumption after commit and break the dependency
                 if (mySU == SUId.EXTERNAL || header.SrcSU != mySU)
                 {
-                    return dprFinder.SafeVersion(header.SrcWorkerId) >= header.version
-                        ? DprReceiveStatus.OK
-                        : DprReceiveStatus.BUFFER;
+                    if (dprFinder.SafeVersion(header.SrcWorkerId) >= header.version)
+                        return DprReceiveStatus.OK;
+                    var tcs = new TaskCompletionSource<TMessage>();
+                    messageBuffer.Buffer(ref header, () => tcs.SetResult(m));
+                    onReceivable = tcs.Task;
+                    return DprReceiveStatus.BUFFER;
                 }
 
                 // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
@@ -345,22 +355,17 @@ namespace FASTER.libdpr
             }
         }
 
-        public DprReceiveStatus TryReceive(Span<byte> header)
-        {
-            throw new NotImplementedException();
-        }
-
         /// <summary>
         /// Invoke after processing of a batch is complete and populate the given span with a DPR header for any
         /// outgoing messages processing mean need to send. This function must be invoked successfully after beginning
         /// a batch on the same thread for DPR to make progress.
         /// </summary>
         /// <param name="outputHeaderBytes">Dpr response message to be populated</param>
-        public void Send(Span<byte> outputHeaderBytes)
+        public int Send(Span<byte> outputHeaderBytes)
         {
             if (outputHeaderBytes.Length < DprMessageHeader.FixedLenSize)
-                throw new FasterException(
-                    "header given was too small to fit DPR response, need to be at least DprBatchHeader.FixedLenSize");
+                return -DprMessageHeader.FixedLenSize;
+            
             ref var outputHeader =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(outputHeaderBytes));
 
@@ -371,6 +376,7 @@ namespace FASTER.libdpr
             outputHeader.version = versionScheme.CurrentState().Version;
             outputHeader.numClientDeps = 0;
             versionScheme.Leave();
+            return DprMessageHeader.FixedLenSize;
         }
         
         /// <summary>
@@ -382,6 +388,15 @@ namespace FASTER.libdpr
         {
             if (BeginCheckpoint(targetVersion))
                 core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
+        }
+        
+        public void ForceRefresh()
+        {
+            dprFinder.Refresh(me, stateObject);
+            core.Utility.MonotonicUpdate(ref lastRefreshMilli, sw.ElapsedMilliseconds, out _);
+            if (worldLine != dprFinder.SystemWorldLine())
+                BeginRestore(dprFinder.SystemWorldLine(), dprFinder.SafeVersion(me)).GetAwaiter().GetResult();
+            versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(dprFinder));                
         }
     }
 }

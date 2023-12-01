@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using FASTER.core;
 
 namespace FASTER.libdpr;
@@ -12,6 +13,8 @@ public class SimulatedDprFinderService : IDisposable
     // Randomly reset to simulate DprFinder failure
     private volatile GraphDprFinderBackend backend;
     private TestPrecomputedResponse response;
+    private TaskCompletionSource nextProcess = new();
+
 
     public SimulatedDprFinderService()
     {
@@ -29,7 +32,7 @@ public class SimulatedDprFinderService : IDisposable
     }
 
     public TestPrecomputedResponse GetResponseObject() => response;
-
+    
     public GraphDprFinderBackend GetDprFinderBackend()
     {
         GraphDprFinderBackend reference = null;
@@ -55,6 +58,24 @@ public class SimulatedDprFinderService : IDisposable
     public void ProcessOnce()
     {
         backend?.Process();
+    }
+
+    public Task NextBackgroundProcessComplete() => nextProcess.Task;
+
+    public void ProcessInBackground(ManualResetEventSlim termination)
+    {
+        Task.Run(() =>
+        {
+            while (!termination.IsSet)
+            {
+                var tcs = nextProcess;
+                nextProcess = new TaskCompletionSource();
+                ProcessOnce();
+                tcs.SetResult();
+            }
+
+            Dispose();
+        });
     }
 }
 
@@ -92,7 +113,7 @@ public class TestDprFinder : DprFinderBase
         }
     }
 
-    protected override void SendGraphReconstruction<T>(WorkerId id, IStateObject<T> stateObject)
+    protected override void SendGraphReconstruction(WorkerId id, IStateObject stateObject)
     {
         var checkpoints = stateObject.GetUnprunedVersions();
         var service = backend.GetDprFinderBackend();

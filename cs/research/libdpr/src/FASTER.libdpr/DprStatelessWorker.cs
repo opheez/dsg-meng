@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using FASTER.core;
 
 namespace FASTER.libdpr
@@ -9,7 +10,7 @@ namespace FASTER.libdpr
     /// A DprSession is a DPR entity that cannot commit/restore state, but communicates with other DPR entities and may
     /// convey DPR dependencies (e.g., a stateless worker participating in speculative execution).
     /// </summary>
-    public class DprStatelessWorker<TMessage>
+    public class DprStatelessWorker : IDprWorker
     {
         private EpochProtectedVersionScheme epvs = new EpochProtectedVersionScheme(new LightEpoch());
         private long version, worldLine;
@@ -17,6 +18,9 @@ namespace FASTER.libdpr
         private SUId mySU;
         private IDprFinder finder;
         private Action notifyRollback;
+        
+        private DprMessageBuffer messageBuffer;
+
 
         /// <summary>
         /// Version of the session
@@ -40,6 +44,7 @@ namespace FASTER.libdpr
             deps = new LightDependencySet();
             this.finder = finder;
             this.notifyRollback = notifyRollback;
+            messageBuffer = new DprMessageBuffer();
         }
 
         public void Reset(SUId mySU, Action notifyRollback, IDprFinder finder, long startWorldLine = 1)
@@ -69,6 +74,7 @@ namespace FASTER.libdpr
                     systemWorldLine);
             }
             // TODO(Tianyu): Figure out a way to periodically prune dependency set?
+            epvs.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(finder));
         }
 
 
@@ -117,14 +123,10 @@ namespace FASTER.libdpr
             }
         }
 
-        /// <summary>
-        /// Receive a message with the given header in this session. 
-        /// </summary>
-        /// <param name="dprMessage"> DPR header of the message to receive </param>
-        /// <param name="version"> version of the message </param>
-        /// <returns> status of the batch. If status is ROLLBACK, this session must be rolled-back </returns>
-        public DprReceiveStatus Receive(Span<byte> headerBytes)
+        /// <inheritdoc/>
+        public DprReceiveStatus TryReceive<TMessage>(Span<byte> headerBytes, TMessage m, out Task<TMessage> onReceivable) where TMessage : class
         {
+            onReceivable = null;
             ref var header =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
             try
@@ -145,9 +147,12 @@ namespace FASTER.libdpr
                 }
                 if (mySU == SUId.EXTERNAL || header.SrcSU != mySU)
                 {
-                    return finder.SafeVersion(header.SrcWorkerId) >= header.version
-                        ? DprReceiveStatus.OK
-                        : DprReceiveStatus.BUFFER;
+                    if (finder.SafeVersion(header.SrcWorkerId) >= header.version)
+                        return DprReceiveStatus.OK;
+                    var tcs = new TaskCompletionSource<TMessage>();
+                    messageBuffer.Buffer(ref header, () => tcs.SetResult(m));
+                    onReceivable = tcs.Task;
+                    return DprReceiveStatus.BUFFER;
                 }
 
                 // Received a message from another stateless worker

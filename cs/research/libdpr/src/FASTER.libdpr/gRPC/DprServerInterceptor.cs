@@ -23,23 +23,15 @@ namespace FASTER.libdpr.gRPC
         {
             var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             Debug.Assert(header != null);
-            var status = dprWorker.TryReceive(header);
+            var status = dprWorker.TryReceive<object>(header, null, out var task);
             switch (status)
             {
                 case DprReceiveStatus.OK:
-                    // Proceed with request
-                    var response = await continuation.Invoke(request, context);
-                    var buf = serializationArrayPool.Checkout();
-                    dprWorker.Send(buf);
-                    // TODO(Tianyu): Why no span variant?
-                    context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
-                    serializationArrayPool.Return(buf);
-                    return response;
+                    // Handle request on the spot if ok
+                    return await HandleCall(request, context, continuation);
                 case DprReceiveStatus.BUFFER:
-                    // TODO(Tianyu): The plan here is to rely on client side to withhold messages that need to cross SU,
-                    // and for the underlying dpr worker implementation to not buffer messages when applying rules for
-                    // simplicity of server side handling. This decision may be revisited.
-                    throw new NotImplementedException();
+                    await task;
+                    return await HandleCall(request, context, continuation);
                 case DprReceiveStatus.DISCARD:
                     // Use an error to signal to caller that this call cannot proceed
                     throw new RpcException(Status.DefaultCancelled);
@@ -48,5 +40,17 @@ namespace FASTER.libdpr.gRPC
             }
         }
 
+        private async Task<TResponse> HandleCall<TRequest, TResponse>(TRequest request, ServerCallContext context,
+            UnaryServerMethod<TRequest, TResponse> continuation) where TRequest : class where TResponse : class
+        {
+            // Proceed with request
+            var response = await continuation.Invoke(request, context);
+            var buf = serializationArrayPool.Checkout();
+            dprWorker.Send(buf);
+            // TODO(Tianyu): Why no span variant?
+            context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
+            serializationArrayPool.Return(buf);
+            return response;
+        } 
     }
 }

@@ -1,5 +1,4 @@
-using System;
-using System.Collections.Generic;
+using System.Threading;
 using NUnit.Framework;
 
 namespace FASTER.libdpr
@@ -7,153 +6,123 @@ namespace FASTER.libdpr
     [TestFixture]
     public class SimpleTests
     {
+        private ManualResetEventSlim terminationToken;
         private SimulatedDprFinderService simulatedFinderService = new();
-        private DprClient client;
 
-        private Dictionary<WorkerId, TestStateStore> GetTestCluster(int size)
+        [SetUp]
+        public void SetUp()
         {
-            var result = new Dictionary<WorkerId, TestStateStore>();
-            for (var i = 0; i < size; i++)
-            {
-                var worker = new WorkerId(i);
-                result.Add(worker, new TestStateStore(worker));
-            }
-
-            return result;
+            terminationToken = new ManualResetEventSlim();
+            // Process add request in the background so we do not block the current thread
+            simulatedFinderService.ProcessInBackground(terminationToken);
         }
 
-        [Test]
-        public void TestSingleClientSingleServer()
+        [TearDown]
+        public void TearDown()
         {
-            var cluster = GetTestCluster(1);
-            var tested = new TestClientObject(client.GetSession(Guid.NewGuid()), cluster, 0);
-            for (var i = 0; i < 10; i++)
+            terminationToken.Set();
+        }
+
+        private DprStatefulWorker<TestStateObject> ConstructWorker(long id, long suId, bool autoCompleteCheckpoints = true)
+        {
+            return new DprStatefulWorker<TestStateObject>(new WorkerId(id), new SUId(suId),
+                new TestStateObject(new WorkerId(id), autoCompleteCheckpoints), new TestDprFinder(simulatedFinderService), 0, 0);
+        }
+
+        private void SendMessage(DprStatefulWorker<TestStateObject> from, DprStatefulWorker<TestStateObject> to, DprReceiveStatus expected)
+        {
+            var m = from.StateObject().GenerateMessageToSend();
+            from.Send(m.dprHeader);
+            var status = to.TryReceive<TestMessage>(m.dprHeader, m, out _);
+            Assert.AreEqual(expected, status);
+            if (status == DprReceiveStatus.OK)
+                to.StateObject().Receive(m);
+        }
+
+        private void VerifyCommit(params (DprStatefulWorker<TestStateObject>, long)[] expected)
+        {
+            // Wait a bit for the DprFinder service to catch up
+            simulatedFinderService.NextBackgroundProcessComplete().GetAwaiter().GetResult();
+            foreach (var (worker, version) in expected)
             {
-                var id = tested.IssueNewOp(0);
-                versionTracker.Add(id);
-                var version = tested.ResolveOp(id);
-                versionTracker.Resolve(id, new WorkerVersion(new Worker(0), version));
+                worker.ForceRefresh();
+                Assert.AreEqual(version, worker.CommittedVersion());
             }
-
-            tested.session.TryGetCurrentCut(out var cut);
-            versionTracker.HandleCommit(cut);
-            var commitPoint = versionTracker.GetCommitPoint();
-            Assert.AreEqual(0, commitPoint.UntilSerialNo);
-            
-            cluster[new Worker(0)].dprServer.TryRefreshAndCheckpoint(10, 10);
-            client.RefreshDprView();
-            
-            tested.session.TryGetCurrentCut(out cut);
-            versionTracker.HandleCommit(cut);
-            commitPoint = versionTracker.GetCommitPoint();
-            Assert.AreEqual(10, commitPoint.UntilSerialNo);
-            Assert.AreEqual(0, commitPoint.ExcludedSerialNos.Count);
-
-            var ops = cluster[new Worker(0)].stateObject.GetOpsPersisted();
-            for (var i = 0; i < 10; i++)
-                Assert.IsTrue(ops.Remove(ValueTuple.Create(0, i)));
-            Assert.IsEmpty(ops);
         }
         
         [Test]
-        public void TestSingleClientMultiServer()
+        public void TestOneMessage()
         {
-            var versionTracker = new ClientVersionTracker();
-            var cluster = GetTestCluster(3);
-            var tested = new TestClientObject(client.GetSession(Guid.NewGuid()), cluster, 0);
+            var tested0 = ConstructWorker(0, 0);
+            var tested1 = ConstructWorker(1, 0);
             
-            var id = tested.IssueNewOp(0);
-            var version = tested.ResolveOp(id);
-            versionTracker.Resolve(id, new WorkerVersion(new Worker(0), version));
+            tested0.ConnectToCluster();
+            tested1.ConnectToCluster();
+            Assert.AreEqual(1, tested0.Version());
+            Assert.AreEqual(1, tested1.Version());
+            Assert.AreEqual(1, tested0.WorldLine());
+            Assert.AreEqual(1, tested1.WorldLine());
 
+            SendMessage(tested0, tested1, DprReceiveStatus.OK);
             
-            id = tested.IssueNewOp(1);
-            version = tested.ResolveOp(id);
-            versionTracker.Resolve(id, new WorkerVersion(new Worker(1), version));
-
+            tested1.ForceCheckpoint();
+            Assert.AreEqual(2, tested1.Version());
+            Assert.AreEqual(1, tested1.WorldLine());
+            // Dependencies have not committed, so nothing should commit
+            VerifyCommit((tested1, 0));
             
-            id = tested.IssueNewOp(2);
-            version = tested.ResolveOp(id);
-            versionTracker.Resolve(id, new WorkerVersion(new Worker(2), version));
+            tested0.ForceCheckpoint();
+            Assert.AreEqual(2, tested0.Version());
+            Assert.AreEqual(1, tested0.WorldLine());
             
-            tested.session.TryGetCurrentCut(out var cut);
-            versionTracker.HandleCommit(cut);
-            var commitPoint = versionTracker.GetCommitPoint();
-            Assert.AreEqual(0, commitPoint.UntilSerialNo);
-            
-            cluster[new Worker(0)].dprServer.TryRefreshAndCheckpoint(10, 10);
-            cluster[new Worker(2)].dprServer.TryRefreshAndCheckpoint(10, 10);
-            client.RefreshDprView();
-            Assert.LessOrEqual(commitPoint.UntilSerialNo, 1);
-            Assert.AreEqual(0, commitPoint.ExcludedSerialNos.Count);
-            
-            cluster[new Worker(1)].dprServer.TryRefreshAndCheckpoint(10, 10);
-            client.RefreshDprView();
-            tested.session.TryGetCurrentCut(out cut);
-            versionTracker.HandleCommit(cut);
-            commitPoint = versionTracker.GetCommitPoint();
-            Assert.AreEqual(3, commitPoint.UntilSerialNo);
-            Assert.AreEqual(0, commitPoint.ExcludedSerialNos.Count);
-
-            var opsPersisted = new HashSet<(int, int)>();
-            opsPersisted.UnionWith(cluster[new Worker(0)].stateObject.GetOpsPersisted());
-            opsPersisted.UnionWith(cluster[new Worker(1)].stateObject.GetOpsPersisted());
-            opsPersisted.UnionWith(cluster[new Worker(2)].stateObject.GetOpsPersisted());
-            
-            Assert.IsTrue(opsPersisted.Remove(ValueTuple.Create(0, 0)));
-            Assert.IsTrue(opsPersisted.Remove(ValueTuple.Create(0, 1)));
-            Assert.IsTrue(opsPersisted.Remove(ValueTuple.Create(0, 2)));
-            Assert.IsEmpty(opsPersisted);
+            VerifyCommit((tested0, 1), (tested1, 1));
         }
         
         [Test]
-        public void TestRelaxedDpr()
+        public void TestThreeServers()
         {
-            var versionTracker = new ClientVersionTracker();
+            var a = ConstructWorker(0, 0, false);
+            a.ConnectToCluster();
+            var b = ConstructWorker(1, 0, false);
+            b.ConnectToCluster();
+            var c = ConstructWorker(2, 0, false);
+            c.ConnectToCluster();
+            
+            // Construct a dependency graph without commiting anything
+            SendMessage(a, b, DprReceiveStatus.OK);
+            a.ForceCheckpoint();
+            b.ForceCheckpoint();
+            c.ForceCheckpoint();
+            SendMessage(b, a, DprReceiveStatus.OK);
+            SendMessage(c, b, DprReceiveStatus.OK);
+            SendMessage(a, c, DprReceiveStatus.OK);
+            a.ForceCheckpoint();
+            b.ForceCheckpoint();
+            c.ForceCheckpoint();
+            
+            // Nothing should commit
+            VerifyCommit((a, 0), (b, 0), (c, 0));
 
-            var cluster = GetTestCluster(3);
-            var tested = new TestClientObject(client.GetSession(Guid.NewGuid()), cluster, 0);
+            c.StateObject().CompleteCheckpoint(1);
+            // C should commit, but nothing else
+            VerifyCommit((a, 0), (b, 0), (c, 1));
             
-            var id = tested.IssueNewOp(0);
-            var version = tested.ResolveOp(id);
-            versionTracker.Resolve(id, new WorkerVersion(new Worker(0), version));
+            b.StateObject().CompleteCheckpoint(1);
+            // B still has outstanding dependencies and therefore nothing would commit
+            VerifyCommit((a, 0), (b, 0), (c, 1));
             
-            cluster[new Worker(0)].dprServer.TryRefreshAndCheckpoint(10, 10);
+            a.StateObject().CompleteCheckpoint(1);
+            // Commits can now happen
+            VerifyCommit((a, 1), (b, 1), (c, 1));
+            
+            b.StateObject().CompleteCheckpoint(2);
+            a.StateObject().CompleteCheckpoint(2);
+            // Nothing should commit because C still hasn't committed
+            VerifyCommit((a, 1), (b, 1), (c, 1));
 
-            var id1 = tested.IssueNewOp(0);
-            var id2 = tested.IssueNewOp(1); 
-            var id3 = tested.IssueNewOp(2);
-
-            version = tested.ResolveOp(id1);
-            versionTracker.Resolve(id1, new WorkerVersion(new Worker(0), version));
-            
-            version = tested.ResolveOp(id2);
-            versionTracker.Resolve(id2, new WorkerVersion(new Worker(1), version));
-            
-            version = tested.ResolveOp(id3);
-            versionTracker.Resolve(id3, new WorkerVersion(new Worker(2), version));
-
-            cluster[new Worker(1)].dprServer.TryRefreshAndCheckpoint(10, 10);
-            cluster[new Worker(2)].dprServer.TryRefreshAndCheckpoint(10, 10);
-            
-            client.RefreshDprView();
-            
-            tested.session.TryGetCurrentCut(out var cut);
-            versionTracker.HandleCommit(cut);
-            var commitPoint = versionTracker.GetCommitPoint();
-            Assert.AreEqual(4, commitPoint.UntilSerialNo);
-            Assert.AreEqual(1, commitPoint.ExcludedSerialNos.Count);
-            Assert.Contains(id1, commitPoint.ExcludedSerialNos);
-
-            var opsPersisted = new HashSet<(int, int)>();
-            opsPersisted.UnionWith(cluster[new Worker(0)].stateObject.GetOpsPersisted());
-            opsPersisted.UnionWith(cluster[new Worker(1)].stateObject.GetOpsPersisted());
-            opsPersisted.UnionWith(cluster[new Worker(2)].stateObject.GetOpsPersisted());
-            
-            Assert.IsTrue(opsPersisted.Remove(ValueTuple.Create(0, 0)));
-            Assert.IsTrue(opsPersisted.Remove(ValueTuple.Create(0, 2)));
-            Assert.IsTrue(opsPersisted.Remove(ValueTuple.Create(0, 3)));
-            Assert.IsEmpty(opsPersisted);
+            c.StateObject().CompleteCheckpoint(2);
+            // Now everything should commit
+            VerifyCommit((a, 2), (b, 2), (c, 2));
         }
     }
 }

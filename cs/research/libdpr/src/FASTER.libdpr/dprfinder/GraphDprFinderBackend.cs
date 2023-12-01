@@ -119,6 +119,7 @@ namespace FASTER.libdpr
             foreach (var worker in volatileClusterState.worldLinePrefix.Keys)
                 currentCut.Add(worker, 0);
             recoveryState = new RecoveryState(this);
+            precomputedResponses = new List<PrecomputedSyncResponseBase>();
         }
 
         // Note: Only safe to call when starting the backend before processing starts.

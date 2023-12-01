@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace FASTER.libdpr
 {
@@ -11,9 +12,10 @@ namespace FASTER.libdpr
     
     public interface IDprWorker
     {
-        DprReceiveStatus TryReceive(Span<byte> header);
+        // TODO(Tianyu): ugly interface?
+        DprReceiveStatus TryReceive<TMessage>(Span<byte> header, TMessage m, out Task<TMessage> onReceivable) where TMessage : class;
 
-        void Send(Span<byte> outputHeaderBytes);
+        int Send(Span<byte> outputHeaderBytes);
         
         void Refresh();
     }

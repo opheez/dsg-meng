@@ -1,18 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
-using Google.Protobuf.Reflection;
-
 namespace FASTER.libdpr;
 
 public class TestMessage
 {
+    internal byte[] dprHeader = new byte[1 << 15];
     internal WorkerId originator;
     internal long originatorStateSerialNum;
 }
 
-public class TestStateStore : IStateObject<TestMessage>
+public class TestStateObject : IStateObject
 {
     private struct TestCheckpointInfo
     {
@@ -26,10 +26,12 @@ public class TestStateStore : IStateObject<TestMessage>
     private long stateSerialNum;
     private long persistedSerialNum;
     private Dictionary<long, TestCheckpointInfo> checkpoints = new();
+    private Dictionary<long, Action> pendingPersists;
 
-    public TestStateStore(WorkerId me)
+    public TestStateObject(WorkerId me, bool autoCompleteCheckpoints = true)
     {
-        this.me = me;
+        this.me = me; 
+        if (!autoCompleteCheckpoints) pendingPersists = new Dictionary<long, Action>();
     }
 
     public void Receive(TestMessage m)
@@ -63,6 +65,17 @@ public class TestStateStore : IStateObject<TestMessage>
             numReceivedMessages = receivedMessages.Count,
             dprMetadata = metadata.ToArray()
         };
+        // Immediately complete checkpoint if auto completion is on
+        if (pendingPersists == null)
+            onPersist();
+        else
+            pendingPersists[version] = onPersist;
+    }
+
+    public void CompleteCheckpoint(long version)
+    {
+        Debug.Assert(pendingPersists != null);
+        pendingPersists[version]();
     }
 
     public void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)

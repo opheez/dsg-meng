@@ -23,7 +23,7 @@ public class TestStateObject : IStateObject
     
     private WorkerId me;
     private List<TestMessage> receivedMessages = new();
-    private long stateSerialNum;
+    public long stateSerialNum;
     private long persistedSerialNum;
     private Dictionary<long, TestCheckpointInfo> checkpoints = new();
     private Dictionary<long, Action> pendingPersists;
@@ -37,8 +37,6 @@ public class TestStateObject : IStateObject
     public void Receive(TestMessage m)
     {
         Interlocked.Increment(ref stateSerialNum);
-        lock (receivedMessages)
-            receivedMessages.Add(m);
     }
 
     public void DoLocalWork()
@@ -58,18 +56,28 @@ public class TestStateObject : IStateObject
 
     public void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
     {
-        persistedSerialNum = stateSerialNum;
-        checkpoints[version] = new TestCheckpointInfo
+        // TODO(Tianyu): This might not be thread-safe in the new version of DPR that does not extend epoch protection
+        // into client code
+        var capturedState = stateSerialNum;
+        var capturedMessageCount = receivedMessages.Count;
+        var metadataArray = metadata.ToArray();
+        var callback = () =>
         {
-            stateSerialNum = persistedSerialNum,
-            numReceivedMessages = receivedMessages.Count,
-            dprMetadata = metadata.ToArray()
+            persistedSerialNum = capturedState;
+            checkpoints[version] = new TestCheckpointInfo
+            {
+                stateSerialNum = capturedState,
+                numReceivedMessages = capturedMessageCount,
+                dprMetadata = metadataArray
+            };
+            onPersist();
         };
+        
         // Immediately complete checkpoint if auto completion is on
         if (pendingPersists == null)
-            onPersist();
+            callback();
         else
-            pendingPersists[version] = onPersist;
+            pendingPersists[version] = callback;
     }
 
     public void CompleteCheckpoint(long version)

@@ -137,12 +137,7 @@ namespace FASTER.libdpr
             // Because wv is already persistent, if it's not in the graph that means it was pruned as part of a commit.
             // Ok to return as committed, but no need to mark the cut as changed
             if (!precedenceGraph.ContainsKey(wv)) return true;
-
-            // Perform graph traversal in mutual exclusion with cluster change, but it is ok for traversal to be 
-            // concurrent with adding of new versions to the graph. 
-            try
-            {
-                clusterChangeLatch.EnterReadLock();
+           
 
                 // If version is in the graph but somehow already committed, remove it and reclaim associated resources
                 if (wv.Version <= currentCut.GetValueOrDefault(wv.WorkerId, 0))
@@ -190,11 +185,6 @@ namespace FASTER.libdpr
                 }
 
                 return true;
-            }
-            finally
-            {
-                clusterChangeLatch.ExitReadLock();
-            }
         }
 
         /// <summary>
@@ -248,6 +238,10 @@ namespace FASTER.libdpr
         }
         private void TryCommitVersions(bool tryCommitAll = false)
         {
+            // Perform graph traversal in mutual exclusion with cluster change, but it is ok for traversal to be 
+            // concurrent with adding of new versions to the graph. 
+            clusterChangeLatch.EnterReadLock();
+
             // Go through the unprocessed wvs and traverse the graph, unless instructed otherwise, give up after a while
             // to return control to the calling thread 
             var threshold = tryCommitAll ? outstandingWvs.Count : 100;
@@ -263,10 +257,14 @@ namespace FASTER.libdpr
                 // Compute a new syncResponse for consumption
                 // No need to protect against concurrent changes to the cluster because this method is either called
                 // on the process thread or during recovery. No cluster change can interleave.
-                foreach (var response in precomputedResponses)
+                // TODO(Tianyu): Maybe call latches here instead of inside UpdateCut method
+                foreach (var response in precomputedResponses) {
                     response.UpdateCut(currentCut);
+                }
                 cutChanged = false;
             }
+            clusterChangeLatch.ExitReadLock();
+
         }
 
         /// <summary>
@@ -360,6 +358,7 @@ namespace FASTER.libdpr
                 foreach (var list in precedenceGraph.Values)
                     objectPool.Return(list);
                 precedenceGraph.Clear();
+                outstandingWvs.Clear();
                 var survivingVersion = currentCut[workerId];
                 result = (volatileClusterState.currentWorldLine, survivingVersion);
             }

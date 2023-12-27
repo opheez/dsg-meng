@@ -20,8 +20,7 @@ namespace FASTER.libdpr
         private Action notifyRollback;
         
         private DprMessageBuffer messageBuffer;
-
-
+        
         /// <summary>
         /// Version of the session
         /// </summary>
@@ -124,7 +123,7 @@ namespace FASTER.libdpr
         }
 
         /// <inheritdoc/>
-        public DprReceiveStatus TryReceive<TMessage>(Span<byte> headerBytes, TMessage m, out Task<TMessage> onReceivable) where TMessage : class
+        public DprReceiveStatus TryReceive(Span<byte> headerBytes,out Task onReceivable)
         {
             onReceivable = null;
             ref var header =
@@ -149,8 +148,8 @@ namespace FASTER.libdpr
                 {
                     if (finder.SafeVersion(header.SrcWorkerId) >= header.version)
                         return DprReceiveStatus.OK;
-                    var tcs = new TaskCompletionSource<TMessage>();
-                    messageBuffer.Buffer(ref header, () => tcs.SetResult(m));
+                    var tcs = new TaskCompletionSource();
+                    messageBuffer.Buffer(ref header, () => tcs.SetResult());
                     onReceivable = tcs.Task;
                     return DprReceiveStatus.BUFFER;
                 }

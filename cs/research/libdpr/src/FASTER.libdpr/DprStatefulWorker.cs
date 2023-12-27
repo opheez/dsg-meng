@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics.Arm;
 using System.Threading;
 using System.Threading.Tasks;
 using FASTER.common;
@@ -21,13 +20,13 @@ namespace FASTER.libdpr
     public class DprStatefulWorker<TStateObject> : IDprWorker where TStateObject : IStateObject
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
-        protected readonly IDprFinder dprFinder;
-        private readonly WorkerId me;
+        private readonly DprWorkerOptions options;
+        
         private readonly ConcurrentDictionary<long, LightDependencySet> versions;
         protected readonly EpochProtectedVersionScheme versionScheme;
         private long worldLine = 1;
         
-        private long lastCheckpointMilli, lastRefreshMilli, checkpointPeriodMilli, refreshPeriodMilli;
+        private long lastCheckpointMilli, lastRefreshMilli;
         private Stopwatch sw = Stopwatch.StartNew();
         
         private readonly TStateObject stateObject;
@@ -36,29 +35,24 @@ namespace FASTER.libdpr
 
         private List<IStateObjectAttachment> attachments = new List<IStateObjectAttachment>();
         private byte[] metadataBuffer = new byte[1 << 15];
-        private readonly SUId mySU;
         private DprMessageBuffer messageBuffer;
         
         /// <summary>
         /// Creates a new DprServer.
         /// </summary>
-        /// <param name="dprFinder"> interface to the cluster's DPR finder component, or null if not connecting to a DPR finder </param>
-        /// <param name="me"> unique id of the DPR server </param>
         /// <param name="stateObject"> underlying state object </param>
+        /// <param name="options"> DPR worker options </param>
         // TODO(Tianyu): Put some design work into the different operating modes of applications written this way -- speculative/pessimistic/no guarantees
-        public DprStatefulWorker(WorkerId me, SUId mySU, TStateObject stateObject, IDprFinder dprFinder, long checkpointPeriodMilli, long refreshPeriodMilli)
+        public DprStatefulWorker(TStateObject stateObject, DprWorkerOptions options)
         {
-            this.dprFinder = dprFinder;
-            this.me = me;
+            this.stateObject = stateObject;
+            this.options = options;
+            
             versionScheme = new EpochProtectedVersionScheme(new LightEpoch());
             versions = new ConcurrentDictionary<long, LightDependencySet>();
             dependencySetPool = new SimpleObjectPool<LightDependencySet>(() => new LightDependencySet());
-            this.stateObject = stateObject;
             depSerializationArray = new byte[2 * LightDependencySet.MaxClusterSize * sizeof(long)];
             nextCommit = new TaskCompletionSource<long>();
-            this.mySU = mySU;
-            this.checkpointPeriodMilli = checkpointPeriodMilli;
-            this.refreshPeriodMilli = refreshPeriodMilli;
             messageBuffer = new DprMessageBuffer();
         }
 
@@ -77,7 +71,7 @@ namespace FASTER.libdpr
 
         /// <summary></summary>
         /// <returns> Worker ID of this DprServer instance </returns>
-        public WorkerId Me() => me;
+        public WorkerId Me() => options.Me;
 
         // TODO: The following two methods are technically only meaningful under protection
         /// <summary></summary>
@@ -126,7 +120,7 @@ namespace FASTER.libdpr
                     versions.Clear();
                     var deps = dependencySetPool.Checkout();
                     if (vOld != 0)
-                        deps.Update(me, vOld);
+                        deps.Update(options.Me, vOld);
                     var success = versions.TryAdd(vNew, deps);
                     Debug.Assert(success);
                     tcs.SetResult(null);
@@ -182,14 +176,14 @@ namespace FASTER.libdpr
                 stateObject.PerformCheckpoint(vOld, new Span<byte>(metadataBuffer, 0, length), () =>
                 {
                     versions.TryRemove(vOld, out var deps);
-                    var workerVersion = new WorkerVersion(me, vOld);
-                    dprFinder?.ReportNewPersistentVersion(worldLine, workerVersion, deps);
+                    var workerVersion = new WorkerVersion(options.Me, vOld);
+                    options.DprFinder.ReportNewPersistentVersion(worldLine, workerVersion, deps);
                     dependencySetPool.Return(deps);
                 });
 
                 // Prepare new version before any operations can occur in it
                 var newDeps = dependencySetPool.Checkout();
-                if (vOld != 0) newDeps.Update(me, vOld);
+                if (vOld != 0) newDeps.Update(options.Me, vOld);
                 var success = versions.TryAdd(vNew, newDeps);
                 Debug.Assert(success);
             }, targetVersion) == StateMachineExecutionStatus.OK;
@@ -203,10 +197,10 @@ namespace FASTER.libdpr
         /// </summary>
         public void ConnectToCluster()
         {
-            var v = dprFinder.AddWorker(me, stateObject);
+            var v = options.DprFinder.AddWorker(options.Me, stateObject);
             // This worker is recovering from some failure and we need to load said checkpoint
             if (v != 0)
-                BeginRestore(dprFinder.SystemWorldLine(), v).GetAwaiter().GetResult();
+                BeginRestore(options.DprFinder.SystemWorldLine(), v).GetAwaiter().GetResult();
             else
             {
                 var deps = dependencySetPool.Checkout();
@@ -214,7 +208,7 @@ namespace FASTER.libdpr
                 Debug.Assert(success);
             }
 
-            dprFinder.Refresh(me, stateObject);
+            options.DprFinder.Refresh(options.Me, stateObject);
         }
 
         /// <summary></summary>
@@ -228,7 +222,7 @@ namespace FASTER.libdpr
         {
             var deps = versions[version];
             var size = SerializationUtil.SerializeCheckpointMetadata(depSerializationArray,
-                worldLine, new WorkerVersion(me, version), deps);
+                worldLine, new WorkerVersion(options.Me, version), deps);
             Debug.Assert(size > 0);
             return new ReadOnlySpan<byte>(depSerializationArray, 0, size);
         }
@@ -237,7 +231,7 @@ namespace FASTER.libdpr
         /// <returns> Get the largest version number that is considered committed (will be recovered to) of this DPR Worker</returns>
         public long CommittedVersion()
         {
-            return dprFinder.SafeVersion(Me());
+            return options.DprFinder.SafeVersion(Me());
         }
 
         public void Refresh()
@@ -245,19 +239,19 @@ namespace FASTER.libdpr
             var currentTime = sw.ElapsedMilliseconds;
             var lastCommitted = CommittedVersion();
 
-            if (lastRefreshMilli + refreshPeriodMilli < currentTime)
+            if (lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
             {
                 // A false return indicates that the DPR finder does not have a cut available, this is usually due to
                 // restart from crash, at which point we should resend the graph 
-                dprFinder.Refresh(me, stateObject);
+                options.DprFinder.Refresh(options.Me, stateObject);
                 core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
-                if (worldLine != dprFinder.SystemWorldLine())
-                    BeginRestore(dprFinder.SystemWorldLine(), dprFinder.SafeVersion(me)).GetAwaiter().GetResult();
+                if (worldLine != options.DprFinder.SystemWorldLine())
+                    BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
                 // This must be performed with an epoch bump to ensure that any concurrent buffering messages are not lost 
-                versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(dprFinder));
+                versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(options.DprFinder));
             }
 
-            if (lastCheckpointMilli + checkpointPeriodMilli <= currentTime)
+            if (lastCheckpointMilli + options.CheckpointPeriodMilli <= currentTime)
             {
                 // TODO(Tianyu): Should avoid unnecessarily performing a checkpoint when underlying state object has not changed
                 // TODO(Tianyu): Study when to fast-forward a version by more than one
@@ -278,7 +272,7 @@ namespace FASTER.libdpr
                 stateObject.PruneVersion(i);
         }
 
-        public DprReceiveStatus TryReceive<TMessage>(Span<byte> headerBytes, TMessage m, out Task<TMessage> onReceivable) where TMessage : class
+        public DprReceiveStatus TryReceive(Span<byte> headerBytes, out Task onReceivable)
         {
             onReceivable = null;
             
@@ -304,7 +298,7 @@ namespace FASTER.libdpr
                 {
                     versionScheme.Leave();
                     // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                    BeginRestore(header.worldLine, dprFinder.SafeVersion(me)).GetAwaiter().GetResult();
+                    BeginRestore(header.worldLine, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
                     Thread.Yield();
                     versionScheme.Enter();
                 }
@@ -314,12 +308,13 @@ namespace FASTER.libdpr
                     return DprReceiveStatus.DISCARD;
 
                 // If not from the same SU, queue it for consumption after commit and break the dependency
-                if (mySU == SUId.EXTERNAL || header.SrcSU != mySU)
+                if (options.MySU == SUId.EXTERNAL || header.SrcSU != options.MySU)
                 {
-                    if (dprFinder.SafeVersion(header.SrcWorkerId) >= header.version)
+                    if (options.DprFinder.SafeVersion(header.SrcWorkerId) >= header.version)
                         return DprReceiveStatus.OK;
-                    var tcs = new TaskCompletionSource<TMessage>();
-                    messageBuffer.Buffer(ref header, () => tcs.SetResult(m));
+                    //TODO(Tianyu): fix
+                    var tcs = new TaskCompletionSource();
+                    messageBuffer.Buffer(ref header, () => tcs.SetResult());
                     onReceivable = tcs.Task;
                     return DprReceiveStatus.BUFFER;
                 }
@@ -348,10 +343,8 @@ namespace FASTER.libdpr
             }
             finally
             {
-                // TODO(Tianyu): Protection here does not apply to subsequent handling of the request, which means that
-                // rollback/checkpoint can happen concurrently with client checkpoints -- is this ok to leave to clients
-                // to handle?
-                versionScheme.Leave();
+                if (onReceivable != null)
+                    versionScheme.Leave();
             }
         }
 
@@ -371,7 +364,7 @@ namespace FASTER.libdpr
 
             versionScheme.Enter();
             outputHeader.SrcWorkerId = Me();
-            outputHeader.SrcSU = mySU;
+            outputHeader.SrcSU = options.MySU;
             outputHeader.worldLine = worldLine;
             outputHeader.version = versionScheme.CurrentState().Version;
             outputHeader.numClientDeps = 0;
@@ -392,11 +385,11 @@ namespace FASTER.libdpr
         
         public void ForceRefresh()
         {
-            dprFinder.Refresh(me, stateObject);
+            options.DprFinder.Refresh(options.Me, stateObject);
             core.Utility.MonotonicUpdate(ref lastRefreshMilli, sw.ElapsedMilliseconds, out _);
-            if (worldLine != dprFinder.SystemWorldLine())
-                BeginRestore(dprFinder.SystemWorldLine(), dprFinder.SafeVersion(me)).GetAwaiter().GetResult();
-            versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(dprFinder));                
+            if (worldLine != options.DprFinder.SystemWorldLine())
+                BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
+            versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(options.DprFinder));                
         }
     }
 }

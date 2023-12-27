@@ -15,18 +15,18 @@ namespace FASTER.libdpr
         /// <returns> status of the step </returns>
         ValueTask<StepStatus> Step(StepRequest request);
 
-        /// <summary>
-        /// For use if/when the processor needs to access external speculative state without going through DARQ.
-        /// Processor should use the return DprSession to note down any external dependencies.
-        /// WARNING: expect DARQ performance to degrade when externally using dpr session
-        /// </summary>
-        /// <returns> A DPR Session for use when reading/writing external state without DARQ messages </returns>
-        DprSession StartUsingDprSessionExternally();
-
-        /// <summary>
-        /// Stop using DPR session externally.
-        /// </summary>
-        void StopUsingDprSessionExternally();
+        // /// <summary>
+        // /// For use if/when the processor needs to access external speculative state without going through DARQ.
+        // /// Processor should use the return DprSession to note down any external dependencies.
+        // /// WARNING: expect DARQ performance to degrade when externally using dpr session
+        // /// </summary>
+        // /// <returns> A DPR Session for use when reading/writing external state without DARQ messages </returns>
+        // DprSession StartUsingDprSessionExternally();
+        //
+        // /// <summary>
+        // /// Stop using DPR session externally.
+        // /// </summary>
+        // void StopUsingDprSessionExternally();
     }
     
     

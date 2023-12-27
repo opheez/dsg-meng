@@ -23,7 +23,7 @@ namespace FASTER.libdpr.gRPC
         {
             var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             Debug.Assert(header != null);
-            var status = dprWorker.TryReceive<object>(header, null, out var task);
+            var status = dprWorker.TryReceive(header, out var task);
             switch (status)
             {
                 case DprReceiveStatus.OK:

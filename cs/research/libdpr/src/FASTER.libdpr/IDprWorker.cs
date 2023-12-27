@@ -12,8 +12,7 @@ namespace FASTER.libdpr
     
     public interface IDprWorker
     {
-        // TODO(Tianyu): ugly interface?
-        DprReceiveStatus TryReceive<TMessage>(Span<byte> header, TMessage m, out Task<TMessage> onReceivable) where TMessage : class;
+        DprReceiveStatus TryReceive(Span<byte> header, out Task onReceivable);
 
         int Send(Span<byte> outputHeaderBytes);
         

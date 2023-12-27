@@ -60,11 +60,11 @@ namespace FASTER.libdpr.gRPC
             var metadata = getTrailer();
             var header = metadata.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             Debug.Assert(header != null);
-            var status = dprWorker.TryReceive(header, result, out var task);
+            var status = dprWorker.TryReceive(header, out var task);
             return status switch
             {
                 DprReceiveStatus.OK => result,
-                DprReceiveStatus.BUFFER => await task,
+                DprReceiveStatus.BUFFER => await task.ContinueWith(t => result),
                 DprReceiveStatus.DISCARD =>
                     // Use an error to signal to caller that this call cannot proceed
                     throw new RpcException(Status.DefaultCancelled),

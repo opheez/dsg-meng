@@ -210,7 +210,7 @@ namespace FASTER.darq
     /// <summary>
     /// DARQ data structure 
     /// </summary>
-    public class Darq : DprWorker<DarqStateObject>, IDisposable
+    public class Darq : DprStatefulWorker<DarqStateObject>, IDisposable
     {
         private readonly DeduplicationVector dvc;
         private readonly LongValueAttachment incarnation, largestSteppedLsn;
@@ -222,8 +222,15 @@ namespace FASTER.darq
         /// </summary>
         /// <param name="me">unique identity for this DARQ</param>
         /// <param name="darqSettings">parameters for DARQ</param>
-        public Darq(WorkerId me, DarqSettings darqSettings) : base(me,
-            new DarqStateObject(darqSettings), darqSettings.DprFinder)
+        public Darq(DarqSettings darqSettings) : base(
+            new DarqStateObject(darqSettings), new DprWorkerOptions
+            {
+                Me = darqSettings.Me,
+                MySU = darqSettings.MySU,
+                DprFinder = darqSettings.DprFinder,
+                CheckpointPeriodMilli = darqSettings.CheckpointPeriodMilli,
+                RefreshPeriodMilli = darqSettings.RefreshPeriodMilli
+            })
         {
             dvc = new DeduplicationVector();
             incarnation = new LongValueAttachment();
@@ -240,11 +247,6 @@ namespace FASTER.darq
         /// Return the tail address that this DARQ will need to replay to upon failure recovery
         /// </summary>
         public long ReplayEnd => largestSteppedLsn.value;
-
-        /// <summary>   
-        /// Whether this DARQ is configured to be speculative
-        /// </summary>
-        public bool Speculative => dprFinder != null;
 
         /// <inheritdoc/>
         public void Dispose()

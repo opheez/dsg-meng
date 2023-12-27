@@ -1,7 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.darq;
 using FASTER.libdpr;
@@ -14,7 +12,7 @@ namespace FASTER.client
         private SimpleObjectPool<DarqMessage> messagePool;
         private ManualResetEventSlim terminationStart, terminationComplete;
         private IDarqClusterInfo clusterInfo;
-        private DprSession clientSession;
+        private IDprWorker session;
         private DarqScanIterator iterator;
         private DarqProducerClient producerClient;
         private DarqCompletionTracker completionTracker;
@@ -43,7 +41,7 @@ namespace FASTER.client
             producerClient?.Dispose();
         }
 
-        private unsafe bool TryReadEntry(out DarqMessage message, out DprBatchStatus status)
+        private unsafe bool TryReadEntry(out DarqMessage message, out DprStatus status)
         {
             message = null;
             long nextAddress = 0;

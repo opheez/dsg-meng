@@ -14,6 +14,14 @@ namespace FASTER.darq
         ///  DARQ will operate in speculative mode.
         /// </summary>
         public IDprFinder DprFinder = null;
+
+        public WorkerId Me;
+
+        public SUId MySU;
+        
+        public long CheckpointPeriodMilli = 5;
+        
+        public long RefreshPeriodMilli = 5;
         
         /// <summary>
         /// Device used for underlying log

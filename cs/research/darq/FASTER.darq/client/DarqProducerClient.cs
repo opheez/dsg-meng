@@ -32,16 +32,6 @@ namespace FASTER.client
         (string, int) GetWorkerAddress(WorkerId worker);
     }
 
-    public class RollbackException : FasterException
-    {
-        public readonly long worldLine;
-
-        public RollbackException(long worldLine)
-        {
-            this.worldLine = worldLine;
-        }
-    }
-
     [Serializable]
     public class HardCodedClusterInfo : IDarqClusterInfo
     {
@@ -89,23 +79,25 @@ namespace FASTER.client
     }
 
     /// <summary>
-    /// Producer client to add sprints to DARQ.
+    /// Producer client to add entries to DARQ. Should be invoked single-threaded. 
     /// </summary>
     public class DarqProducerClient : IDisposable
     {
         private IDarqClusterInfo darqClusterInfo;
-        private ConcurrentDictionary<WorkerId, SingleDarqProducerClient> clients;
+        private Dictionary<WorkerId, SingleDarqProducerClient> clients;
         private DprSession dprSession;
+        private long serialNum = 0;
 
         /// <summary>
         /// Creates a new DarqProducerClient
         /// </summary>
         /// <param name="darqClusterInfo"> Cluster information </param>
-        /// <param name="session"> The DprClientSession to use (optional) </param>
+        /// <param name="session"> The DprClientSession to use for speculative return (default if want return only after commit) </param>
         public DarqProducerClient(IDarqClusterInfo darqClusterInfo, DprSession session = null)
         {
             this.darqClusterInfo = darqClusterInfo;
-            clients = new ConcurrentDictionary<WorkerId, SingleDarqProducerClient>();
+            clients = new Dictionary<WorkerId, SingleDarqProducerClient>();
+            // TODO(Tianyu): Do something about session to set up SU correctly
             dprSession = session ?? new DprSession();
         }
 
@@ -127,18 +119,18 @@ namespace FASTER.client
         /// whether to force flush buffer and send all requests. If false, requests are buffered
         /// until a set number has been accumulated or until forced to flush
         /// </param>
-        /// <param name="waitCommit">whether to wait until the enqueue is committed to complete the async task </param>
         /// <returns></returns>
         public Task EnqueueMessageAsync(WorkerId darqId, ReadOnlySpan<byte> message, long producerId = -1,
             long lsn = -1,
-            bool forceFlush = true, bool waitCommit = false)
+            bool forceFlush = true)
         {
-            var singleClient = clients.GetOrAdd(darqId, w =>
+            if (!clients.TryGetValue(darqId, out var singleClient))
             {
-                var (ip, port) = darqClusterInfo.GetWorkerAddress(w);
-                return new SingleDarqProducerClient(dprSession, w, ip, port);
-            });
-            var task = singleClient.EnqueueMessageAsync(message, producerId, lsn, waitCommit);
+                var (ip, port) = darqClusterInfo.GetWorkerAddress(darqId);
+                singleClient = new SingleDarqProducerClient(dprSession, ip, port);
+            }
+
+            var task = singleClient.EnqueueMessageAsync(message, producerId, lsn);
 
             if (forceFlush)
             {
@@ -149,17 +141,18 @@ namespace FASTER.client
             return task;
         }
 
-        public void EnqueueMessageWithCallback(WorkerId darqId, ReadOnlySpan<byte> message, Action<long> callback,
+        // TODO(Tianyu): Handle socket-related anomalies?
+        public void EnqueueMessageWithCallback(WorkerId darqId, ReadOnlySpan<byte> message, Action<bool> callback,
             long producerId = -1, long lsn = -1,
-            bool forceFlush = true, bool waitCommit = false)
+            bool forceFlush = true)
         {
-            var singleClient = clients.GetOrAdd(darqId, w =>
+            if (!clients.TryGetValue(darqId, out var singleClient))
             {
-                var (ip, port) = darqClusterInfo.GetWorkerAddress(w);
-                return new SingleDarqProducerClient(dprSession, w, ip, port);
-            });
+                var (ip, port) = darqClusterInfo.GetWorkerAddress(darqId);
+                singleClient = new SingleDarqProducerClient(dprSession, ip, port);
+            }
 
-            singleClient.EnqueueMessageWithCallback(message, producerId, lsn, callback, waitCommit);
+            singleClient.EnqueueMessageWithCallback(message, producerId, lsn, callback);
             if (forceFlush)
             {
                 foreach (var client in clients.Values)
@@ -172,42 +165,26 @@ namespace FASTER.client
             foreach (var client in clients.Values)
                 client.Flush();
         }
-
-
-        /// <summary>
-        /// Periodically invoke if waiting for a task to become committed
-        /// </summary>
-        public void Refresh(IDprStateSnapshot state)
-        {
-            foreach (var client in clients.Values)
-                client.ComputeCommit(state);
-        }
     }
 
     internal class SingleDarqProducerClient : IDisposable, INetworkMessageConsumer
     {
-        private DprSession dprClientSession;
         private readonly INetworkSender networkSender;
-        private WorkerId target;
 
         // TODO(Tianyu): Change to something else for DARQ
         private readonly MaxSizeSettings maxSizeSettings;
         readonly int bufferSize;
-
         private bool disposed;
         private int offset;
         private int numMessages;
         private const int reservedDprHeaderSpace = 160;
-        private ElasticCircularBuffer<Action<long>> callbackQueue;
-        private ElasticCircularBuffer<(long, Action<long>)> commitQueue;
-        private long committed = 0;
 
-        private long rolledbackWorldline = -1;
+        private DprSession dprSession;
+        private ElasticCircularBuffer<Action<bool>> callbackQueue;
 
-        public SingleDarqProducerClient(DprSession dprClientSession, WorkerId target, string address, int port)
+        public SingleDarqProducerClient(DprSession dprSession, string address, int port)
         {
-            this.dprClientSession = dprClientSession;
-            this.target = target;
+            this.dprSession = dprSession;
             maxSizeSettings = new MaxSizeSettings();
             bufferSize = BufferSizeUtils.ClientBufferSize(maxSizeSettings);
 
@@ -216,8 +193,7 @@ namespace FASTER.client
             offset = 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size;
             numMessages = 0;
 
-            callbackQueue = new ElasticCircularBuffer<Action<long>>();
-            commitQueue = new ElasticCircularBuffer<(long, Action<long>)>();
+            callbackQueue = new ElasticCircularBuffer<Action<bool>>();
         }
 
         public void Dispose()
@@ -228,85 +204,73 @@ namespace FASTER.client
 
         internal unsafe void Flush()
         {
-            if (offset > 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size)
+            try
             {
-                var head = networkSender.GetResponseObjectHead();
-                // Set packet size in header
-                *(int*)head = -(offset - sizeof(int));
-                head += sizeof(int);
-
-                ((BatchHeader*)head)->SetNumMessagesProtocol(numMessages, (WireFormat) DarqProtocolType.DarqProducer);
-                head += sizeof(BatchHeader);
-
-                // Set DprHeader size
-                *(int*)head = reservedDprHeaderSpace;
-                head += sizeof(int);
-
-                // populate DPR header
-                var headerBytes = new Span<byte>(head, reservedDprHeaderSpace);
-                if (dprClientSession.ComputeHeaderForSend(headerBytes) < 0)
-                    // TODO(Tianyu): Handle size mismatch by probably copying into a new array and up-ing reserved space in the future
-                    throw new NotImplementedException();
-                if (!networkSender.SendResponse(0, offset))
+                if (offset > 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size)
                 {
-                    throw new ObjectDisposedException("socket closed");
+                    var head = networkSender.GetResponseObjectHead();
+                    // Set packet size in header
+                    *(int*)head = -(offset - sizeof(int));
+                    head += sizeof(int);
+
+                    ((BatchHeader*)head)->SetNumMessagesProtocol(numMessages,
+                        (WireFormat)DarqProtocolType.DarqProducer);
+                    head += sizeof(BatchHeader);
+
+                    // Set DprHeader size
+                    *(int*)head = reservedDprHeaderSpace;
+                    head += sizeof(int);
+
+                    // populate DPR header
+                    var headerBytes = new Span<byte>(head, reservedDprHeaderSpace);
+                    if (dprSession.TagMessage(headerBytes) < 0)
+                        // TODO(Tianyu): Handle size mismatch by probably copying into a new array and up-ing reserved space in the future
+                        throw new NotImplementedException();
+                    if (!networkSender.SendResponse(0, offset))
+                        throw new ObjectDisposedException("socket closed");
+
+                    networkSender.GetResponseObject();
+                    offset = 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size;
+                    numMessages = 0;
+                }
+            }
+            catch (DprSessionRolledBackException)
+            {
+                // Ensure that callback queue is drained only on a single-thread. This is not a scalability issue
+                // because except in the event of a rollback, callback queue is not concurrently accessed
+                lock (callbackQueue)
+                {
+                    // TODO(Tianyu): Eagerly clearing the callback queue here may result in an overapproximation of
+                    // things that are rolled back, but is the expedient approach here. Maybe fix later
+                    while (!callbackQueue.IsEmpty())
+                        callbackQueue.Dequeue()(false);
                 }
 
-                networkSender.GetResponseObject();
-                offset = 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size;
-                numMessages = 0;
+                throw;
             }
         }
 
-        internal void ComputeCommit(IDprStateSnapshot snapshot)
-        {
-            if (snapshot.SystemWorldLine() != dprClientSession.WorldLine)
-            {
-                rolledbackWorldline = snapshot.SystemWorldLine();
-                throw new RollbackException(rolledbackWorldline);
-            }
-
-            committed = snapshot.SafeVersion(target);
-            while (!commitQueue.IsEmpty())
-            {
-                var (v, a) = commitQueue.PeekFirst();
-                if (v > committed) break;
-                commitQueue.Dequeue();
-                a(v);
-            }
-        }
-
-        public Task EnqueueMessageAsync(ReadOnlySpan<byte> message, long producerId, long lsn, bool waitCommit = false)
+        public Task EnqueueMessageAsync(ReadOnlySpan<byte> message, long producerId, long lsn)
         {
             var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-            EnqueueMessageWithCallback(message, producerId, lsn, v => tcs.SetResult(null), waitCommit);
+            EnqueueMessageWithCallback(message, producerId, lsn, success =>
+            {
+                if (success)
+                    tcs.SetResult(null);
+                else
+                    tcs.SetCanceled();
+            });
             return tcs.Task;
         }
 
         public void EnqueueMessageWithCallback(ReadOnlySpan<byte> message, long producerId, long lsn,
-            Action<long> callback,
-            bool waitCommit)
+            Action<bool> callback)
         {
-            if (rolledbackWorldline != -1)
-                throw new RollbackException(rolledbackWorldline);
-            if (waitCommit)
-            {
-                EnqueueMessageInternal(message, producerId, lsn, v =>
-                {
-                    // TODO(Tianyu): This may not guarantee that a callback is always invoked if races, especially if there won't be any future versions
-                    if (committed > v)
-                        callback(v);
-                    else
-                        commitQueue.Enqueue((lsn, callback));
-                });
-            }
-            else
-            {
-                EnqueueMessageInternal(message, producerId, lsn, callback);
-            }
+            EnqueueMessageInternal(message, producerId, lsn, callback);
         }
 
-        internal unsafe void EnqueueMessageInternal(ReadOnlySpan<byte> message, long id, long lsn, Action<long> action)
+        internal unsafe void EnqueueMessageInternal(ReadOnlySpan<byte> message, long producerId, long lsn,
+            Action<bool> action)
         {
             byte* curr, end;
             var entryBatchSize = SerializedDarqEntryBatch.ComputeSerializedSize(message);
@@ -319,10 +283,10 @@ namespace FASTER.client
                 Flush();
             }
 
-            *curr = (byte) DarqCommandType.DarqEnqueue;
+            *curr = (byte)DarqCommandType.DarqEnqueue;
             curr += sizeof(byte);
 
-            *(long*)curr = id;
+            *(long*)curr = producerId;
             curr += sizeof(long);
             *(long*)curr = lsn;
             curr += sizeof(long);
@@ -337,8 +301,6 @@ namespace FASTER.client
 
         unsafe void INetworkMessageConsumer.ProcessReplies(byte[] buf, int startOffset, int size)
         {
-            if (rolledbackWorldline != -1) return;
-
             fixed (byte* b = buf)
             {
                 var src = b + startOffset;
@@ -346,32 +308,37 @@ namespace FASTER.client
                 var count = ((BatchHeader*)src)->NumMessages;
                 src += BatchHeader.Size;
 
-                var dprHeader = new ReadOnlySpan<byte>(src, DprBatchHeader.FixedLenSize);
-                src += DprBatchHeader.FixedLenSize;
+                var dprHeader = new ReadOnlySpan<byte>(src, DprMessageHeader.FixedLenSize);
+                src += DprMessageHeader.FixedLenSize;
 
-                var dprResult = dprClientSession.ReceiveHeader(dprHeader, out var wv);
-                if (dprResult == DprBatchStatus.ROLLBACK)
+                // Ensure that callback queue is drained only on a single-thread. This is not a scalability issue
+                // because except in the event of a rollback, callback queue is not concurrently accessed
+                lock (callbackQueue)
                 {
-                    rolledbackWorldline = dprClientSession.TerminalWorldLine;
-                    return;
-                }
-
-                if (dprResult == DprBatchStatus.IGNORE)
-                {
-                    return;
-                }
-
-                for (int i = 0; i < count; i++)
-                {
-                    var messageType = (DarqCommandType)(*src++);
-                    switch (messageType)
+                    try
                     {
-                        case DarqCommandType.DarqEnqueue:
-                            // Pretty sure don't actually need to check for Math.Max here because requests are serviced in order?
-                            callbackQueue.Dequeue()(wv.Version);
-                            break;
-                        default:
-                            throw new FasterException("Unexpected return type");
+                        if (!dprSession.Receive(dprHeader)) return;
+                        for (int i = 0; i < count; i++)
+                        {
+                            var messageType = (DarqCommandType)(*src++);
+                            switch (messageType)
+                            {
+                                case DarqCommandType.DarqEnqueue:
+                                    callbackQueue.Dequeue()(true);
+                                    break;
+                                // Even though the server could return DarqCommandType.INVALID, this should not get
+                                // past the Receive() call which triggers the rollback codepath
+                                default:
+                                    throw new FasterException("Unexpected return type");
+                            }
+                        }
+                    }
+                    catch (DprSessionRolledBackException e)
+                    {
+                        // TODO(Tianyu): Eagerly clearing the callback queue here may result in an overapproximation of
+                        // things that are rolled back, but is the expedient approach here. Maybe fix later
+                        while (!callbackQueue.IsEmpty())
+                            callbackQueue.Dequeue()(false);
                     }
                 }
             }

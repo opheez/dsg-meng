@@ -15,7 +15,8 @@ namespace FASTER.server
         internal INetworkSender networkSender;
         internal SimpleObjectPool<ProducerResponseBuffer> pool;
 
-        public ProducerResponseBuffer(int bufferSize, INetworkSender networkSender, SimpleObjectPool<ProducerResponseBuffer> pool)
+        public ProducerResponseBuffer(int bufferSize, INetworkSender networkSender,
+            SimpleObjectPool<ProducerResponseBuffer> pool)
         {
             buf = new byte[bufferSize];
             this.pool = pool;
@@ -24,7 +25,7 @@ namespace FASTER.server
 
         public void Dispose() => pool?.Return(this);
     }
-    
+
     internal sealed unsafe class DarqProducerSession : ServerSessionBase
     {
         readonly HeaderReaderWriter hrw;
@@ -34,12 +35,14 @@ namespace FASTER.server
         private readonly SimpleObjectPool<ProducerResponseBuffer> sendBufferPool;
         private ConcurrentQueue<ProducerResponseBuffer> responseQueue;
 
-        public DarqProducerSession(INetworkSender networkSender, Darq darq, ConcurrentQueue<ProducerResponseBuffer> responseQueue) : base(
+        public DarqProducerSession(INetworkSender networkSender, Darq darq,
+            ConcurrentQueue<ProducerResponseBuffer> responseQueue) : base(
             networkSender)
         {
             this.darq = darq;
             var size = BufferSizeUtils.ServerBufferSize(networkSender.GetMaxSizeSettings);
-            sendBufferPool = new SimpleObjectPool<ProducerResponseBuffer>(() => new ProducerResponseBuffer(size, this.networkSender, sendBufferPool));
+            sendBufferPool = new SimpleObjectPool<ProducerResponseBuffer>(() =>
+                new ProducerResponseBuffer(size, this.networkSender, sendBufferPool));
             this.responseQueue = responseQueue;
         }
 
@@ -88,57 +91,57 @@ namespace FASTER.server
                 dcurr += BatchHeader.Size;
 
                 var dprResponseOffset = dcurr;
-                dcurr += DprBatchHeader.FixedLenSize;
+                dcurr += DprMessageHeader.FixedLenSize;
                 start = 0;
                 msgnum = 0;
 
                 var dprHeaderSize = *(int*)src;
                 src += sizeof(int);
                 var request = new ReadOnlySpan<byte>(src, dprHeaderSize);
-                // Error code path
-                if (!darq.ReceiveAndBeginProcessing(request))
-                {
-                    darq.ComposeErrorResponse(request, new Span<byte>(dprResponseOffset, DprBatchHeader.FixedLenSize));
-                    response.version = 0;
-                    // Can immediately send DPR error version regardless of status
-                    Send(d, dcurr, response);
-                    return;
-                }
-
                 src += dprHeaderSize;
-
-                for (msgnum = 0; msgnum < num; msgnum++)
+                if (!darq.StartStepWithReceive(request))
                 {
-                    var message = (DarqCommandType)(*src++);
-                    Debug.Assert(message == DarqCommandType.DarqEnqueue);
-                    var worker = new WorkerId(*(long*)src);
-                    src += sizeof(long);
-                    var lsn = *(long*)src;
-                    src += sizeof(long);
-                    var batch = new SerializedDarqEntryBatch(src);
+                    for (msgnum = 0; msgnum < num; msgnum++)
+                        hrw.Write((byte)DarqCommandType.INVALID, ref dcurr, (int)(dend - dcurr));
+                    // Can immediately send DPR error version regardless of version or status
+                    response.version = 0;
+                }
+                else
+                {
+                    for (msgnum = 0; msgnum < num; msgnum++)
+                    {
+                        var message = (DarqCommandType)(*src++);
+                        Debug.Assert(message == DarqCommandType.DarqEnqueue);
+                        var worker = new WorkerId(*(long*)src);
+                        src += sizeof(long);
+                        var lsn = *(long*)src;
+                        src += sizeof(long);
+                        var batch = new SerializedDarqEntryBatch(src);
 
-                    darq.EnqueueInputBatch(batch, worker, lsn);
-                    src += batch.TotalSize();
-                    hrw.Write((byte) message, ref dcurr, (int)(dend - dcurr));
+                        darq.EnqueueInputBatch(batch, worker, lsn);
+                        src += batch.TotalSize();
+                        hrw.Write((byte)message, ref dcurr, (int)(dend - dcurr));
+                    }
+
+                    response.version = darq.Version();
                 }
 
-                response.version = darq.Version();
-                darq.FinishProcessingAndSend(new Span<byte>(dprResponseOffset, DprBatchHeader.FixedLenSize));
-                // Send replies
-                Send(d, dcurr, response);
+
+                darq.EndStepAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
+                SendResponseBuffer(d, dcurr, response);
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void Send(byte* d, byte* dcurr, ProducerResponseBuffer response)
+        private void SendResponseBuffer(byte* d, byte* dcurr, ProducerResponseBuffer response)
         {
             var dstart = d + sizeof(int);
-            ((BatchHeader*)dstart)->SetNumMessagesProtocol(msgnum - start, (WireFormat) DarqProtocolType.DarqProducer);
+            ((BatchHeader*)dstart)->SetNumMessagesProtocol(msgnum - start, (WireFormat)DarqProtocolType.DarqProducer);
             ((BatchHeader*)dstart)->SeqNo = seqNo++;
             var payloadSize = response.size = (int)(dcurr - d);
             // Set packet size in header
-            *(int*) d = -(payloadSize - sizeof(int));
-            
+            *(int*)d = -(payloadSize - sizeof(int));
+
             if (responseQueue == null || response.version >= darq.CommittedVersion())
                 // TODO(Tianyu): Figure out how to handle errors
                 networkSender.SendResponse(response.buf, 0, payloadSize, response.Dispose);

@@ -210,7 +210,7 @@ namespace FASTER.darq
     /// <summary>
     /// DARQ data structure 
     /// </summary>
-    public class Darq : DprStatefulWorker<DarqStateObject>, IDisposable
+    public class Darq : DprWorker<DarqStateObject>, IDisposable
     {
         private readonly DeduplicationVector dvc;
         private readonly LongValueAttachment incarnation, largestSteppedLsn;
@@ -226,7 +226,6 @@ namespace FASTER.darq
             new DarqStateObject(darqSettings), new DprWorkerOptions
             {
                 Me = darqSettings.Me,
-                MySU = darqSettings.MySU,
                 DprFinder = darqSettings.DprFinder,
                 CheckpointPeriodMilli = darqSettings.CheckpointPeriodMilli,
                 RefreshPeriodMilli = darqSettings.RefreshPeriodMilli

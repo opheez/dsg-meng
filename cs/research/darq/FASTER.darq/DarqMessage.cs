@@ -18,6 +18,8 @@ namespace FASTER.libdpr
     /// </summary>
     public enum DarqCommandType : byte
     {
+        INVALID = 0,
+        
         /// <summary>
         /// DARQ Enqueue
         /// </summary>

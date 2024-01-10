@@ -17,9 +17,9 @@ namespace FASTER.libdpr
         [FieldOffset(8)] internal SUId SrcSU;
         // a batch should always consist of messages from the same world-lines on the client side.
         // We can artificially write the servers to not write reply batches with more than one world-line. 
-        [FieldOffset(16)] internal long worldLine;
-        [FieldOffset(24)] internal long version;
-        [FieldOffset(32)] internal int numClientDeps;
+        [FieldOffset(16)] internal long WorldLine;
+        [FieldOffset(24)] internal long Version;
+        [FieldOffset(32)] internal int NumClientDeps;
         internal int ClientDepsOffset => FixedLenSize;
     }
 }

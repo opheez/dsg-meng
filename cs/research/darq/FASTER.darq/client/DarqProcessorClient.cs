@@ -151,7 +151,7 @@ namespace FASTER.client
                 var dprHeader = new ReadOnlySpan<byte>(src, DprBatchHeader.FixedLenSize);
                 src += DprBatchHeader.FixedLenSize;
 
-                if (dprSession.ReceiveHeader(dprHeader, out _) != DprBatchStatus.OK)
+                if (dprSession.ReceiveHeader(dprHeader, out _) != DprReceiveStatus.OK)
                     // TODO(Tianyu): Implement
                     throw new NotImplementedException();
 
@@ -332,9 +332,9 @@ namespace FASTER.client
                 var dprHeaderSize = *(int*) (src + dprOffset);
                 var dprHeader = new ReadOnlySpan<byte>(src + dprOffset + sizeof(int), dprHeaderSize);
                 var status = session.ReceiveHeader(dprHeader, out var wv);
-                if (status == DprBatchStatus.IGNORE)
+                if (status == DprReceiveStatus.DISCARD)
                     return;
-                if (status == DprBatchStatus.ROLLBACK)
+                if (status == DprReceiveStatus.ROLLBACK)
                 {
                     var m = messagePool.Checkout();
                     // Use a special message to notify of rollback and then go to a sink state

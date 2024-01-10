@@ -52,7 +52,7 @@ namespace FASTER.server
         public DarqServer(DarqServerOptions options)
         {
             this.options = options;
-            darq = new Darq(options.me, options.DarqSettings);
+            darq = new Darq(options.DarqSettings);
             backgroundWorker = new DarqBackgroundWorker(darq, options.ClusterInfo);
             terminationStart = new ManualResetEventSlim();
             terminationComplete = new CountdownEvent(2);
@@ -86,11 +86,7 @@ namespace FASTER.server
             refreshThread = new Thread(() =>
             {
                 while (!terminationStart.IsSet)
-                {
-                    darq.TryRefreshAndCheckpoint(options.commitIntervalMilli, options.refreshIntervalMilli);
-                    // Thread.Sleep(Math.Min(options.commitIntervalMilli, options.refreshIntervalMilli));
-                }
-
+                    darq.Refresh();
                 terminationComplete.Signal();
             });
             refreshThread.Start();

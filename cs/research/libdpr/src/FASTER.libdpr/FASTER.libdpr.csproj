@@ -37,6 +37,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Protobuf Include="dprfinder\gRPC\finder.proto" GrpcServices="Server,Client" />
+        <Protobuf Include="management\gRPC\finder.proto" GrpcServices="Server,Client" />
     </ItemGroup>
 </Project>

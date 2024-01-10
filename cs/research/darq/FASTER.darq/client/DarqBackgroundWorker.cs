@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using FASTER.common;
 using FASTER.darq;
@@ -45,13 +44,13 @@ namespace FASTER.client
         {
             message = null;
             long nextAddress = 0;
-            status = DprBatchStatus.OK;
+            status = DprReceiveStatus.OK;
             try
             {
                 darq.BeginProcessing();
                 if (darq.WorldLine() > clientSession.WorldLine)
                 {
-                    status = DprBatchStatus.ROLLBACK;
+                    status = DprReceiveStatus.ROLLBACK;
                     return true;
                 }
 
@@ -113,9 +112,9 @@ namespace FASTER.client
         private bool TryConsumeNext()
         {
             var hasNext = TryReadEntry(out var m, out var dprBatchStatus);
-            Debug.Assert(dprBatchStatus != DprBatchStatus.IGNORE);
+            Debug.Assert(dprBatchStatus != DprReceiveStatus.DISCARD);
 
-            if (dprBatchStatus == DprBatchStatus.ROLLBACK)
+            if (dprBatchStatus == DprReceiveStatus.ROLLBACK)
             {
                 Console.WriteLine("Processor detected rollback, restarting");
                 Reset();

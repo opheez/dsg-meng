@@ -34,9 +34,9 @@ namespace FASTER.darq
         private class Capabilities : IDarqProcessorClientCapabilities
         {
             internal ColocatedDarqProcessorClient parent;
-            internal DprSession session;
+            internal IDprWorker session;
 
-            public Capabilities(ColocatedDarqProcessorClient parent, DprSession session)
+            public Capabilities(ColocatedDarqProcessorClient parent, IDprWorker session)
             {
                 this.parent = parent;
                 this.session = session;
@@ -82,7 +82,7 @@ namespace FASTER.darq
                     parent.darq.BeginProcessing();
                     parent.darq.FinishProcessingAndSend(header);
                     var result = session.ReceiveHeader(header, out _);
-                    Debug.Assert(result == DprBatchStatus.OK);
+                    Debug.Assert(result == DprReceiveStatus.OK);
                 }
                 return session;
             }
@@ -113,10 +113,10 @@ namespace FASTER.darq
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe bool TryReadEntry(out DarqMessage message, out DprBatchStatus status)
+        private unsafe bool TryReadEntry(out DarqMessage message, out DprReceiveStatus status)
         {
             message = null;
-            status = DprBatchStatus.OK;
+            status = DprReceiveStatus.OK;
             // TODO(Tianyu): magic number
             var headerBytes = stackalloc byte[DprBatchHeader.FixedLenSize];
             try
@@ -127,7 +127,7 @@ namespace FASTER.darq
                     // Manually check if worldLine matches without going through the heavyweight DPR path
                     if (darq.WorldLine() > capabilities.session.WorldLine)
                     {
-                        status = DprBatchStatus.ROLLBACK;
+                        status = DprReceiveStatus.ROLLBACK;
                         return true;
                     }
                 }
@@ -171,13 +171,13 @@ namespace FASTER.darq
         {
             var hasNext = TryReadEntry(out var m, out var dprBatchStatus);
 
-            if (dprBatchStatus is DprBatchStatus.IGNORE)
+            if (dprBatchStatus is DprReceiveStatus.DISCARD)
             {
                 // TODO(Tianyu): should trigger DARQ rollback here, but difficult due to concurrency
                 throw new NotImplementedException();
             }
 
-            if (dprBatchStatus is DprBatchStatus.ROLLBACK)
+            if (dprBatchStatus is DprReceiveStatus.ROLLBACK)
             {
                 Console.WriteLine("Processor detected rollback, restarting");
                 OnProcessorClientRestart(processor);

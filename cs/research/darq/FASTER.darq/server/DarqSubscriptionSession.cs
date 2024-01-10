@@ -1,8 +1,5 @@
-using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.darq;
 using FASTER.libdpr;
@@ -149,9 +146,9 @@ namespace FASTER.server
             var dprHeaderSizeField = (int*) dcurr;
             dcurr += sizeof(int);
             dprServer.FinishProcessingAndSend(new Span<byte>(dcurr, (int) (dend - dcurr)));
-            dcurr += DprBatchHeader.FixedLenSize;
+            dcurr += DprMessageHeader.FixedLenSize;
             // Write size
-            *dprHeaderSizeField = DprBatchHeader.FixedLenSize;
+            *dprHeaderSizeField = DprMessageHeader.FixedLenSize;
             Debug.Assert(dcurr < dend);
 
             var d = networkSender.GetResponseObjectHead();
@@ -179,7 +176,7 @@ namespace FASTER.server
 
                 var spaceRequired = 2 * sizeof(long) + sizeof(int) + sizeof(MessageType) + entryLength;
                 // TODO(Tianyu): hacky --- we are not supposed to know about header size details as that's implementation specific
-                var dprHeaderSpace = (1 + msgnum) * sizeof(long) + DprBatchHeader.FixedLenSize + sizeof(int);
+                var dprHeaderSpace = (1 + msgnum) * sizeof(long) + DprMessageHeader.FixedLenSize + sizeof(int);
                 
                 if (dend - dcurr < spaceRequired + dprHeaderSpace)
                 {

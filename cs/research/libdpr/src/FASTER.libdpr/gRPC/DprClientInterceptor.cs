@@ -22,7 +22,7 @@ namespace FASTER.libdpr.gRPC
             ClientInterceptorContext<TRequest, TResponse> context,
             BlockingUnaryCallContinuation<TRequest, TResponse> continuation)
         {
-            // TODO(Tianyu): Which idiot designed this such that there's no way to get headers in this variant, but possible to do so in others?
+            // TODO(Tianyu): getting headers/trailers apparently unsupported in blocking version of the call
             throw new NotImplementedException();
         }
 
@@ -31,7 +31,8 @@ namespace FASTER.libdpr.gRPC
             AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
         {
             var buffer = serializationArrayPool.Checkout();
-            dprWorker.Send(buffer);
+            dprWorker.TagMessage(buffer);
+            // TODO(Tianyu): Add logic to await for commit if crossing SU
 
             var headers = context.Options.Headers;
             if (headers == null)
@@ -60,11 +61,10 @@ namespace FASTER.libdpr.gRPC
             var metadata = getTrailer();
             var header = metadata.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             Debug.Assert(header != null);
-            var status = dprWorker.TryReceive(header, out var task);
+            var status = dprWorker.TryReceive(header);
             return status switch
             {
                 DprReceiveStatus.OK => result,
-                DprReceiveStatus.BUFFER => await task.ContinueWith(t => result),
                 DprReceiveStatus.DISCARD =>
                     // Use an error to signal to caller that this call cannot proceed
                     throw new RpcException(Status.DefaultCancelled),

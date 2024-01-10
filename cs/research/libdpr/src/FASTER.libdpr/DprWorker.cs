@@ -17,43 +17,41 @@ namespace FASTER.libdpr
     /// StateObject implementation.
     /// </summary>
     /// <typeparam name="TStateObject"> type of state object</typeparam>
-    public class DprStatefulWorker<TStateObject> : IDprWorker where TStateObject : IStateObject
+    public class DprWorker<TStateObject> where TStateObject : IStateObject
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         private readonly DprWorkerOptions options;
-        
+
         private readonly ConcurrentDictionary<long, LightDependencySet> versions;
         protected readonly EpochProtectedVersionScheme versionScheme;
         private long worldLine = 1;
-        
+
         private long lastCheckpointMilli, lastRefreshMilli;
         private Stopwatch sw = Stopwatch.StartNew();
-        
+
         private readonly TStateObject stateObject;
         private readonly byte[] depSerializationArray;
         private TaskCompletionSource<long> nextCommit;
 
         private List<IStateObjectAttachment> attachments = new List<IStateObjectAttachment>();
         private byte[] metadataBuffer = new byte[1 << 15];
-        private DprMessageBuffer messageBuffer;
-        
+
         /// <summary>
         /// Creates a new DprServer.
         /// </summary>
         /// <param name="stateObject"> underlying state object </param>
         /// <param name="options"> DPR worker options </param>
         // TODO(Tianyu): Put some design work into the different operating modes of applications written this way -- speculative/pessimistic/no guarantees
-        public DprStatefulWorker(TStateObject stateObject, DprWorkerOptions options)
+        public DprWorker(TStateObject stateObject, DprWorkerOptions options)
         {
             this.stateObject = stateObject;
             this.options = options;
-            
+
             versionScheme = new EpochProtectedVersionScheme(new LightEpoch());
             versions = new ConcurrentDictionary<long, LightDependencySet>();
             dependencySetPool = new SimpleObjectPool<LightDependencySet>(() => new LightDependencySet());
             depSerializationArray = new byte[2 * LightDependencySet.MaxClusterSize * sizeof(long)];
             nextCommit = new TaskCompletionSource<long>();
-            messageBuffer = new DprMessageBuffer();
         }
 
         /// <summary></summary>
@@ -85,48 +83,44 @@ namespace FASTER.libdpr
         private Task BeginRestore(long newWorldLine, long version)
         {
             var tcs = new TaskCompletionSource<object>();
-            // Enforce that restore happens sequentially to prevent multiple restores to the same newWorldLine
-            lock (this)
-            {
-                // Restoration to this particular worldline has already been completed
-                if (worldLine >= newWorldLine) return Task.CompletedTask;
+            // Restoration to this particular worldline has already been completed
+            if (worldLine >= newWorldLine) return Task.CompletedTask;
 
-                versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
+            versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
+            {
+                // Restore underlying state object state
+                stateObject.RestoreCheckpoint(version, out var metadata);
+                // Use the restored metadata to restore attachments state
+                unsafe
                 {
-                    // Restore underlying state object state
-                    stateObject.RestoreCheckpoint(version, out var metadata);
-                    // Use the restored metadata to restore attachments state
-                    unsafe
+                    fixed (byte* src = metadata)
                     {
-                        fixed (byte* src = metadata)
+                        var head = src +
+                                   SerializationUtil.DeserializeCheckpointMetadata(metadata, out _, out _, out _);
+                        var numAttachments = *(int*)head;
+                        head += sizeof(int);
+                        Debug.Assert(numAttachments == attachments.Count,
+                            "recovered checkpoint contains a different number of attachments!");
+                        foreach (var attachment in attachments)
                         {
-                            var head = src +
-                                       SerializationUtil.DeserializeCheckpointMetadata(metadata, out _, out _, out _);
-                            var numAttachments = *(int*)head;
+                            var size = *(int*)head;
                             head += sizeof(int);
-                            Debug.Assert(numAttachments == attachments.Count,
-                                "recovered checkpoint contains a different number of attachments!");
-                            foreach (var attachment in attachments)
-                            {
-                                var size = *(int*)head;
-                                head += sizeof(int);
-                                attachment.RecoverFrom(new Span<byte>(head, size));
-                                head += size;
-                            }
+                            attachment.RecoverFrom(new Span<byte>(head, size));
+                            head += size;
                         }
                     }
+                }
 
-                    // Clear any leftover state and signal complete
-                    versions.Clear();
-                    var deps = dependencySetPool.Checkout();
-                    if (vOld != 0)
-                        deps.Update(options.Me, vOld);
-                    var success = versions.TryAdd(vNew, deps);
-                    Debug.Assert(success);
-                    tcs.SetResult(null);
-                    worldLine = newWorldLine;
-                }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
-            }
+                // Clear any leftover state and signal complete
+                versions.Clear();
+                var deps = dependencySetPool.Checkout();
+                if (vOld != 0)
+                    deps.Update(options.Me, vOld);
+                var success = versions.TryAdd(vNew, deps);
+                Debug.Assert(success);
+                tcs.SetResult(null);
+                worldLine = newWorldLine;
+            }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
 
             return tcs.Task;
         }
@@ -246,9 +240,8 @@ namespace FASTER.libdpr
                 options.DprFinder.Refresh(options.Me, stateObject);
                 core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
                 if (worldLine != options.DprFinder.SystemWorldLine())
-                    BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
-                // This must be performed with an epoch bump to ensure that any concurrent buffering messages are not lost 
-                versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(options.DprFinder));
+                    BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me))
+                        .GetAwaiter().GetResult();
             }
 
             if (lastCheckpointMilli + options.CheckpointPeriodMilli <= currentTime)
@@ -272,106 +265,81 @@ namespace FASTER.libdpr
                 stateObject.PruneVersion(i);
         }
 
-        public DprReceiveStatus TryReceive(Span<byte> headerBytes, out Task onReceivable)
+        public bool StartStepWithReceive(ReadOnlySpan<byte> headerBytes)
         {
-            onReceivable = null;
-            
             ref var header =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
-            
+
             // Apply the commit ordering rule, taking checkpoints if necessary.
-            while (header.version > versionScheme.CurrentState().Version)
+            while (header.Version > versionScheme.CurrentState().Version)
             {
                 // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                if (BeginCheckpoint(header.version))
+                if (BeginCheckpoint(header.Version))
                     Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
                 Thread.Yield();
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
             versionScheme.Enter();
-            try
+            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
+            // so client operation is not lost in a rollback that the client has already observed.
+            while (header.WorldLine > worldLine)
             {
-                // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
-                // so client operation is not lost in a rollback that the client has already observed.
-                while (header.worldLine > worldLine)
-                {
-                    versionScheme.Leave();
-                    // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                    BeginRestore(header.worldLine, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
-                    Thread.Yield();
-                    versionScheme.Enter();
-                }
+                versionScheme.Leave();
+                // TODO(Tianyu): Should provide version that does not rollback on the spot?
+                BeginRestore(header.WorldLine, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
+                Thread.Yield();
+                versionScheme.Enter();
+            }
 
-                // If the worker world-line is newer, the request must be dropped. 
-                if (header.worldLine < worldLine)
-                    return DprReceiveStatus.DISCARD;
+            // If the worker world-line is newer, the request must be dropped. 
+            if (header.WorldLine < worldLine)
+                return false;
 
-                // If not from the same SU, queue it for consumption after commit and break the dependency
-                if (options.MySU == SUId.EXTERNAL || header.SrcSU != options.MySU)
+            // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
+            // could get processed at a future version instead due to thread timing. However, this is not a correctness
+            // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
+            var deps = versions[versionScheme.CurrentState().Version];
+            if (!header.SrcWorkerId.Equals(WorkerId.INVALID))
+                deps.Update(header.SrcWorkerId, header.Version);
+            unsafe
+            {
+                fixed (byte* d = header.data)
                 {
-                    if (options.DprFinder.SafeVersion(header.SrcWorkerId) >= header.version)
-                        return DprReceiveStatus.OK;
-                    //TODO(Tianyu): fix
-                    var tcs = new TaskCompletionSource();
-                    messageBuffer.Buffer(ref header, () => tcs.SetResult());
-                    onReceivable = tcs.Task;
-                    return DprReceiveStatus.BUFFER;
-                }
-
-                // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
-                // could get processed at a future version instead due to thread timing. However, this is not a correctness
-                // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
-                var deps = versions[versionScheme.CurrentState().Version];
-                if (!header.SrcWorkerId.Equals(WorkerId.INVALID))
-                    deps.Update(header.SrcWorkerId, header.version);
-                unsafe
-                {
-                    fixed (byte* d = header.data)
+                    var depsHead = d + header.ClientDepsOffset;
+                    for (var i = 0; i < header.NumClientDeps; i++)
                     {
-                        var depsHead = d + header.ClientDepsOffset;
-                        for (var i = 0; i < header.numClientDeps; i++)
-                        {
-                            ref var wv = ref Unsafe.AsRef<WorkerVersion>(depsHead);
-                            deps.Update(wv.WorkerId, wv.Version);
-                            depsHead += sizeof(WorkerVersion);
-                        }
+                        ref var wv = ref Unsafe.AsRef<WorkerVersion>(depsHead);
+                        deps.Update(wv.WorkerId, wv.Version);
+                        depsHead += sizeof(WorkerVersion);
                     }
                 }
+            }
 
-                return DprReceiveStatus.OK;
-            }
-            finally
-            {
-                if (onReceivable != null)
-                    versionScheme.Leave();
-            }
+            Debug.Assert(versionScheme.GetUnderlyingEpoch().ThisInstanceProtected());
+            return true;
         }
 
-        /// <summary>
-        /// Invoke after processing of a batch is complete and populate the given span with a DPR header for any
-        /// outgoing messages processing mean need to send. This function must be invoked successfully after beginning
-        /// a batch on the same thread for DPR to make progress.
-        /// </summary>
-        /// <param name="outputHeaderBytes">Dpr response message to be populated</param>
-        public int Send(Span<byte> outputHeaderBytes)
+        public void StartStep() => versionScheme.Enter();
+
+        public void EndStep() => versionScheme.Leave();
+
+        public int EndStepAndProduceTag(Span<byte> outputHeaderBytes)
         {
             if (outputHeaderBytes.Length < DprMessageHeader.FixedLenSize)
                 return -DprMessageHeader.FixedLenSize;
-            
+
             ref var outputHeader =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(outputHeaderBytes));
 
-            versionScheme.Enter();
             outputHeader.SrcWorkerId = Me();
-            outputHeader.SrcSU = options.MySU;
-            outputHeader.worldLine = worldLine;
-            outputHeader.version = versionScheme.CurrentState().Version;
-            outputHeader.numClientDeps = 0;
+            outputHeader.WorldLine = worldLine;
+            outputHeader.Version = versionScheme.CurrentState().Version;
+            outputHeader.NumClientDeps = 0;
             versionScheme.Leave();
             return DprMessageHeader.FixedLenSize;
         }
-        
+
         /// <summary>
         ///     Force the execution of a checkpoint ahead of the schedule specified at creation time.
         ///     Resets the checkpoint schedule to happen checkpoint_milli after this invocation.
@@ -382,14 +350,14 @@ namespace FASTER.libdpr
             if (BeginCheckpoint(targetVersion))
                 core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
         }
-        
+
         public void ForceRefresh()
         {
             options.DprFinder.Refresh(options.Me, stateObject);
             core.Utility.MonotonicUpdate(ref lastRefreshMilli, sw.ElapsedMilliseconds, out _);
             if (worldLine != options.DprFinder.SystemWorldLine())
-                BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
-            versionScheme.GetUnderlyingEpoch().BumpCurrentEpoch(() => messageBuffer.ProcessBuffer(options.DprFinder));                
+                BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me))
+                    .GetAwaiter().GetResult();
         }
     }
 }

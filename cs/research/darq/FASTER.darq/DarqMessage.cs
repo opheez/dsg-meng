@@ -68,7 +68,6 @@ namespace FASTER.libdpr
         private byte[] message;
         private int messageSize;
         private SimpleObjectPool<DarqMessage> messagePool;
-        private WorkerVersion wv;
 
         /// <summary>
         /// Create a new DarqMessage object
@@ -88,10 +87,6 @@ namespace FASTER.libdpr
         public DarqMessageType GetMessageType() => type;
 
         /// <summary></summary>
-        /// <returns>WorkerVersion this message is associated with (for speculative execution)</returns>
-        public WorkerVersion WorkerVersion() => wv;
-
-        /// <summary></summary>
         /// <returns>LSN of the message</returns>
         public long GetLsn() => lsn;
 
@@ -109,14 +104,12 @@ namespace FASTER.libdpr
         /// <param name="type"></param>
         /// <param name="lsn"></param>
         /// <param name="nextLsn"></param>
-        /// <param name="wv"></param>
         /// <param name="msg"></param>
-        public void Reset(DarqMessageType type, long lsn, long nextLsn, WorkerVersion wv, ReadOnlySpan<byte> msg)
+        public void Reset(DarqMessageType type, long lsn, long nextLsn, ReadOnlySpan<byte> msg)
         {
             this.type = type;
             this.lsn = lsn;
             this.nextLsn = nextLsn;
-            this.wv = wv;
             Debug.Assert(message.Length > msg.Length);
             msg.CopyTo(message);
             messageSize = msg.Length;

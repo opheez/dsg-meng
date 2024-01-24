@@ -1,10 +1,7 @@
-using System;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.darq;
 using FASTER.libdpr;
@@ -51,36 +48,52 @@ namespace FASTER.client
 
         public unsafe void Flush()
         {
-            if (offset > 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size)
+            try
             {
-                var head = networkSender.GetResponseObjectHead();
-                // Set packet size in header
-                *(int*) head = -(offset - sizeof(int));
-                head += sizeof(int);
-
-                ((BatchHeader*) head)->SetNumMessagesProtocol(numMessages, (WireFormat) DarqProtocolType.DarqProcessor);
-                head += sizeof(BatchHeader);
-
-                // Set DprHeader size
-                *(int*) head = reservedDprHeaderSpace;
-                head += sizeof(int);
-
-                // populate DPR header
-                var headerBytes = new Span<byte>(head, reservedDprHeaderSpace);
-                if (dprSession.ComputeHeaderForSend(headerBytes) < 0)
-                    // TODO(Tianyu): Handle size mismatch by probably copying into a new array and up-ing reserved space in the future
-                    throw new NotImplementedException();
-                
-                Interlocked.Add(ref numOutstanding, numMessages);
-                while (numOutstanding >= maxOutstanding)
+                if (offset > 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size)
                 {
-                    //  Expecting a fairly quick turn around, so just spin
-                }
+                    var head = networkSender.GetResponseObjectHead();
+                    // Set packet size in header
+                    *(int*)head = -(offset - sizeof(int));
+                    head += sizeof(int);
 
-                networkSender.SendResponse(0, offset);
-                networkSender.GetResponseObject();
-                offset = 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size;
-                numMessages = 0;
+                    ((BatchHeader*)head)->SetNumMessagesProtocol(numMessages,
+                        (WireFormat)DarqProtocolType.DarqProcessor);
+                    head += sizeof(BatchHeader);
+
+                    // Set DprHeader size
+                    *(int*)head = reservedDprHeaderSpace;
+                    head += sizeof(int);
+
+                    // populate DPR header
+                    var headerBytes = new Span<byte>(head, reservedDprHeaderSpace);
+                    if (dprSession.TagMessage(headerBytes) < 0)
+                        // TODO(Tianyu): Handle size mismatch by probably copying into a new array and up-ing reserved space in the future
+                        throw new NotImplementedException();
+
+                    Interlocked.Add(ref numOutstanding, numMessages);
+                    while (numOutstanding >= maxOutstanding)
+                    {
+                        //  Expecting a fairly quick turn around, so just spin
+                    }
+
+                    networkSender.SendResponse(0, offset);
+                    networkSender.GetResponseObject();
+                    offset = 2 * sizeof(int) + reservedDprHeaderSpace + BatchHeader.Size;
+                    numMessages = 0;
+                }
+            }
+            catch (DprSessionRolledBackException)
+            {
+                // Ensure that callback queue is drained only on a single-thread. This is not a scalability issue
+                // because except in the event of a rollback, callback queue is not concurrently accessed
+                lock (outstandingStepQueue)
+                {
+                    outstandingRegistrationRequest?.SetCanceled();
+                    while (!outstandingStepQueue.IsEmpty())
+                        outstandingStepQueue.Dequeue().SetResult(StepStatus.REINCARNATED);
+                }
+                throw;
             }
         }
         
@@ -148,37 +161,49 @@ namespace FASTER.client
                 var batchHeader = *(BatchHeader*) src;
                 src += sizeof(BatchHeader);
 
-                var dprHeader = new ReadOnlySpan<byte>(src, DprBatchHeader.FixedLenSize);
-                src += DprBatchHeader.FixedLenSize;
+                var dprHeader = new ReadOnlySpan<byte>(src, DprMessageHeader.FixedLenSize);
+                src += DprMessageHeader.FixedLenSize;
 
-                if (dprSession.ReceiveHeader(dprHeader, out _) != DprReceiveStatus.OK)
-                    // TODO(Tianyu): Implement
-                    throw new NotImplementedException();
-
-                // TODO(Tianyu): Handle consumer id  mismatch cases
-                for (var i = 0; i < batchHeader.NumMessages; i++)
+                // Ensure that callback queue is drained only on a single-thread. This is not a scalability issue
+                // because except in the event of a rollback, callback queue is not concurrently accessed
+                lock (outstandingStepQueue)
                 {
-                    var type = *(DarqCommandType*) src;
-                    src += sizeof(DarqCommandType);
-                    switch (type)
+                    try
                     {
-                        case DarqCommandType.DarqStep:
-                            var stepStatus = *(StepStatus*) src;
-                            src += sizeof(StepStatus);
-                            if (stepStatus == StepStatus.REINCARNATED)
-                                // TODO: Terminate execution here  
-                                throw new NotImplementedException();
-                            var request = outstandingStepQueue.Dequeue();
-                            Interlocked.Decrement(ref numOutstanding);
-                            request.SetResult(stepStatus);
-                            break;
-                        case DarqCommandType.DarqRegisterProcessor:
-                            Debug.Assert(outstandingRegistrationRequest != null);
-                            outstandingRegistrationRequest.SetResult(*(long*) src);
-                            outstandingRegistrationRequest = null;
-                            break;
-                        default:
-                            throw new NotImplementedException();
+                        if (!dprSession.Receive(dprHeader)) return;
+
+                        // TODO(Tianyu): Handle consumer id mismatch cases
+                        for (var i = 0; i < batchHeader.NumMessages; i++)
+                        {
+                            var type = *(DarqCommandType*)src;
+                            src += sizeof(DarqCommandType);
+                            switch (type)
+                            {
+                                case DarqCommandType.DarqStep:
+                                    var stepStatus = *(StepStatus*)src;
+                                    src += sizeof(StepStatus);
+                                    if (stepStatus == StepStatus.REINCARNATED)
+                                        // TODO: Terminate execution gracefully here  
+                                        throw new NotImplementedException();
+                                    var request = outstandingStepQueue.Dequeue();
+                                    Interlocked.Decrement(ref numOutstanding);
+                                    request.SetResult(stepStatus);
+                                    break;
+                                case DarqCommandType.DarqRegisterProcessor:
+                                    Debug.Assert(outstandingRegistrationRequest != null);
+                                    outstandingRegistrationRequest.SetResult(*(long*)src);
+                                    outstandingRegistrationRequest = null;
+                                    break;
+                                default:
+                                    throw new NotImplementedException();
+                            }
+                        }
+                    }
+                    catch (DprSessionRolledBackException)
+                    {
+                        outstandingRegistrationRequest?.SetCanceled();
+                        while (!outstandingStepQueue.IsEmpty())
+                            outstandingStepQueue.Dequeue().SetResult(StepStatus.REINCARNATED);
                     }
                 }
             }
@@ -331,33 +356,34 @@ namespace FASTER.client
 
                 var dprHeaderSize = *(int*) (src + dprOffset);
                 var dprHeader = new ReadOnlySpan<byte>(src + dprOffset + sizeof(int), dprHeaderSize);
-                var status = session.ReceiveHeader(dprHeader, out var wv);
-                if (status == DprReceiveStatus.DISCARD)
-                    return;
-                if (status == DprReceiveStatus.ROLLBACK)
+                try
+                {
+                    if (!session.Receive(dprHeader)) return;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        var lsn = *(long*)src;
+                        src += sizeof(long);
+                        var nextLsn = *(long*)src;
+                        src += sizeof(long);
+                        var type = *(DarqMessageType*)src;
+                        src += sizeof(DarqMessageType);
+                        var len = *(int*)src;
+                        src += sizeof(int);
+                        Debug.Assert(type is DarqMessageType.IN or DarqMessageType.SELF);
+                        var m = messagePool.Checkout();
+                        m.Reset(type, lsn, nextLsn, new ReadOnlySpan<byte>(src, len));
+                        pendingMessages.Enqueue(m);
+                        src += len;
+                    }
+                }
+                catch (DprSessionRolledBackException)
                 {
                     var m = messagePool.Checkout();
                     // Use a special message to notify of rollback and then go to a sink state
-                    m.Reset(DarqMessageType.IN, -1, -1, default, ReadOnlySpan<byte>.Empty);
+                    m.Reset(DarqMessageType.IN, -1, -1, ReadOnlySpan<byte>.Empty);
                     pendingMessages.Enqueue(m);
                     rolledBack = true;
-                    return;
-                }
-                for (int i = 0; i < count; i++)
-                {
-                    var lsn = *(long*) src;
-                    src += sizeof(long);
-                    var nextLsn = *(long*) src;
-                    src += sizeof(long);
-                    var type = *(DarqMessageType*) src;
-                    src += sizeof(DarqMessageType);
-                    var len = *(int*) src;
-                    src += sizeof(int);
-                    Debug.Assert(type is DarqMessageType.IN or DarqMessageType.SELF);
-                    var m = messagePool.Checkout();
-                    m.Reset(type, lsn, nextLsn, wv, new ReadOnlySpan<byte>(src, len));
-                    pendingMessages.Enqueue(m);
-                    src += len;
                 }
             }
         }
@@ -446,9 +472,7 @@ namespace FASTER.client
             }
         }
     }
-
-
-    // TODO(Tianyu): remote client is more simplistic and does not optimize for DPR
+    
     public class DarqProcessorClient : IDarqProcessorClient, IDarqProcessorClientCapabilities, IDisposable
     {
         private string address;
@@ -515,7 +539,7 @@ namespace FASTER.client
                     // This is a special rollback signal
                     if (m.GetLsn() == -1 && m.GetNextLsn() == -1)
                     {
-                        session = new DprSession(session);
+                        session = new DprSession();
                         readClient = new DarqProcessorReadClient(session, address, port, maxReadBuffer);
                         writeClient = new DarqProcessorWriteClient(session, address, port, maxOutstandingSteps);
                         readClient.StartReceivePush();

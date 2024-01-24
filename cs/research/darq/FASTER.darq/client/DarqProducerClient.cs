@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -333,7 +332,7 @@ namespace FASTER.client
                             }
                         }
                     }
-                    catch (DprSessionRolledBackException e)
+                    catch (DprSessionRolledBackException)
                     {
                         // TODO(Tianyu): Eagerly clearing the callback queue here may result in an overapproximation of
                         // things that are rolled back, but is the expedient approach here. Maybe fix later

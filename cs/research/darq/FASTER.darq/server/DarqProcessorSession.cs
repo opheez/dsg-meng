@@ -60,55 +60,55 @@ namespace FASTER.server
             dcurr += BatchHeader.Size;
 
             var dprResponseOffset = (int*)dcurr;
-            dcurr += DprBatchHeader.FixedLenSize;
+            dcurr += DprMessageHeader.FixedLenSize;
             start = 0;
             msgnum = 0;
 
             var dprHeaderSize = *(int*)src;
             src += sizeof(int);
             var request = new ReadOnlySpan<byte>(src, dprHeaderSize);
-            // Error code path
-            if (!darq.ReceiveAndBeginProcessing(request))
-            {
-                darq.ComposeErrorResponse(request, new Span<byte>(dprResponseOffset, DprBatchHeader.FixedLenSize));
-                Send(d, dcurr);
-                return;
-            }
-
             src += dprHeaderSize;
-
-            for (msgnum = 0; msgnum < num; msgnum++)
+            // Error code path
+            if (!darq.StartStepWithReceive(request))
             {
-                var message = (DarqCommandType)(*src++);
-                switch (message)
+                for (msgnum = 0; msgnum < num; msgnum++)
+                    hrw.Write((byte)DarqCommandType.INVALID, ref dcurr, (int)(dend - dcurr));
+                // Can immediately send DPR error version regardless of version or status
+            }
+            else
+            {
+                for (msgnum = 0; msgnum < num; msgnum++)
                 {
-                    case DarqCommandType.DarqStep:
+                    var message = (DarqCommandType)(*src++);
+                    switch (message)
                     {
-                        var processorId = *(long*)src;
-                        src += sizeof(long);
+                        case DarqCommandType.DarqStep:
+                        {
+                            var processorId = *(long*)src;
+                            src += sizeof(long);
 
-                        var batch = new SerializedDarqEntryBatch(src);
-                        var response = darq.Step(processorId, batch);
-                        hrw.Write((byte) message, ref dcurr, (int)(dend - dcurr));
-                        *(StepStatus*)dcurr = response;
-                        dcurr += sizeof(StepStatus);
-                        break;
+                            var batch = new SerializedDarqEntryBatch(src);
+                            var response = darq.Step(processorId, batch);
+                            hrw.Write((byte) message, ref dcurr, (int)(dend - dcurr));
+                            *(StepStatus*)dcurr = response;
+                            dcurr += sizeof(StepStatus);
+                            break;
+                        }
+                        case DarqCommandType.DarqRegisterProcessor:
+                        {
+                            var consumerId = darq.RegisterNewProcessor();
+                            hrw.Write((byte) message, ref dcurr, (int)(dend - dcurr));
+                            *(long*)dcurr = consumerId;
+                            dcurr += sizeof(long);
+                            break;
+                        }
+                        default:
+                            throw new NotImplementedException();
                     }
-                    case DarqCommandType.DarqRegisterProcessor:
-                    {
-                        var consumerId = darq.RegisterNewProcessor();
-                        hrw.Write((byte) message, ref dcurr, (int)(dend - dcurr));
-                        *(long*)dcurr = consumerId;
-                        dcurr += sizeof(long);
-                        break;
-                    }
-                    default:
-                        throw new NotImplementedException();
                 }
             }
 
-
-            darq.FinishProcessingAndSend(new Span<byte>(dprResponseOffset, DprBatchHeader.FixedLenSize));
+            darq.EndStepAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
             // Send replies
             Send(d, dcurr);
         }

@@ -77,12 +77,13 @@ namespace FASTER.server
                 {
                     case DarqCommandType.DarqStartPush:
                     {
+                        // TODO(Tianyu): Wots dis?
                         var speculative = (*src++) == 1;
                         var t = new ManualResetEventSlim();
                         if (Interlocked.CompareExchange(ref terminationStart, t, null) == null)
                         {
                             terminationComplete = new ManualResetEventSlim();
-                            StartPushEntries(speculative);
+                            StartPushEntries();
                         }
                         break;
                     }
@@ -92,11 +93,12 @@ namespace FASTER.server
             }
         }
 
-        private void StartPushEntries(bool speculative)
+        // TODO(Tianyu): SU integration needs to happen here
+        private void StartPushEntries()
         {
             pushThread = new Thread(async () =>
             {
-                using var it = dprServer.StartScan(speculative);
+                using var it = dprServer.StartScan();
                 while (!terminationStart.IsSet)
                 {
                     ResetSendBuffer();
@@ -104,7 +106,7 @@ namespace FASTER.server
                     if (msgnum != 0)
                         SendCurrentBuffer();
                     else
-                        dprServer.FinishProcessing();
+                        dprServer.EndStep();
 
                     if (terminationStart.IsSet) break;
                     
@@ -134,7 +136,7 @@ namespace FASTER.server
             dcurr += BatchHeader.Size;
             dprResponseOffset = (int*) dcurr;
             dcurr += sizeof(int);
-            dprServer.BeginProcessing();
+            dprServer.StartStep();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -145,7 +147,7 @@ namespace FASTER.server
             // reserve a size field for DPR header;
             var dprHeaderSizeField = (int*) dcurr;
             dcurr += sizeof(int);
-            dprServer.FinishProcessingAndSend(new Span<byte>(dcurr, (int) (dend - dcurr)));
+            dprServer.EndStepAndProduceTag(new Span<byte>(dcurr, (int) (dend - dcurr)));
             dcurr += DprMessageHeader.FixedLenSize;
             // Write size
             *dprHeaderSizeField = DprMessageHeader.FixedLenSize;

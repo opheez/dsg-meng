@@ -293,7 +293,7 @@ namespace FASTER.libdpr
             }
 
             // If the worker world-line is newer, the request must be dropped. 
-            if (header.WorldLine < worldLine)
+            if (header.WorldLine != 0 && header.WorldLine < worldLine)
                 return false;
 
             // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch

@@ -11,7 +11,7 @@ namespace FASTER.client
         private SimpleObjectPool<DarqMessage> messagePool;
         private ManualResetEventSlim terminationStart, terminationComplete;
         private IDarqClusterInfo clusterInfo;
-        private IDprWorker session;
+        private DprSession session;
         private DarqScanIterator iterator;
         private DarqProducerClient producerClient;
         private DarqCompletionTracker completionTracker;
@@ -30,6 +30,7 @@ namespace FASTER.client
             this.clusterInfo = clusterInfo;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool), 1 << 15);
             this.batchSize = batchSize;
+            session = new DprSession(darq.WorldLine());
         }
 
         public long ProcessingLag => darq.StateObject().log.TailAddress - processedUpTo;
@@ -40,19 +41,13 @@ namespace FASTER.client
             producerClient?.Dispose();
         }
 
-        private unsafe bool TryReadEntry(out DarqMessage message, out DprStatus status)
+        private unsafe bool TryReadEntry(out DarqMessage message)
         {
             message = null;
             long nextAddress = 0;
-            status = DprReceiveStatus.OK;
             try
             {
-                darq.BeginProcessing();
-                if (darq.WorldLine() > clientSession.WorldLine)
-                {
-                    status = DprReceiveStatus.ROLLBACK;
-                    return true;
-                }
+                darq.StartStep();
 
                 if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
                         out var lsn, out processedUpTo, out var type))
@@ -65,17 +60,15 @@ namespace FASTER.client
                     iterator.UnsafeRelease();
                     return true;
                 }
-
-                var wv = new WorkerVersion(darq.Me(), darq.Version());
                 // Copy out the entry before dropping protection
                 message = messagePool.Checkout();
-                message.Reset(type, lsn, processedUpTo, wv,
+                message.Reset(type, lsn, processedUpTo,
                     new ReadOnlySpan<byte>(entry, entryLength));
                 iterator.UnsafeRelease();
             }
             finally
             {
-                darq.FinishProcessing();
+                darq.EndStep();
             }
 
             return true;
@@ -111,20 +104,18 @@ namespace FASTER.client
 
         private bool TryConsumeNext()
         {
-            var hasNext = TryReadEntry(out var m, out var dprBatchStatus);
-            Debug.Assert(dprBatchStatus != DprReceiveStatus.DISCARD);
-
-            if (dprBatchStatus == DprReceiveStatus.ROLLBACK)
+            var hasNext = TryReadEntry(out var m);
+            // Don't go through the normal receive code path for performance
+            if (session.RolledBack || darq.WorldLine() > session.WorldLine)
             {
                 Console.WriteLine("Processor detected rollback, restarting");
                 Reset();
                 // Reset to next iteration without doing anything
                 return true;
             }
-
-            if (!hasNext)
-                return false;
-
+            
+            if (!hasNext) return false;
+            // Not a message we care about
             if (m == null) return true;
 
             switch (m.GetMessageType())
@@ -157,9 +148,9 @@ namespace FASTER.client
             if (completionTracker.GetTruncateHead() > darq.StateObject().log.BeginAddress)
             {
                 Console.WriteLine($"Truncating log until {completionTracker.GetTruncateHead()}");
-                darq.BeginProcessing();
+                darq.StartStep();
                 darq.TruncateUntil(completionTracker.GetTruncateHead());
-                darq.FinishProcessing();
+                darq.EndStep();
             }
 
             return true;
@@ -167,10 +158,10 @@ namespace FASTER.client
 
         private void Reset()
         {
-            clientSession = new DprSession(darq.WorldLine());
-            producerClient = new DarqProducerClient(clusterInfo, clientSession);
+            session = new DprSession();
+            producerClient = new DarqProducerClient(clusterInfo, session);
             completionTracker = new DarqCompletionTracker();
-            iterator = darq.StartScan(darq.Speculative);
+            iterator = darq.StartScan();
         }
 
         public async Task StartProcessing()

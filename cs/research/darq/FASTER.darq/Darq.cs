@@ -398,7 +398,7 @@ namespace FASTER.darq
         /// </summary>
         /// <param name="speculative">whether to speculatively scan </param>
         /// <returns></returns>
-        public DarqScanIterator StartScan(bool speculative) =>
-            new DarqScanIterator(StateObject().log, largestSteppedLsn.value, speculative);
+        public DarqScanIterator StartScan() =>
+            new DarqScanIterator(StateObject().log, largestSteppedLsn.value, true);
     }
 }

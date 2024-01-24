@@ -57,7 +57,7 @@ namespace FASTER.server
             terminationStart = new ManualResetEventSlim();
             terminationComplete = new CountdownEvent(2);
             darq.ConnectToCluster();
-            responseQueue = darq.Speculative ? new() : null;
+            responseQueue = new();
             provider = new DarqProvider(darq, responseQueue);
             server = new FasterServerTcp(options.Address, options.Port);
             // Check that our custom defined wire format is not clashing with anything implemented by FASTER

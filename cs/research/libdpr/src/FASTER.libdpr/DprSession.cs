@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace FASTER.libdpr
 {
@@ -22,7 +23,6 @@ namespace FASTER.libdpr
     public class DprSession
     {
         private long version, worldLine;
-        private long terminalWorldLine;
         private LightDependencySet deps;
         
         /// <summary>
@@ -33,18 +33,19 @@ namespace FASTER.libdpr
         /// <summary>
         /// WorldLine of the session
         /// </summary>
-        public long WorldLine => worldLine;
-
-        public bool RolledBack => terminalWorldLine != -1;
+        public long WorldLine => worldLine >= 0 ? worldLine : -worldLine;
+        
+        public bool RolledBack => worldLine < 0;
         
         /// <summary>
         /// Create a DPR session working on the supplied worldLine (or 1 by default, in a cluster that has never failed)
         /// </summary>
-        /// <param name="startWorldLine"> the worldLine to start at, or 1 by default </param>
-        public DprSession(long startWorldLine = 1)
+        /// <param name="initialWorldLine"> the worldLine to start at, or 0 (wildcard that matches to the first received message's worldline) by default </param>
+        public DprSession(long initialWorldLine = 0)
         {
             version = 1;
-            worldLine = startWorldLine;
+            // 0 denotes that the session does not yet exist in a worldline
+            worldLine = initialWorldLine;
             deps = new LightDependencySet();
         }
 
@@ -56,8 +57,8 @@ namespace FASTER.libdpr
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe int TagMessage(Span<byte> headerBytes)
         {
-            if (terminalWorldLine != -1)
-                throw new DprSessionRolledBackException(terminalWorldLine);
+            if (RolledBack)
+                throw new DprSessionRolledBackException(WorldLine);
             
             fixed (byte* b = headerBytes)
             {
@@ -98,17 +99,20 @@ namespace FASTER.libdpr
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe bool Receive(ReadOnlySpan<byte> dprMessage)
         {
-            if (terminalWorldLine != -1)
-                throw new DprSessionRolledBackException(terminalWorldLine);
+            if (RolledBack)
+                throw new DprSessionRolledBackException(WorldLine);
             
             fixed (byte* h = dprMessage)
             {
                 ref var responseHeader = ref Unsafe.AsRef<DprMessageHeader>(h);
-                // Server uses negative worldLine to signal that the client is lower in worldline
-                if (responseHeader.WorldLine > worldLine)
+                if (worldLine == 0)
+                    Interlocked.CompareExchange(ref worldLine, responseHeader.WorldLine, 0);
+                
+                var wl = worldLine;
+                if (responseHeader.WorldLine > wl)
                 {
-                    core.Utility.MonotonicUpdate(ref terminalWorldLine, responseHeader.WorldLine, out _);
-                    throw new DprSessionRolledBackException(terminalWorldLine);
+                    Interlocked.CompareExchange(ref worldLine, -responseHeader.WorldLine, wl);
+                    throw new DprSessionRolledBackException(WorldLine);
                 }
 
                 if (responseHeader.WorldLine < worldLine)
@@ -136,7 +140,7 @@ namespace FASTER.libdpr
                 // Update versioning information
                 core.Utility.MonotonicUpdate(ref this.version, responseHeader.Version, out _);
 
-                // TODO(Tianyu): Figure out other, more general ways to prune dependencies
+                // TODO(Tianyu): Figure out other ways to prune dependencies
                 // // Remove deps only if this is a response header from a worker session
                 // if (!responseHeader.SrcWorkerId.Equals(WorkerId.INVALID))
                 // {

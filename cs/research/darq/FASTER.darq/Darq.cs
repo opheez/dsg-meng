@@ -210,7 +210,7 @@ namespace FASTER.darq
     /// <summary>
     /// DARQ data structure 
     /// </summary>
-    public class Darq : DprWorker<DarqStateObject>, IDisposable
+    public class Darq : DprWorker<DarqStateObject, EpochProtectedVersionScheme>, IDisposable
     {
         private readonly DeduplicationVector dvc;
         private readonly LongValueAttachment incarnation, largestSteppedLsn;
@@ -223,7 +223,7 @@ namespace FASTER.darq
         /// <param name="me">unique identity for this DARQ</param>
         /// <param name="darqSettings">parameters for DARQ</param>
         public Darq(DarqSettings darqSettings) : base(
-            new DarqStateObject(darqSettings), new DprWorkerOptions
+            new DarqStateObject(darqSettings), new EpochProtectedVersionScheme(new LightEpoch()), new DprWorkerOptions
             {
                 Me = darqSettings.Me,
                 DprFinder = darqSettings.DprFinder,

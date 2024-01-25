@@ -1,18 +1,23 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using FASTER.common;
+using FASTER.core;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
+using Status = Grpc.Core.Status;
 
 namespace FASTER.libdpr.gRPC
 {
-    public class DprServerInterceptor : Interceptor
+    public class DprServerInterceptor<TStateObject> : Interceptor where TStateObject : IStateObject
     {
-        private IDprWorker dprWorker;
+        private DprWorker<TStateObject, RwLatchVersionScheme> dprWorker;
         private ThreadLocalObjectPool<byte[]> serializationArrayPool;
         
-        public DprServerInterceptor(IDprWorker dprWorker)
+        // For now, require that the gRPC integration only works with RwLatchVersionScheme, which supports protected
+        // blocks that start and end on different threads
+        public DprServerInterceptor(DprWorker<TStateObject, RwLatchVersionScheme> dprWorker)
         {
             this.dprWorker = dprWorker;
             serializationArrayPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 10]);
@@ -23,19 +28,11 @@ namespace FASTER.libdpr.gRPC
         {
             var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             Debug.Assert(header != null);
-            var status = dprWorker.TryReceive(header);
-            switch (status)
-            {
-                case DprReceiveStatus.OK:
-                    // Handle request on the spot if ok
-                    return await HandleCall(request, context, continuation);
-                case DprReceiveStatus.DISCARD:
-                    // Use an error to signal to caller that this call cannot proceed
-                    // TODO(Tianyu): add more descriptive exception information
-                    throw new RpcException(Status.DefaultCancelled);
-                default:
-                    throw new ArgumentOutOfRangeException();
-            }
+            if (!dprWorker.StartStepWithReceive(header))
+                // Use an error to signal to caller that this call cannot proceed
+                // TODO(Tianyu): add more descriptive exception information
+                throw new RpcException(Status.DefaultCancelled);
+            return await HandleCall(request, context, continuation);
         }
 
         private async Task<TResponse> HandleCall<TRequest, TResponse>(TRequest request, ServerCallContext context,
@@ -44,7 +41,7 @@ namespace FASTER.libdpr.gRPC
             // Proceed with request
             var response = await continuation.Invoke(request, context);
             var buf = serializationArrayPool.Checkout();
-            dprWorker.TagMessage(buf);
+            dprWorker.EndStepAndProduceTag(buf);
             // TODO(Tianyu): Add SU handling logic here to await for the response to become committed
             context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
             serializationArrayPool.Return(buf);

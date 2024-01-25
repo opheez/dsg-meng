@@ -17,13 +17,13 @@ namespace FASTER.libdpr
     /// StateObject implementation.
     /// </summary>
     /// <typeparam name="TStateObject"> type of state object</typeparam>
-    public class DprWorker<TStateObject> where TStateObject : IStateObject
+    public class DprWorker<TStateObject, TVersionScheme> where TStateObject : IStateObject where TVersionScheme : IVersionScheme
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         private readonly DprWorkerOptions options;
 
         private readonly ConcurrentDictionary<long, LightDependencySet> versions;
-        protected readonly EpochProtectedVersionScheme versionScheme;
+        protected readonly TVersionScheme versionScheme;
         private long worldLine = 1;
 
         private long lastCheckpointMilli, lastRefreshMilli;
@@ -42,12 +42,12 @@ namespace FASTER.libdpr
         /// <param name="stateObject"> underlying state object </param>
         /// <param name="options"> DPR worker options </param>
         // TODO(Tianyu): Put some design work into the different operating modes of applications written this way -- speculative/pessimistic/no guarantees
-        public DprWorker(TStateObject stateObject, DprWorkerOptions options)
+        public DprWorker(TStateObject stateObject, TVersionScheme versionScheme, DprWorkerOptions options)
         {
             this.stateObject = stateObject;
             this.options = options;
-
-            versionScheme = new EpochProtectedVersionScheme(new LightEpoch());
+            this.versionScheme = versionScheme;
+            
             versions = new ConcurrentDictionary<long, LightDependencySet>();
             dependencySetPool = new SimpleObjectPool<LightDependencySet>(() => new LightDependencySet());
             depSerializationArray = new byte[2 * LightDependencySet.MaxClusterSize * sizeof(long)];
@@ -315,8 +315,6 @@ namespace FASTER.libdpr
                     }
                 }
             }
-
-            Debug.Assert(versionScheme.GetUnderlyingEpoch().ThisInstanceProtected());
             return true;
         }
 

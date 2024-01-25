@@ -9,12 +9,12 @@ namespace FASTER.libdpr.gRPC
 {
     public class DprClientInterceptor : Interceptor
     {
-        private IDprWorker dprWorker;
+        private DprSession session;
         private ThreadLocalObjectPool<byte[]> serializationArrayPool;
 
-        public DprClientInterceptor(IDprWorker dprWorker)
+        public DprClientInterceptor(DprSession session)
         {
-            this.dprWorker = dprWorker;
+            this.session = session;
             serializationArrayPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 10]);
         }
 
@@ -31,7 +31,7 @@ namespace FASTER.libdpr.gRPC
             AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
         {
             var buffer = serializationArrayPool.Checkout();
-            dprWorker.TagMessage(buffer);
+            session.TagMessage(buffer);
             // TODO(Tianyu): Add logic to await for commit if crossing SU
 
             var headers = context.Options.Headers;
@@ -61,15 +61,8 @@ namespace FASTER.libdpr.gRPC
             var metadata = getTrailer();
             var header = metadata.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             Debug.Assert(header != null);
-            var status = dprWorker.TryReceive(header);
-            return status switch
-            {
-                DprReceiveStatus.OK => result,
-                DprReceiveStatus.DISCARD =>
-                    // Use an error to signal to caller that this call cannot proceed
-                    throw new RpcException(Status.DefaultCancelled),
-                _ => throw new ArgumentOutOfRangeException()
-            };
+            if (session.Receive(header)) return result;
+            throw new RpcException(Status.DefaultCancelled);
         }
     }
 }

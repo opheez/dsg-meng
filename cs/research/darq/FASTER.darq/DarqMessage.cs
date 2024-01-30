@@ -132,7 +132,7 @@ namespace FASTER.libdpr
         /// Create a new StepRequest object.
         /// </summary>
         /// <param name="requestPool"> (optional) the object pool this request should be returned to on disposal </param>
-        public StepRequest(SimpleObjectPool<StepRequest> requestPool)
+        public StepRequest(SimpleObjectPool<StepRequest> requestPool = null)
         {
             serializationBuffer = new byte[1 << 15];
             consumedMessages = new List<long>();
@@ -273,7 +273,7 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="message">message body, as bytes</param>
         /// <returns> self-reference for chaining </returns>
-        public unsafe StepRequestBuilder AddSelfMessage(Span<byte> message)
+        public unsafe StepRequestBuilder AddSelfMessage(ReadOnlySpan<byte> message)
         {
             while (request.serializationBuffer.Length - request.size <
                    message.Length + sizeof(DarqMessageType) + sizeof(WorkerId))

@@ -39,7 +39,6 @@ namespace FASTER.server
 
     public class DarqServer : IDisposable
     {
-        private DarqServerOptions options;
         private readonly IFasterServer server;
         private readonly Darq darq;
         private readonly DarqProvider provider;
@@ -51,7 +50,6 @@ namespace FASTER.server
 
         public DarqServer(DarqServerOptions options)
         {
-            this.options = options;
             darq = new Darq(options.DarqSettings);
             backgroundWorker = new DarqBackgroundWorker(darq, options.ClusterInfo);
             terminationStart = new ManualResetEventSlim();

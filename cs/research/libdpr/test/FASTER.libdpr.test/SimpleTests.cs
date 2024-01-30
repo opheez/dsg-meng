@@ -1,4 +1,5 @@
 using System.Threading;
+using FASTER.core;
 using NUnit.Framework;
 
 namespace FASTER.libdpr
@@ -23,26 +24,33 @@ namespace FASTER.libdpr
             terminationToken.Set();
         }
 
-        private DprStatefulWorker<TestStateObject> ConstructWorker(long id, long suId,
-            bool autoCompleteCheckpoints = true)
+        private DprWorker<TestStateObject, EpochProtectedVersionScheme> ConstructWorker(long id, bool autoCompleteCheckpoints = true)
         {
-            return new DprStatefulWorker<TestStateObject>(new WorkerId(id), new SUId(suId),
+            return new DprWorker<TestStateObject, EpochProtectedVersionScheme>(
                 new TestStateObject(new WorkerId(id), autoCompleteCheckpoints),
-                new TestDprFinder(simulatedFinderService), 0, 0);
+                new EpochProtectedVersionScheme(new LightEpoch()),
+                new DprWorkerOptions
+                {
+                    Me = new WorkerId(id),
+                    DprFinder = new TestDprFinder(simulatedFinderService),
+                });
         }
 
-        private void SendMessage(DprStatefulWorker<TestStateObject> from, DprStatefulWorker<TestStateObject> to,
-            DprReceiveStatus expected)
+        private void SendMessage(DprWorker<TestStateObject, EpochProtectedVersionScheme> from,
+            DprWorker<TestStateObject, EpochProtectedVersionScheme> to,
+            bool expected)
         {
+            from.StartStep();
             var m = from.StateObject().GenerateMessageToSend();
-            from.Send(m.dprHeader);
-            var status = to.TryReceive<TestMessage>(m.dprHeader, m, out _);
+            from.EndStepAndProduceTag(m.dprHeader);
+            var status = to.StartStepWithReceive(m.dprHeader);
             Assert.AreEqual(expected, status);
-            if (status == DprReceiveStatus.OK)
+            if (status)
                 to.StateObject().Receive(m);
+            to.EndStep();
         }
 
-        private void VerifyCommit(params (DprStatefulWorker<TestStateObject>, long)[] expected)
+        private void VerifyCommit(params (DprWorker<TestStateObject, EpochProtectedVersionScheme>, long)[] expected)
         {
             // Wait a bit for the DprFinder service to catch up
             simulatedFinderService.NextBackgroundProcessComplete().GetAwaiter().GetResult();
@@ -56,8 +64,8 @@ namespace FASTER.libdpr
         [Test]
         public void TestOneMessage()
         {
-            var tested0 = ConstructWorker(0, 0);
-            var tested1 = ConstructWorker(1, 0);
+            var tested0 = ConstructWorker(0);
+            var tested1 = ConstructWorker(1);
 
             tested0.ConnectToCluster();
             tested1.ConnectToCluster();
@@ -66,7 +74,7 @@ namespace FASTER.libdpr
             Assert.AreEqual(1, tested0.WorldLine());
             Assert.AreEqual(1, tested1.WorldLine());
 
-            SendMessage(tested0, tested1, DprReceiveStatus.OK);
+            SendMessage(tested0, tested1, true);
 
             tested1.ForceCheckpoint();
             Assert.AreEqual(2, tested1.Version());
@@ -84,21 +92,21 @@ namespace FASTER.libdpr
         [Test]
         public void TestThreeServers()
         {
-            var a = ConstructWorker(0, 0, false);
+            var a = ConstructWorker(0,  false);
             a.ConnectToCluster();
-            var b = ConstructWorker(1, 0, false);
+            var b = ConstructWorker(1,  false);
             b.ConnectToCluster();
-            var c = ConstructWorker(2, 0, false);
+            var c = ConstructWorker(2, false);
             c.ConnectToCluster();
 
             // Construct a dependency graph without commiting anything
-            SendMessage(a, b, DprReceiveStatus.OK);
+            SendMessage(a, b, true);
             a.ForceCheckpoint();
             b.ForceCheckpoint();
             c.ForceCheckpoint();
-            SendMessage(b, a, DprReceiveStatus.OK);
-            SendMessage(c, b, DprReceiveStatus.OK);
-            SendMessage(a, c, DprReceiveStatus.OK);
+            SendMessage(b, a, true);
+            SendMessage(c, b, true);
+            SendMessage(a, c, true);
             a.ForceCheckpoint();
             b.ForceCheckpoint();
             c.ForceCheckpoint();
@@ -131,15 +139,15 @@ namespace FASTER.libdpr
         [Test]
         public void TestSimpleRecovery()
         {
-            var a = ConstructWorker(0, 0, false);
+            var a = ConstructWorker(0, false);
             a.ConnectToCluster();
-            var b = ConstructWorker(1, 0, false);
+            var b = ConstructWorker(1, false);
             b.ConnectToCluster();
-            var c = ConstructWorker(2, 0, false);
+            var c = ConstructWorker(2, false);
             c.ConnectToCluster();
 
             // Construct a dependency graph without commiting anything
-            SendMessage(a, b, DprReceiveStatus.OK);
+            SendMessage(a, b, true);
             a.ForceCheckpoint();
             var a1State = a.StateObject().stateSerialNum;
             b.ForceCheckpoint();
@@ -147,9 +155,9 @@ namespace FASTER.libdpr
             c.ForceCheckpoint();
             var c1State = c.StateObject().stateSerialNum;
 
-            SendMessage(b, a, DprReceiveStatus.OK);
-            SendMessage(c, b, DprReceiveStatus.OK);
-            SendMessage(a, c, DprReceiveStatus.OK);
+            SendMessage(b, a, true);
+            SendMessage(c, b, true);
+            SendMessage(a, c, true);
             a.ForceCheckpoint();
             var a2State = a.StateObject().stateSerialNum;
             Assert.AreNotEqual(a1State, a2State);

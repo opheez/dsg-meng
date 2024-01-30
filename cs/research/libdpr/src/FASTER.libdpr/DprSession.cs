@@ -24,11 +24,6 @@ namespace FASTER.libdpr
     {
         private long version, worldLine;
         private LightDependencySet deps;
-        
-        /// <summary>
-        /// Version of the session
-        /// </summary>
-        public long Version => version;
 
         /// <summary>
         /// WorldLine of the session

@@ -291,7 +291,7 @@ namespace FASTER.darq
             StateObject().log.Enqueue(entries, EnqueueCallback);
             return true;
         }
-
+        
         private void StepCallback(IReadOnlySpanBatch ms, int idx, long addr)
         {
             var entry = ms.Get(idx);
@@ -386,11 +386,16 @@ namespace FASTER.darq
         /// <returns>the unique incarnation number assigned to this processor</returns>
         public long RegisterNewProcessor()
         {
+            return RegisterNewProcessorAsync().GetAwaiter().GetResult();
+        }
+
+        public Task<long> RegisterNewProcessorAsync()
+        {
             var tcs = new TaskCompletionSource<long>();
             // TODO(Tianyu): Can this deadlock against itself?
             versionScheme.GetUnderlyingEpoch()
                 .BumpCurrentEpoch(() => tcs.SetResult(Interlocked.Increment(ref incarnation.value)));
-            return tcs.Task.GetAwaiter().GetResult();
+            return tcs.Task;
         }
 
         /// <summary>

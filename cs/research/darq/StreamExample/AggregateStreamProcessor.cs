@@ -22,8 +22,8 @@ namespace SimpleStream.searchlist
             this.input = me;
             this.output = output;
             currentBatchCount = new Dictionary<int, long>();
-            reusableStepRequest = new StepRequest(null);
-            batchedStepBuilder = new StepRequestBuilder(reusableStepRequest, input);
+            reusableStepRequest = new StepRequest();
+            batchedStepBuilder = new StepRequestBuilder(reusableStepRequest);
         }
         
         public bool ProcessMessage(DarqMessage m)
@@ -70,7 +70,7 @@ namespace SimpleStream.searchlist
                     {
                         CloseWindow(timestamp);
                         capabilities.Step(batchedStepBuilder.FinishStep());
-                        batchedStepBuilder = new StepRequestBuilder(reusableStepRequest, input);
+                        batchedStepBuilder = new StepRequestBuilder(reusableStepRequest);
                     }
                     
                     m.Dispose();
@@ -84,7 +84,7 @@ namespace SimpleStream.searchlist
         public void OnRestart(IDarqProcessorClientCapabilities capabilities)
         {
             this.capabilities = capabilities;
-            batchedStepBuilder = new StepRequestBuilder(reusableStepRequest, input);
+            batchedStepBuilder = new StepRequestBuilder(reusableStepRequest);
             currentBatchCount.Clear();
             currentBatchStartTime = -1;
         }

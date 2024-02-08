@@ -74,7 +74,7 @@ public class HelloTaskProcessor : IDarqProcessor
                 // Mark the input message as consumed
                 requestBuilder.MarkMessageConsumed(m.GetLsn());
                 // send the updated count to self for recoverability
-                requestBuilder.AddSelfMessage(BitConverter.GetBytes(count));
+                requestBuilder.AddRecoveryMessage(BitConverter.GetBytes(count));
 
                 // Decide if we need to send request to another DARQ
                 if (numGreetingsLeft != 0)
@@ -99,7 +99,7 @@ public class HelloTaskProcessor : IDarqProcessor
                 Debug.Assert(v.GetAwaiter().GetResult() == StepStatus.SUCCESS);
                 return true;
             }
-            case DarqMessageType.SELF:
+            case DarqMessageType.RECOVERY:
                 count = BitConverter.ToInt32(m.GetMessageBody());
                 m.Dispose();
                 return true;

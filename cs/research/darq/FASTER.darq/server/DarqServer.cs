@@ -77,7 +77,7 @@ namespace FASTER.server
             server.Start();
             if (backgroundWorker != default)
             {
-                backgroundThread = new Thread(() => backgroundWorker.StartProcessing());
+                backgroundThread = new Thread(() => backgroundWorker.StartProcessingAsync());
                 backgroundThread.Start();
             }
 

@@ -118,7 +118,6 @@ namespace FASTER.client
 
             var batch = new SerializedDarqEntryBatch(curr);
             batch.SetContent(stepRequest);
-            stepRequest.Dispose();
             curr += entryBatchSize;
             offset = (int) (curr - networkSender.GetResponseObjectHead());
             numMessages++;
@@ -370,7 +369,7 @@ namespace FASTER.client
                         src += sizeof(DarqMessageType);
                         var len = *(int*)src;
                         src += sizeof(int);
-                        Debug.Assert(type is DarqMessageType.IN or DarqMessageType.SELF);
+                        Debug.Assert(type is DarqMessageType.IN or DarqMessageType.RECOVERY);
                         var m = messagePool.Checkout();
                         m.Reset(type, lsn, nextLsn, new ReadOnlySpan<byte>(src, len));
                         pendingMessages.Enqueue(m);
@@ -550,7 +549,7 @@ namespace FASTER.client
                     switch (m.GetMessageType())
                     {
                         case DarqMessageType.IN:
-                        case DarqMessageType.SELF:
+                        case DarqMessageType.RECOVERY:
                             // TODO(Tianyu): Hacky
                             if (!processor.ProcessMessage(m))
                             {

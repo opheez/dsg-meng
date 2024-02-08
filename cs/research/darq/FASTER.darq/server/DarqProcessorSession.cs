@@ -69,7 +69,7 @@ namespace FASTER.server
             var request = new ReadOnlySpan<byte>(src, dprHeaderSize);
             src += dprHeaderSize;
             // Error code path
-            if (!darq.StartStepWithReceive(request))
+            if (!darq.StartReceiveAction(request))
             {
                 for (msgnum = 0; msgnum < num; msgnum++)
                     hrw.Write((byte)DarqCommandType.INVALID, ref dcurr, (int)(dend - dcurr));
@@ -108,7 +108,7 @@ namespace FASTER.server
                 }
             }
 
-            darq.EndStepAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
+            darq.EndActionAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
             // Send replies
             Send(d, dcurr);
         }

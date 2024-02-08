@@ -106,7 +106,7 @@ namespace FASTER.server
                     if (msgnum != 0)
                         SendCurrentBuffer();
                     else
-                        dprServer.EndStep();
+                        dprServer.EndAction();
 
                     if (terminationStart.IsSet) break;
                     
@@ -136,7 +136,7 @@ namespace FASTER.server
             dcurr += BatchHeader.Size;
             dprResponseOffset = (int*) dcurr;
             dcurr += sizeof(int);
-            dprServer.StartStep();
+            dprServer.StartLocalAction();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -147,7 +147,7 @@ namespace FASTER.server
             // reserve a size field for DPR header;
             var dprHeaderSizeField = (int*) dcurr;
             dcurr += sizeof(int);
-            dprServer.EndStepAndProduceTag(new Span<byte>(dcurr, (int) (dend - dcurr)));
+            dprServer.EndActionAndProduceTag(new Span<byte>(dcurr, (int) (dend - dcurr)));
             dcurr += DprMessageHeader.FixedLenSize;
             // Write size
             *dprHeaderSizeField = DprMessageHeader.FixedLenSize;
@@ -170,7 +170,7 @@ namespace FASTER.server
             if (it.UnsafeGetNext(out var entry, out var entryLength, out var lsn, out var nextLsn, out var type))
             {
                 
-                if (type != DarqMessageType.IN && type != DarqMessageType.SELF)
+                if (type != DarqMessageType.IN && type != DarqMessageType.RECOVERY)
                 {
                     it.UnsafeRelease();
                     return true;

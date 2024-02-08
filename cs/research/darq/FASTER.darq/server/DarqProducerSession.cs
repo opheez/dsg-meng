@@ -99,7 +99,7 @@ namespace FASTER.server
                 src += sizeof(int);
                 var request = new ReadOnlySpan<byte>(src, dprHeaderSize);
                 src += dprHeaderSize;
-                if (!darq.StartStepWithReceive(request))
+                if (!darq.StartReceiveAction(request))
                 {
                     for (msgnum = 0; msgnum < num; msgnum++)
                         hrw.Write((byte)DarqCommandType.INVALID, ref dcurr, (int)(dend - dcurr));
@@ -118,7 +118,7 @@ namespace FASTER.server
                         src += sizeof(long);
                         var batch = new SerializedDarqEntryBatch(src);
 
-                        darq.EnqueueInputBatch(batch, worker, lsn);
+                        darq.Enqueue(batch, worker, lsn);
                         src += batch.TotalSize();
                         hrw.Write((byte)message, ref dcurr, (int)(dend - dcurr));
                     }
@@ -127,7 +127,7 @@ namespace FASTER.server
                 }
 
 
-                darq.EndStepAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
+                darq.EndActionAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
                 SendResponseBuffer(d, dcurr, response);
             }
         }

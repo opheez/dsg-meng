@@ -39,8 +39,8 @@ namespace FASTER.libdpr
         /// Retrieves information about all unpruned checkpoints on persistent storage, along with persisted metadata. 
         /// </summary>
         /// <returns>
-        /// enumerable of (byte array, start offset) that denotes the metadata of each unpruned checkpoint
+        /// enumerable of bytes that denotes the metadata of each unpruned checkpoint
         /// </returns>
-        IEnumerable<(byte[], int)> GetUnprunedVersions();
+        IEnumerable<Memory<byte>> GetUnprunedVersions();
     }
 }

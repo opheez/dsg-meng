@@ -34,7 +34,7 @@ namespace SimpleStream.searchlist
                 var buffer = stackalloc byte[2 * sizeof(int)];
                 *(int*)buffer = key;
                 *(int*)(buffer + sizeof(int)) = newHash;
-                stepBuilder.AddSelfMessage(new Span<byte>(buffer, 2 * sizeof(int)));
+                stepBuilder.AddRecoveryMessage(new Span<byte>(buffer, 2 * sizeof(int)));
             }
 
             // Simulate anomaly detection via some simple arithmetics
@@ -43,7 +43,7 @@ namespace SimpleStream.searchlist
 
         public void Apply(DarqMessage selfMessage)
         {
-            Debug.Assert(selfMessage.GetMessageType() == DarqMessageType.SELF);
+            Debug.Assert(selfMessage.GetMessageType() == DarqMessageType.RECOVERY);
             unsafe
             {
                 fixed (byte* b = selfMessage.GetMessageBody())
@@ -57,7 +57,6 @@ namespace SimpleStream.searchlist
 
         public void Checkpoint(long lsn, StepRequestBuilder stepBuilder)
         {
-            stepBuilder.ConsumeUntil(lsn);
             unsafe
             {
                 var buffer = stackalloc byte[2 * sizeof(int)];
@@ -66,7 +65,7 @@ namespace SimpleStream.searchlist
                 {
                     *(int*)buffer = entry.Key;
                     *(int*)(buffer + sizeof(int)) = entry.Value;
-                    stepBuilder.AddSelfMessage(new Span<byte>(buffer, 2 * sizeof(int)));
+                    stepBuilder.AddRecoveryMessage(new Span<byte>(buffer, 2 * sizeof(int)));
                 }
             }
         }
@@ -85,7 +84,7 @@ namespace SimpleStream.searchlist
         public TrendDetectionStreamProcessor(WorkerId me)
         {
             this.input = me;
-            reusableRequest = new StepRequest(null);
+            reusableRequest = new StepRequest();
             state = new TrendDetectorState();
         }
         
@@ -93,7 +92,7 @@ namespace SimpleStream.searchlist
         {
             switch (m.GetMessageType())
             {
-                case DarqMessageType.SELF:
+                case DarqMessageType.RECOVERY:
                     state.Apply(m);
                     m.Dispose();
                     return true;
@@ -106,7 +105,7 @@ namespace SimpleStream.searchlist
                         m.Dispose();
                         return false;
                     }
-                    builder = new StepRequestBuilder(reusableRequest, input);
+                    builder = new StepRequestBuilder(reusableRequest);
                     if (state.Update(m, builder))
                     {
                         // Output to stdout

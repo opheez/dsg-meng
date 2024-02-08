@@ -506,27 +506,14 @@ namespace FASTER.core
         /// <param name="entry">Entry to be enqueued to log</param>
         /// <typeparam name="T">type of entry</typeparam>
         /// <returns>Logical address of added entry</returns>
-        public long Enqueue<T>(T entry) where T : ILogEnqueueEntry
+        public long Enqueue<T>(T entry, Action<T, long> criticalSection) where T : ILogEnqueueEntry
         {
             long logicalAddress;
-            while (!TryEnqueue(entry, out logicalAddress))
+            while (!TryEnqueue(entry, out logicalAddress, criticalSection))
                 Thread.Yield();
             return logicalAddress;
         }
-
-        /// <summary>
-        /// Enqueue batch of entries to log (in memory) - no guarantee of flush/commit
-        /// </summary>
-        /// <param name="entries">Batch of entries to be enqueued to log</param>
-        /// <typeparam name="T">type of entry</typeparam>
-        /// <returns>Logical address of added entry</returns>
-        public long Enqueue<T>(IEnumerable<T> entries) where T : ILogEnqueueEntry
-        {
-            long logicalAddress;
-            while (!TryEnqueue(entries, out logicalAddress))
-                Thread.Yield();
-            return logicalAddress;
-        }
+        
         #endregion
 
         #region TryEnqueue
@@ -538,7 +525,7 @@ namespace FASTER.core
         /// <param name="logicalAddress">Logical address of added entry</param>
         /// <typeparam name="T">type of entry</typeparam>
         /// <returns>Whether the append succeeded</returns>
-        public unsafe bool TryEnqueue<T>(T entry, out long logicalAddress) where T : ILogEnqueueEntry
+        public unsafe bool TryEnqueue<T>(T entry, out long logicalAddress, Action<T, long> criticalSection) where T : ILogEnqueueEntry
         {
             logicalAddress = 0;
             var length = entry.SerializedLength;
@@ -561,6 +548,7 @@ namespace FASTER.core
             var physicalAddress = allocator.GetPhysicalAddress(logicalAddress);
             entry.SerializeTo(new Span<byte>((void*)(headerSize + physicalAddress), length));
             SetHeader(length, (byte*)physicalAddress);
+            criticalSection?.Invoke(entry, logicalAddress);
             if (AutoRefreshSafeTailAddress) DoAutoRefreshSafeTailAddress();
             epoch.Suspend();
             if (AutoCommit) Commit();
@@ -1137,7 +1125,7 @@ namespace FASTER.core
         public ValueTask<long> EnqueueAsync<T>(T entry, CancellationToken token = default) where T : ILogEnqueueEntry
         {
             token.ThrowIfCancellationRequested();
-            if (TryEnqueue(entry, out long logicalAddress))
+            if (TryEnqueue(entry, out long logicalAddress, null))
                 return new ValueTask<long>(logicalAddress);
 
             return SlowEnqueueAsync(this, entry, token);
@@ -1150,7 +1138,7 @@ namespace FASTER.core
             while (true)
             {
                 var flushEvent = @this.FlushEvent;
-                if (@this.TryEnqueue(entry, out logicalAddress))
+                if (@this.TryEnqueue(entry, out logicalAddress, null))
                     break;
                 // Wait for *some* flush - failure can be ignored except if the token was signaled (which the caller should handle correctly)
                 try
@@ -1505,7 +1493,7 @@ namespace FASTER.core
         public long EnqueueAndWaitForCommit<T>(T entry) where T : ILogEnqueueEntry
         {
             long logicalAddress;
-            while (!TryEnqueue(entry, out logicalAddress))
+            while (!TryEnqueue(entry, out logicalAddress, null))
                 Thread.Yield();
             WaitForCommit(logicalAddress + 1);
             return logicalAddress;
@@ -1707,7 +1695,7 @@ namespace FASTER.core
             {
                 flushEvent = FlushEvent;
                 commitTask = CommitTask;
-                if (TryEnqueue(entry, out logicalAddress))
+                if (TryEnqueue(entry, out logicalAddress, null))
                     break;
                 try
                 {

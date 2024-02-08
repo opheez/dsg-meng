@@ -1,9 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 using FASTER.core;
 
 namespace FASTER.libdpr
@@ -15,17 +10,16 @@ namespace FASTER.libdpr
     {
         private FasterLogScanIterator iterator;
         private long replayEnd;
-        private Queue<(long, long, byte[])> stateMessagesToReplay;
+        private Queue<(long, long, byte[])> recoveryMessages;
         private Dictionary<long, long> replayMessages;
         private bool disposed = false;
         private byte[] reusedReadBuffer;
         private GCHandle? handle = null;
-        private long replayStart = 0;
         
         internal DarqScanIterator(FasterLog log, long replayEnd, bool speculative, bool replay = true)
         {
             iterator = log.Scan(0, long.MaxValue, scanUncommitted: speculative);
-            stateMessagesToReplay = new Queue<(long, long, byte[])>();
+            recoveryMessages = new Queue<(long, long, byte[])>();
             replayMessages = new Dictionary<long, long>();
             this.replayEnd = replayEnd;
             if (replay)
@@ -59,8 +53,8 @@ namespace FASTER.libdpr
                     {
                         case DarqMessageType.OUT:
                             break;
-                        case DarqMessageType.SELF:
-                            stateMessagesToReplay.Enqueue((currentAddress, nextAddress,
+                        case DarqMessageType.RECOVERY:
+                            recoveryMessages.Enqueue((currentAddress, nextAddress,
                                 new Span<byte>(entry, length).ToArray()));
                             break;
                         case DarqMessageType.IN:
@@ -73,10 +67,6 @@ namespace FASTER.libdpr
                                 var completedLsn = *completed++;
                                 replayMessages.Remove(completedLsn);
                             }
-                            break;
-                        case DarqMessageType.CHECKPOINT:
-                            // TODO(Tianyu): Rework this logic for correct handling
-                            replayStart = *(long*)(entry + sizeof(DarqMessageType));
                             break;
                         default:
                             throw new NotImplementedException();
@@ -107,19 +97,18 @@ namespace FASTER.libdpr
             if (handle.HasValue)
                 throw new FasterException("Trying to get next without release previous");
             type = default;
+            
             // Try to replay state messages first
-            if (stateMessagesToReplay.Count != 0)
+            if (recoveryMessages.Count != 0)
             {
-                while (true)
+                while (recoveryMessages.TryDequeue(out var m))
                 {
-                    byte[] bytes;
-                    (currentAddress, nextAddress, bytes) = stateMessagesToReplay.Dequeue();
-                    if (currentAddress <= replayStart) continue;
-                    
-                    handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
-                    type = DarqMessageType.SELF;
+                    currentAddress = m.Item1;
+                    nextAddress = m.Item2;
+                    handle = GCHandle.Alloc(m.Item3, GCHandleType.Pinned);
+                    type = DarqMessageType.RECOVERY;
                     entry = (byte*)handle.Value.AddrOfPinnedObject();
-                    entryLength = bytes.Length;
+                    entryLength = m.Item3.Length;
                     return true;
                 }
             }
@@ -129,32 +118,26 @@ namespace FASTER.libdpr
                 if (!iterator.UnsafeGetNext(out entry, out entryLength, out currentAddress, out nextAddress))
                     return false;
                 
-                if (currentAddress <= replayStart) {
-                    iterator.UnsafeRelease();
-                    continue;
-                }
 
                 type = (DarqMessageType) (*entry);
-                if (currentAddress <= replayEnd)
+                switch (type)
                 {
-                    switch (type)
-                    {
-                        case DarqMessageType.IN:
-                            if (replayMessages.Remove(currentAddress)) break;
-                            // skip messages we have identified to have been skipped
-                            iterator.UnsafeRelease();
-                            continue;
-                        case DarqMessageType.OUT:
-                            break;
-                        // These have already been replayed or should not be replayed
-                        case DarqMessageType.SELF:
-                        case DarqMessageType.COMPLETION:
-                        case DarqMessageType.CHECKPOINT:
-                            iterator.UnsafeRelease();
-                            continue;
-                        default:
-                            throw new FasterException("Unexpected entry type");
-                    }
+                    case DarqMessageType.IN:
+                        if (currentAddress > replayEnd) break;
+                        // If still replaying messages, only allow messages that should be replayed to go through
+                        if (replayMessages.Remove(currentAddress)) break;
+                        // Otherwise, skip this message because there is a later completion message
+                        iterator.UnsafeRelease();
+                        continue;
+                    case DarqMessageType.OUT:
+                        break;
+                    // Should not be seen by DARQ consumer as it's an internal detail
+                    case DarqMessageType.RECOVERY:
+                    case DarqMessageType.COMPLETION:
+                        iterator.UnsafeRelease();
+                        continue;
+                    default:
+                        throw new FasterException("Unexpected entry type");
                 }
 
                 // Skip header byte

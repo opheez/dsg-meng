@@ -14,10 +14,8 @@ namespace FASTER.darq
         ///  DARQ will operate in speculative mode.
         /// </summary>
         public IDprFinder DprFinder = null;
-
-        public WorkerId Me;
-
-        public SUId MySU;
+        
+        public WorkerId Me = WorkerId.INVALID;
         
         public long CheckpointPeriodMilli = 5;
         

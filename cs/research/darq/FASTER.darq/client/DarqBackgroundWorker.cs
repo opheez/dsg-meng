@@ -47,7 +47,7 @@ namespace FASTER.client
             long nextAddress = 0;
             try
             {
-                darq.StartStep();
+                darq.StartLocalAction();
 
                 if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
                         out var lsn, out processedUpTo, out var type))
@@ -68,7 +68,7 @@ namespace FASTER.client
             }
             finally
             {
-                darq.EndStep();
+                darq.EndAction();
             }
 
             return true;
@@ -148,9 +148,9 @@ namespace FASTER.client
             if (completionTracker.GetTruncateHead() > darq.StateObject().log.BeginAddress)
             {
                 Console.WriteLine($"Truncating log until {completionTracker.GetTruncateHead()}");
-                darq.StartStep();
+                darq.StartLocalAction();
                 darq.TruncateUntil(completionTracker.GetTruncateHead());
-                darq.EndStep();
+                darq.EndAction();
             }
 
             return true;
@@ -164,7 +164,7 @@ namespace FASTER.client
             iterator = darq.StartScan();
         }
 
-        public async Task StartProcessing()
+        public async Task StartProcessingAsync()
         {
             try
             {
@@ -201,7 +201,7 @@ namespace FASTER.client
                 Console.WriteLine($"Exception {e.Message} was thrown, restarting background worker");
                 terminationComplete.Set();
                 terminationStart = null;
-                await StartProcessing();
+                await StartProcessingAsync();
             }
         }
 

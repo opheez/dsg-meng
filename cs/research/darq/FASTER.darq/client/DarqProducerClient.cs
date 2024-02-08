@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
+using FASTER.libdpr.proto;
 
 namespace FASTER.client
 {

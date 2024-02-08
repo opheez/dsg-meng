@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using FASTER.common;
 using FASTER.core;
@@ -12,35 +10,35 @@ namespace FASTER.libdpr
         DarqProcessor = 126,
         DarqProducer = 127
     }
-    
+
     /// <summary>
     /// DARQ Command Type
     /// </summary>
     public enum DarqCommandType : byte
     {
         INVALID = 0,
-        
+
         /// <summary>
         /// DARQ Enqueue
         /// </summary>
         DarqEnqueue,
-        
+
         /// <summary>
         /// DARQ Step
         /// </summary>
         DarqStep,
-        
+
         /// <summary>
         /// DARQ Register Processor
         /// </summary>
         DarqRegisterProcessor,
-        
+
         /// <summary>
         ///  DARQ start push
         /// </summary>
         DarqStartPush,
     }
-    
+
     /// <summary>
     /// DARQ Message Type
     /// </summary>
@@ -48,14 +46,15 @@ namespace FASTER.libdpr
     {
         /// <summary></summary>
         IN,
+
         /// <summary></summary>
         OUT,
+
         /// <summary></summary>
-        SELF,
+        RECOVERY,
+
         /// <summary></summary>
         COMPLETION,
-        /// <summary></summary>
-        CHECKPOINT
     }
 
     /// <summary>
@@ -119,33 +118,26 @@ namespace FASTER.libdpr
     /// <summary>
     /// StepRequests represents a DARQ step
     /// </summary>
-    public class StepRequest : IReadOnlySpanBatch, IDisposable
+    public class StepRequest : IReadOnlySpanBatch
     {
-        internal WorkerId me;
         internal List<long> consumedMessages;
         internal List<int> offsets;
         internal int size;
         internal byte[] serializationBuffer;
-        private SimpleObjectPool<StepRequest> requestPool;
 
         /// <summary>
         /// Create a new StepRequest object.
         /// </summary>
         /// <param name="requestPool"> (optional) the object pool this request should be returned to on disposal </param>
-        public StepRequest(SimpleObjectPool<StepRequest> requestPool = null)
+        public StepRequest()
         {
             serializationBuffer = new byte[1 << 15];
             consumedMessages = new List<long>();
             offsets = new List<int>();
-            this.requestPool = requestPool;
         }
 
-        /// <inheritdoc/>
-        public void Dispose() => requestPool?.Return(this);
-
-        internal void Reset(WorkerId me)
+        internal void Reset()
         {
-            this.me = me;
             consumedMessages.Clear();
             offsets.Clear();
             size = 0;
@@ -191,10 +183,9 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="toBuild"> the StepRequest object to populate </param>
         /// <param name="me"> ID of the DARQ instance the step is for </param>
-        public StepRequestBuilder(StepRequest toBuild, WorkerId me)
+        public StepRequestBuilder(StepRequest toBuild)
         {
             request = toBuild;
-            request.Reset(me);
         }
 
         /// <summary>
@@ -205,31 +196,6 @@ namespace FASTER.libdpr
         public StepRequestBuilder MarkMessageConsumed(long lsn)
         {
             request.consumedMessages.Add(lsn);
-            return this;
-        }
-        
-        // TODO(Tianyu): WIP, New Feature
-        /// <summary>
-        /// Consume all IN/SELF messages until the LSN (inclusive). Users are responsible for handling any concurrent
-        /// stepping that may occur (this message does not participate in normal validation for duplicate consumption)
-        /// and adding new SELF messages that replace the consumed ones. 
-        /// </summary>
-        /// <param name="lsn"> LSN to consume until </param>
-        /// <returns> self-reference for chaining </returns>
-        public unsafe StepRequestBuilder ConsumeUntil(long lsn)
-        {
-            while (request.serializationBuffer.Length - request.size < sizeof(DarqMessageType) + sizeof(long))
-                request.Grow();
-
-            request.offsets.Add(request.size);
-            fixed (byte* b = request.serializationBuffer)
-            {
-                var head = b + request.size;
-                *(DarqMessageType*)head++ = DarqMessageType.CHECKPOINT;
-                *(long*)head = lsn;
-                request.size = (int)(head - b);
-            }
-
             return this;
         }
 
@@ -249,16 +215,10 @@ namespace FASTER.libdpr
             fixed (byte* b = request.serializationBuffer)
             {
                 var head = b + request.size;
-                if (recipient.Equals(request.me))
-                {
-                    *(DarqMessageType*)head++ = DarqMessageType.IN;
-                }
-                else
-                {
-                    *(DarqMessageType*)head++ = DarqMessageType.OUT;
-                    *(WorkerId*)head = recipient;
-                    head += sizeof(WorkerId);
-                }
+
+                *(DarqMessageType*)head++ = DarqMessageType.OUT;
+                *(WorkerId*)head = recipient;
+                head += sizeof(WorkerId);
 
                 message.CopyTo(new Span<byte>(head, message.Length));
                 head += message.Length;
@@ -268,10 +228,35 @@ namespace FASTER.libdpr
             return this;
         }
 
+        public unsafe StepRequestBuilder AddOutMessage(WorkerId recipient, ILogEnqueueEntry message)
+        {
+            var messageLength = message.SerializedLength;
+            while (request.serializationBuffer.Length - request.size <
+                   messageLength + sizeof(DarqMessageType) + sizeof(WorkerId))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+
+                *(DarqMessageType*)head++ = DarqMessageType.OUT;
+                *(WorkerId*)head = recipient;
+                head += sizeof(WorkerId);
+
+                message.SerializeTo(new Span<byte>(head, messageLength));
+                head += messageLength;
+                request.size = (int)(head - b);
+            }
+
+            return this;
+        }
+
         /// <summary>
-        /// Add a self message to this step.
+        /// Add an out message to this step.
         /// </summary>
-        /// <param name="message">message body, as bytes</param>
+        /// <param name="recipient">Intended recipient</param>
+        /// <param name="message">message body, in bytes</param>
         /// <returns> self-reference for chaining </returns>
         public unsafe StepRequestBuilder AddSelfMessage(ReadOnlySpan<byte> message)
         {
@@ -283,9 +268,74 @@ namespace FASTER.libdpr
             fixed (byte* b = request.serializationBuffer)
             {
                 var head = b + request.size;
-                *(DarqMessageType*)head++ = DarqMessageType.SELF;
+                *(DarqMessageType*)head++ = DarqMessageType.IN;
                 message.CopyTo(new Span<byte>(head, message.Length));
                 head += message.Length;
+                request.size = (int)(head - b);
+            }
+
+            return this;
+        }
+
+        public unsafe StepRequestBuilder AddSelfMessage(ILogEnqueueEntry message)
+        {
+            var messageLength = message.SerializedLength;
+            while (request.serializationBuffer.Length - request.size <
+                   messageLength + sizeof(DarqMessageType) + sizeof(WorkerId))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+                *(DarqMessageType*)head++ = DarqMessageType.IN;
+                message.SerializeTo(new Span<byte>(head, messageLength));
+                head += messageLength;
+                request.size = (int)(head - b);
+            }
+
+            return this;
+        }
+
+        /// <summary>
+        /// Add a self message to this step.
+        /// </summary>
+        /// <param name="message">message body, as bytes</param>
+        /// <returns> self-reference for chaining </returns>
+        public unsafe StepRequestBuilder AddRecoveryMessage(ReadOnlySpan<byte> message)
+        {
+            while (request.serializationBuffer.Length - request.size <
+                   message.Length + sizeof(DarqMessageType) + sizeof(WorkerId))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+                *(DarqMessageType*)head++ = DarqMessageType.RECOVERY;
+                message.CopyTo(new Span<byte>(head, message.Length));
+                head += message.Length;
+                request.size = (int)(head - b);
+            }
+
+            return this;
+        }
+
+        public unsafe StepRequestBuilder AddRecoveryMessage(ILogEnqueueEntry message)
+        {
+            var messageLength = message.SerializedLength;
+
+            while (request.serializationBuffer.Length - request.size <
+                   messageLength + sizeof(DarqMessageType) + sizeof(WorkerId))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+                *(DarqMessageType*)head++ = DarqMessageType.RECOVERY;
+                message.SerializeTo(new Span<byte>(head, messageLength));
+                head += messageLength;
                 request.size = (int)(head - b);
             }
 
@@ -299,7 +349,6 @@ namespace FASTER.libdpr
         public unsafe StepRequest FinishStep()
         {
             // Step needs to do something at least
-            // TODO(Tianyu): Is there a valid step where we may drop one of these requirements?
             if (request.consumedMessages.Count < 1 && request.offsets.Count == 0)
                 throw new FasterException("Empty step detected");
 

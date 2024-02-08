@@ -52,12 +52,12 @@ namespace FASTER.darq
                     var headerBytes = stackalloc byte[120];
                     header = new Span<byte>(headerBytes, 120);
                     session.TagMessage(header);
-                    if (!parent.darq.StartStepWithReceive(header))
+                    if (!parent.darq.StartReceiveAction(header))
                         return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
                 }
                 else
                 {
-                    parent.darq.StartStepWithReceive(header);
+                    parent.darq.StartReceiveAction(header);
 
                     if (parent.darq.WorldLine() != session.WorldLine)
                         return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
@@ -65,8 +65,7 @@ namespace FASTER.darq
 
 
                 var status = parent.darq.Step(parent.incarnation, request);
-                request.Dispose();
-                parent.darq.EndStep();
+                parent.darq.EndAction();
                 return new ValueTask<StepStatus>(status);
             }
 
@@ -79,8 +78,8 @@ namespace FASTER.darq
                     var headerBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
                     var header = new Span<byte>(headerBytes, 120);
                     // TODO(Tianyu): hacky
-                    parent.darq.StartStep();
-                    parent.darq.EndStepAndProduceTag(header);
+                    parent.darq.StartLocalAction();
+                    parent.darq.EndActionAndProduceTag(header);
                     var ok = session.Receive(header);
                     Debug.Assert(ok);
                 }
@@ -117,13 +116,13 @@ namespace FASTER.darq
             var headerBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
             try
             {
-                darq.StartStep();
+                darq.StartLocalAction();
                 if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
                         out var lsn, out var nextLsn, out var type))
                     return false;
 
                 // Short circuit without looking at the entry -- no need to process in background
-                if (type != DarqMessageType.IN && type != DarqMessageType.SELF)
+                if (type != DarqMessageType.IN && type != DarqMessageType.RECOVERY)
                 {
                     iterator.UnsafeRelease();
                     return true;
@@ -138,13 +137,13 @@ namespace FASTER.darq
                 if (unsafeMode)
                 {
                     var header = new Span<byte>(headerBytes, DprMessageHeader.FixedLenSize);
-                    darq.EndStepAndProduceTag(header);
+                    darq.EndActionAndProduceTag(header);
                     capabilities.session.Receive(header);
                     // TODO(Tianyu): handle if client session is ahead of DARQ in worldline
                 }
                 else
                 {
-                    darq.EndStep();
+                    darq.EndAction();
                 }
             }
 
@@ -176,7 +175,7 @@ namespace FASTER.darq
                 switch (m.GetMessageType())
                 {
                     case DarqMessageType.IN:
-                    case DarqMessageType.SELF:
+                    case DarqMessageType.RECOVERY:
                         if (processor.ProcessMessage(m))
                             return ProcessResult.CONTINUE;
                         return ProcessResult.TERMINATED;

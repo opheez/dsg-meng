@@ -56,9 +56,9 @@ namespace FASTER.libdpr
             var checkpoints = stateObject.GetUnprunedVersions();
             var minVersion = long.MaxValue;
             var numRequests = 0;
-            foreach (var (bytes, offset) in checkpoints)
+            foreach (var m in checkpoints)
             {
-                SerializationUtil.DeserializeCheckpointMetadata(new Span<byte>(bytes, offset, bytes.Length - offset),
+                SerializationUtil.DeserializeCheckpointMetadata(m.Span,
                     out var worldLine, out var wv, out var deps);
                 head += RespUtil.WriteRedisArrayHeader(4, buf, head);
                 head += RespUtil.WriteRedisBulkString("NewCheckpoint", buf, head);

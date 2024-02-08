@@ -171,7 +171,7 @@ namespace FASTER.libdpr
                 {
                     versions.TryRemove(vOld, out var deps);
                     var workerVersion = new WorkerVersion(options.Me, vOld);
-                    options.DprFinder.ReportNewPersistentVersion(worldLine, workerVersion, deps);
+                    options.DprFinder?.ReportNewPersistentVersion(worldLine, workerVersion, deps);
                     dependencySetPool.Return(deps);
                 });
 
@@ -180,6 +180,7 @@ namespace FASTER.libdpr
                 if (vOld != 0) newDeps.Update(options.Me, vOld);
                 var success = versions.TryAdd(vNew, newDeps);
                 Debug.Assert(success);
+
             }, targetVersion) == StateMachineExecutionStatus.OK;
         }
 
@@ -191,10 +192,24 @@ namespace FASTER.libdpr
         /// </summary>
         public void ConnectToCluster()
         {
-            var v = options.DprFinder.AddWorker(options.Me, stateObject);
+            long versionToRecover = 0;
+            if (options.DprFinder != null)
+            {
+                versionToRecover = options.DprFinder.AddWorker(options.Me, stateObject);
+            }
+            else
+            {
+                foreach (var v in stateObject.GetUnprunedVersions())
+                {
+                    SerializationUtil.DeserializeCheckpointMetadata(v.Span, out _, out var wv, out _);
+                    if (wv.Version > versionToRecover)
+                        versionToRecover = wv.Version;
+                }
+            }
+
             // This worker is recovering from some failure and we need to load said checkpoint
-            if (v != 0)
-                BeginRestore(options.DprFinder.SystemWorldLine(), v).GetAwaiter().GetResult();
+            if (versionToRecover != 0)
+                BeginRestore(options.DprFinder?.SystemWorldLine() ?? 1, versionToRecover).GetAwaiter().GetResult();
             else
             {
                 var deps = dependencySetPool.Checkout();
@@ -202,7 +217,7 @@ namespace FASTER.libdpr
                 Debug.Assert(success);
             }
 
-            options.DprFinder.Refresh(options.Me, stateObject);
+            options.DprFinder?.Refresh(options.Me, stateObject);
         }
 
         /// <summary></summary>
@@ -225,7 +240,7 @@ namespace FASTER.libdpr
         /// <returns> Get the largest version number that is considered committed (will be recovered to) of this DPR Worker</returns>
         public long CommittedVersion()
         {
-            return options.DprFinder.SafeVersion(Me());
+            return options.DprFinder?.SafeVersion(Me()) ?? Version() - 1;
         }
 
         public void Refresh()
@@ -233,7 +248,7 @@ namespace FASTER.libdpr
             var currentTime = sw.ElapsedMilliseconds;
             var lastCommitted = CommittedVersion();
 
-            if (lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
+            if (options.DprFinder != null && lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
             {
                 // A false return indicates that the DPR finder does not have a cut available, this is usually due to
                 // restart from crash, at which point we should resend the graph 
@@ -265,8 +280,11 @@ namespace FASTER.libdpr
                 stateObject.PruneVersion(i);
         }
 
-        public bool StartStepWithReceive(ReadOnlySpan<byte> headerBytes)
+        public bool StartReceiveAction(ReadOnlySpan<byte> headerBytes)
         {
+            // Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
+            
             ref var header =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
 
@@ -318,12 +336,15 @@ namespace FASTER.libdpr
             return true;
         }
 
-        public void StartStep() => versionScheme.Enter();
+        public void StartLocalAction() => versionScheme.Enter();
 
-        public void EndStep() => versionScheme.Leave();
+        public void EndAction() => versionScheme.Leave();
 
-        public int EndStepAndProduceTag(Span<byte> outputHeaderBytes)
+        public int EndActionAndProduceTag(Span<byte> outputHeaderBytes)
         {
+            // Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
+            
             if (outputHeaderBytes.Length < DprMessageHeader.FixedLenSize)
                 return -DprMessageHeader.FixedLenSize;
 
@@ -351,6 +372,7 @@ namespace FASTER.libdpr
 
         public void ForceRefresh()
         {
+            if (options.DprFinder == null) return;
             options.DprFinder.Refresh(options.Me, stateObject);
             core.Utility.MonotonicUpdate(ref lastRefreshMilli, sw.ElapsedMilliseconds, out _);
             if (worldLine != options.DprFinder.SystemWorldLine())

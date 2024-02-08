@@ -28,7 +28,7 @@ namespace FASTER.libdpr.gRPC
         {
             var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             Debug.Assert(header != null);
-            if (!dprWorker.StartStepWithReceive(header))
+            if (!dprWorker.StartReceiveAction(header))
                 // Use an error to signal to caller that this call cannot proceed
                 // TODO(Tianyu): add more descriptive exception information
                 throw new RpcException(Status.DefaultCancelled);
@@ -41,7 +41,7 @@ namespace FASTER.libdpr.gRPC
             // Proceed with request
             var response = await continuation.Invoke(request, context);
             var buf = serializationArrayPool.Checkout();
-            dprWorker.EndStepAndProduceTag(buf);
+            dprWorker.EndActionAndProduceTag(buf);
             // TODO(Tianyu): Add SU handling logic here to await for the response to become committed
             context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
             serializationArrayPool.Return(buf);

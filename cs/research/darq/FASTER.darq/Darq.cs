@@ -71,6 +71,23 @@ namespace FASTER.darq
         }
     }
 
+    internal struct DarqInputEntryWrapper : ILogEnqueueEntry
+    {
+        private ILogEnqueueEntry wrapped;
+
+        public DarqInputEntryWrapper(ILogEnqueueEntry wrapped)
+        {
+            this.wrapped = wrapped;
+        }
+
+        public int SerializedLength => wrapped.SerializedLength + sizeof(DarqMessageType);
+        public void SerializeTo(Span<byte> dest)
+        {
+            dest[0] = (byte)DarqMessageType.IN;
+            wrapped.SerializeTo(dest[1..]);
+        }
+    }
+
     /// <summary>
     /// Underlying state object for DARQ
     /// </summary>
@@ -143,7 +160,7 @@ namespace FASTER.darq
         }
 
         /// <inheritdoc/>
-        public IEnumerable<(byte[], int)> GetUnprunedVersions()
+        public IEnumerable<Memory<byte>> GetUnprunedVersions()
         {
             var commits = settings.LogCommitManager.ListCommits().ToList();
             return commits.Select(commitNum =>
@@ -153,7 +170,7 @@ namespace FASTER.darq
                 newLog.Recover(commitNum);
                 var commitCookie = newLog.RecoveredCookie;
                 newLog.Dispose();
-                return ValueTuple.Create(commitCookie, 0);
+                return new Memory<byte>(commitCookie);
             });
         }
 
@@ -185,7 +202,7 @@ namespace FASTER.darq
                     switch ((DarqMessageType)(*entry))
                     {
                         case DarqMessageType.IN:
-                        case DarqMessageType.SELF:
+                        case DarqMessageType.RECOVERY:
                             incompleteMessages.TryAdd(lsn, 0);
                             break;
                         case DarqMessageType.COMPLETION:
@@ -253,9 +270,15 @@ namespace FASTER.darq
             StateObject().Dispose();
         }
 
-        private void EnqueueCallback(IReadOnlySpanBatch m, int idx, long addr)
+        private void EnqueueCallbackBatch(IReadOnlySpanBatch m, int idx, long addr)
         {
             StateObject().incompleteMessages.TryAdd(addr, 0);
+        }
+
+        private void EnqueueCallback(DarqInputEntryWrapper w, long addr)
+        {
+            StateObject().incompleteMessages.TryAdd(addr, 0);
+
         }
 
         /// <summary>
@@ -270,7 +293,7 @@ namespace FASTER.darq
         /// sequence numbers from the same producer
         /// </param>
         /// <returns> whether enqueue is successful </returns>
-        public bool EnqueueInputBatch(IReadOnlySpanBatch entries, WorkerId producerId, long sequenceNum)
+        public bool Enqueue(IReadOnlySpanBatch entries, WorkerId producerId, long sequenceNum)
         {
 #if DEBUG
             unsafe
@@ -278,9 +301,7 @@ namespace FASTER.darq
                 for (var i = 0; i < entries.TotalEntries(); i++)
                 {
                     fixed (byte* h = entries.Get(i))
-                    {
                         Debug.Assert((DarqMessageType)(*h) == DarqMessageType.IN);
-                    }
                 }
             }
 #endif
@@ -288,7 +309,7 @@ namespace FASTER.darq
             if (producerId.guid != -1 && !dvc.Process(producerId, sequenceNum))
                 return false;
 
-            StateObject().log.Enqueue(entries, EnqueueCallback);
+            StateObject().log.Enqueue(entries, EnqueueCallbackBatch);
             return true;
         }
         
@@ -296,7 +317,7 @@ namespace FASTER.darq
         {
             var entry = ms.Get(idx);
             // Get first byte for type
-            if ((DarqMessageType)entry[0] == DarqMessageType.SELF ||
+            if ((DarqMessageType)entry[0] == DarqMessageType.RECOVERY ||
                 (DarqMessageType)entry[0] == DarqMessageType.IN)
                 StateObject().incompleteMessages.TryAdd(addr, 0);
 

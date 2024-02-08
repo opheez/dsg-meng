@@ -5,27 +5,29 @@ service WorkflowOrchestrator {
 }
 
 service TaskExecutor {
-  // MakeReservation makes a reservation based on given information
   rpc ExecuteTask(ExecuteTaskRequest) returns (ExecuteTaskResponse);
 }
 
 message ExecuteWorkflowRequest {
   int64 workflowId = 1;
-  bytes padding = 2;
+  int32 depth = 2;
+  bytes input = 3;
 }
 
 message ExecuteWorkflowResult {
   bool ok = 1;
-  bytes padding = 2;
+  bytes result = 2;
 }
 
 message ExecuteTaskRequest {
-  int64 taskId = 1;
-  int32 durationMilli = 2;
-  bytes padding = 3;
+  int64 workflowId = 1;
+  int32 taskId = 2;
+  int32 durationMilli = 3;
+  bytes input = 4;
 }
 
 message ExecuteTaskResponse {
-  bool ok = 1;
-  bytes padding = 2;
+  int64 workflowId = 1;
+  int32 taskId = 2;
+  bytes output = 3;
 }

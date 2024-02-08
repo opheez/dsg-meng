@@ -16,9 +16,9 @@ namespace SimpleStream.searchlist
         {
             this.input = me;
             this.output = output;
-            reusableStepRequest = new StepRequest(null);
+            reusableStepRequest = new StepRequest();
             this.batchSize = batchSize;
-            batchedStepBuilder = new StepRequestBuilder(reusableStepRequest, input);
+            batchedStepBuilder = new StepRequestBuilder(reusableStepRequest);
         }
 
         public bool ProcessMessage(DarqMessage m)
@@ -73,7 +73,7 @@ namespace SimpleStream.searchlist
                     {
                         currentlyBatched = 0;
                         capabilities.Step(batchedStepBuilder.FinishStep());
-                        batchedStepBuilder = new StepRequestBuilder(reusableStepRequest, input);
+                        batchedStepBuilder = new StepRequestBuilder(reusableStepRequest);
                     }
                     m.Dispose();
                     return true;

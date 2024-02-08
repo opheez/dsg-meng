@@ -36,7 +36,7 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
 
         if (backgroundWorker != default)
         {
-            backgroundThread = new Thread(() => backgroundWorker.StartProcessing());
+            backgroundThread = new Thread(() => backgroundWorker.StartProcessingAsync());
             backgroundThread.Start();
         }
 
@@ -84,11 +84,11 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
     public override Task<DarqStepResult> Step(DarqStepRequest request, ServerCallContext context)
     {
         var requestObject = stepRequestPool.Checkout();
-        var requestBuilder = new StepRequestBuilder(requestObject, backend.Me());
+        var requestBuilder = new StepRequestBuilder(requestObject);
         foreach (var consumed in request.ConsumedMessages)
             requestBuilder.MarkMessageConsumed(consumed);
         foreach (var self in request.SelfMessages)
-            requestBuilder.AddSelfMessage(self.Span);
+            requestBuilder.AddRecoveryMessage(self.Span);
         foreach (var outMessage in request.OutMessages)
             requestBuilder.AddOutMessage(new WorkerId(outMessage.Recipient), outMessage.Message.Span);
         var result = backend.Step(request.IncarnationId, requestBuilder.FinishStep());
@@ -111,7 +111,6 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
     public override Task<DarqEnqueueResult> Enqueue(DarqEnqueueRequest request, ServerCallContext context)
     {
         var enqueueBuffer = enqueueRequestPool.Checkout();
-        Debug.Assert(enqueueBuffer.Length >= request.Message.Length);
         SerializedDarqEntryBatch enqueueRequest;
         unsafe
         {
@@ -122,7 +121,7 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
             }
         }
 
-        var ok = backend.EnqueueInputBatch(enqueueRequest, new WorkerId(request.ProducerId), request.Lsn);
+        var ok = backend.Enqueue(enqueueRequest, new WorkerId(request.ProducerId), request.Lsn);
         enqueueRequestPool.Return(enqueueBuffer);
         return Task.FromResult(new DarqEnqueueResult
         {
@@ -149,14 +148,14 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
                 {
                     if (!currentIterator.UnsafeGetNext(out var b, out var length, out _, out _, out var type))
                         break;
-                    if (type is DarqMessageType.IN or DarqMessageType.SELF)
+                    if (type is DarqMessageType.IN or DarqMessageType.RECOVERY)
                     {
                         var darqMessage = new protobuf.DarqMessage
                         {
                             Type = type switch
                             {
                                 DarqMessageType.IN => protobuf.DarqMessageType.In,
-                                DarqMessageType.SELF => protobuf.DarqMessageType.Self,
+                                DarqMessageType.RECOVERY => protobuf.DarqMessageType.Self,
                                 _ => throw new ArgumentOutOfRangeException()
                             },
                             MesssageBody = ByteString.CopyFrom(new ReadOnlySpan<byte>(b, length))

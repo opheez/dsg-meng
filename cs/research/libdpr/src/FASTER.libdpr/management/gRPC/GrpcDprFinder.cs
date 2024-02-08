@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using FASTER.libdpr.proto;
 using Grpc.Net.Client;
@@ -51,9 +50,9 @@ namespace FASTER.libdpr
         {
             var checkpoints = stateObject.GetUnprunedVersions();
             var request = new ResendGraphRequest();
-            foreach (var (bytes, offset) in checkpoints)
+            foreach (var m in checkpoints)
             {
-                SerializationUtil.DeserializeCheckpointMetadata(new Span<byte>(bytes, offset, bytes.Length - offset),
+                SerializationUtil.DeserializeCheckpointMetadata(m.Span,
                     out var worldLine, out var wv, out var deps);
                 var checkpointRequest = new NewCheckpointRequest
                 {

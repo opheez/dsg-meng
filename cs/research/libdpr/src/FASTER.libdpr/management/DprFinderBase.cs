@@ -10,20 +10,20 @@ namespace FASTER.libdpr
     public abstract class DprFinderBase : IDprFinder
     {
         // We maintain two cuts that alternate being updated, and atomically swap them
-        private Dictionary<WorkerId, long> frontCut, backCut;
+        private Dictionary<DprWorkerId, long> frontCut, backCut;
         private ClusterState frontState, backState;
 
         protected DprFinderBase()
         {
-            frontCut = new Dictionary<WorkerId, long>();
-            backCut = new Dictionary<WorkerId, long>();
+            frontCut = new Dictionary<DprWorkerId, long>();
+            backCut = new Dictionary<DprWorkerId, long>();
             frontState = new ClusterState();
             backState = new ClusterState();
         }
 
-        public long SafeVersion(WorkerId workerId)
+        public long SafeVersion(DprWorkerId dprWorkerId)
         {
-            return frontCut.TryGetValue(workerId, out var result) ? result : 0;
+            return frontCut.TryGetValue(dprWorkerId, out var result) ? result : 0;
         }
 
         public long SystemWorldLine()
@@ -37,7 +37,7 @@ namespace FASTER.libdpr
             var state = frontState;
 
             if (dprHeader.WorldLine < state.currentWorldLine) return DprStatus.ROLLEDBACK;
-            if (dprHeader.SrcWorkerId == WorkerId.INVALID)
+            if (dprHeader.SrcWorkerId == DprWorkerId.INVALID)
             {
                 // This is a client dependency that uses the varlen dependency fields, so we need to check that those
                 // are all committed instead
@@ -66,15 +66,15 @@ namespace FASTER.libdpr
         public abstract void ReportNewPersistentVersion(long worldLine, WorkerVersion persisted,
             IEnumerable<WorkerVersion> deps);
 
-        protected abstract bool Sync(ClusterState stateToUpdate, Dictionary<WorkerId, long> cutToUpdate);
+        protected abstract bool Sync(ClusterState stateToUpdate, Dictionary<DprWorkerId, long> cutToUpdate);
 
-        protected abstract void SendGraphReconstruction(WorkerId id, IStateObject stateObject);
+        protected abstract void SendGraphReconstruction(DprWorkerId id, IStateObject stateObject);
 
-        protected abstract void AddWorkerInternal(WorkerId id);
+        protected abstract void AddWorkerInternal(DprWorkerId id);
 
-        public abstract void RemoveWorker(WorkerId id);
+        public abstract void RemoveWorker(DprWorkerId id);
 
-        public void Refresh(WorkerId id, IStateObject stateObject)
+        public void Refresh(DprWorkerId id, IStateObject stateObject)
         {
             // Reset data structures
             backCut.Clear();
@@ -103,7 +103,7 @@ namespace FASTER.libdpr
             backCut = Interlocked.Exchange(ref frontCut, backCut);
         }
 
-        public long AddWorker(WorkerId id, IStateObject stateObject)
+        public long AddWorker(DprWorkerId id, IStateObject stateObject)
         {
             // A blind resending of graph is necessary, in case the coordinator is undergoing recovery and pausing
             // processing of new workers until every worker has responded

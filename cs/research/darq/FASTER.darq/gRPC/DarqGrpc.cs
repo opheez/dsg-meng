@@ -90,7 +90,7 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
         foreach (var self in request.SelfMessages)
             requestBuilder.AddRecoveryMessage(self.Span);
         foreach (var outMessage in request.OutMessages)
-            requestBuilder.AddOutMessage(new WorkerId(outMessage.Recipient), outMessage.Message.Span);
+            requestBuilder.AddOutMessage(new DarqId(outMessage.Recipient), outMessage.Message.Span);
         var result = backend.Step(request.IncarnationId, requestBuilder.FinishStep());
         stepRequestPool.Return(requestObject);
 
@@ -121,7 +121,7 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
             }
         }
 
-        var ok = backend.Enqueue(enqueueRequest, new WorkerId(request.ProducerId), request.Lsn);
+        var ok = backend.Enqueue(enqueueRequest, request.ProducerId, request.Lsn);
         enqueueRequestPool.Return(enqueueBuffer);
         return Task.FromResult(new DarqEnqueueResult
         {

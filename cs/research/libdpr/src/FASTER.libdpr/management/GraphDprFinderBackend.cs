@@ -14,7 +14,7 @@ namespace FASTER.libdpr
         
         public abstract void ResetClusterState(ClusterState clusterState);
 
-        public abstract void UpdateCut(Dictionary<WorkerId, long> newCut);
+        public abstract void UpdateCut(Dictionary<DprWorkerId, long> newCut);
     }
 
     /// <summary>
@@ -33,7 +33,7 @@ namespace FASTER.libdpr
         ///     membership, and a worker is recognized as part of the cluster iff they have an entry in this dictionary.
         ///     Workers that did not participate in the previous world-lines have 0 in the cut.
         /// </summary>
-        public Dictionary<WorkerId, long> worldLinePrefix;
+        public Dictionary<DprWorkerId, long> worldLinePrefix;
 
         /// <summary>
         ///     Creates a new ClusterState object for an empty cluster
@@ -41,7 +41,7 @@ namespace FASTER.libdpr
         public ClusterState()
         {
             currentWorldLine = 1;
-            worldLinePrefix = new Dictionary<WorkerId, long>();
+            worldLinePrefix = new Dictionary<DprWorkerId, long>();
         }
 
         /// <summary>
@@ -75,9 +75,9 @@ namespace FASTER.libdpr
     public class GraphDprFinderBackend
     {
         // Used to send add/delete worker requests to processing thread
-        private readonly ConcurrentQueue<(WorkerId, Action<(long, long)>)> addQueue =
-            new ConcurrentQueue<(WorkerId, Action<(long, long)>)>();
-        private readonly ConcurrentQueue<(WorkerId, Action)> deleteQueue = new ConcurrentQueue<(WorkerId, Action)>();
+        private readonly ConcurrentQueue<(DprWorkerId, Action<(long, long)>)> addQueue =
+            new ConcurrentQueue<(DprWorkerId, Action<(long, long)>)>();
+        private readonly ConcurrentQueue<(DprWorkerId, Action)> deleteQueue = new ConcurrentQueue<(DprWorkerId, Action)>();
 
         private readonly ConcurrentDictionary<WorkerVersion, List<WorkerVersion>> precedenceGraph =
             new ConcurrentDictionary<WorkerVersion, List<WorkerVersion>>();
@@ -87,7 +87,7 @@ namespace FASTER.libdpr
         private readonly PingPongDevice persistentStorage;
 
         private readonly ReaderWriterLockSlim clusterChangeLatch = new ReaderWriterLockSlim();
-        private readonly Dictionary<WorkerId, long> currentCut = new Dictionary<WorkerId, long>();
+        private readonly Dictionary<DprWorkerId, long> currentCut = new Dictionary<DprWorkerId, long>();
         private readonly ClusterState volatileClusterState;
         
         private bool cutChanged;
@@ -140,7 +140,7 @@ namespace FASTER.libdpr
            
 
                 // If version is in the graph but somehow already committed, remove it and reclaim associated resources
-                if (wv.Version <= currentCut.GetValueOrDefault(wv.WorkerId, 0))
+                if (wv.Version <= currentCut.GetValueOrDefault(wv.DprWorkerId, 0))
                 {
                     // already committed. Remove but do not signal changes to the cut
                     if (precedenceGraph.TryRemove(wv, out var list))
@@ -159,7 +159,7 @@ namespace FASTER.libdpr
                     var node = frontier.Dequeue();
                     if (visited.Contains(node)) continue;
                     // If node is committed as determined by the cut, ok to continue
-                    if (currentCut.GetValueOrDefault(node.WorkerId, 0) >= node.Version) continue;
+                    if (currentCut.GetValueOrDefault(node.DprWorkerId, 0) >= node.Version) continue;
                     // Otherwise, need to check if it is persistent (and therefore present in the graph)
                     if (!precedenceGraph.TryGetValue(node, out var val)) return false;
 
@@ -176,10 +176,10 @@ namespace FASTER.libdpr
                 {
                     // Mark cut as changed so we know to serialize the new cut later on
                     cutChanged = true;
-                    var version = currentCut.GetValueOrDefault(committed.WorkerId, 0);
+                    var version = currentCut.GetValueOrDefault(committed.DprWorkerId, 0);
                     // Update cut if necessary
                     if (version < committed.Version)
-                        currentCut[committed.WorkerId] = committed.Version;
+                        currentCut[committed.DprWorkerId] = committed.Version;
                     if (precedenceGraph.TryRemove(committed, out var list))
                         objectPool.Return(list);
                 }
@@ -278,7 +278,7 @@ namespace FASTER.libdpr
             // The DprFinder should be the most up-to-date w.r.t. world-lines and we should not ever receive
             // a request from the future. 
             Debug.Assert(worldLine <= volatileClusterState.currentWorldLine);
-            Debug.Assert(currentCut.ContainsKey(wv.WorkerId));
+            Debug.Assert(currentCut.ContainsKey(wv.DprWorkerId));
             try
             {
                 // Cannot interleave NewCheckpoint calls with cluster changes --- cluster changes may change the 
@@ -288,10 +288,10 @@ namespace FASTER.libdpr
                 // Unless the reported versions are in the current world-line (or belong to the common prefix), we should
                 // not allow this write to go through
                 if (worldLine != volatileClusterState.currentWorldLine
-                    && wv.Version > volatileClusterState.worldLinePrefix[wv.WorkerId]) return;
+                    && wv.Version > volatileClusterState.worldLinePrefix[wv.DprWorkerId]) return;
 
                 // This may be a duplicate
-                if (currentCut[wv.WorkerId] >= wv.Version) return;
+                if (currentCut[wv.DprWorkerId] >= wv.Version) return;
                 
                 var list = objectPool.Checkout();
                 list.Clear();
@@ -307,7 +307,7 @@ namespace FASTER.libdpr
             }
         }
 
-        public void MarkWorkerAccountedFor(WorkerId workerId)
+        public void MarkWorkerAccountedFor(DprWorkerId dprWorkerId)
         {
             // Should only be invoked if recovery is underway. However, a new worker may send a blind graph resend. 
             if (recoveryState.RecoveryComplete()) return;
@@ -315,9 +315,9 @@ namespace FASTER.libdpr
             // for as then only the graph traversal thread will update current cut
             lock (currentCut)
             {
-                Debug.Assert(currentCut.ContainsKey(workerId));
+                Debug.Assert(currentCut.ContainsKey(dprWorkerId));
             }
-            recoveryState.MarkWorkerAccountedFor(workerId);
+            recoveryState.MarkWorkerAccountedFor(dprWorkerId);
         }
 
         /// <summary>
@@ -325,24 +325,24 @@ namespace FASTER.libdpr
         ///     a failure recovery and triggers necessary next steps. Given callback is invoked when the effect of this
         ///     call is recoverable on storage
         /// </summary>
-        /// <param name="workerId"> worker to add to the cluster </param>
+        /// <param name="dprWorkerId"> worker to add to the cluster </param>
         /// <param name="callback"> callback to invoke when worker addition is persistent </param>
-        public void AddWorker(WorkerId workerId, Action<(long, long)> callback = null)
+        public void AddWorker(DprWorkerId dprWorkerId, Action<(long, long)> callback = null)
         {
-            addQueue.Enqueue(ValueTuple.Create(workerId, callback));
+            addQueue.Enqueue(ValueTuple.Create(dprWorkerId, callback));
         }
 
-        private (long, long) ProcessAddWorker(WorkerId workerId)
+        private (long, long) ProcessAddWorker(DprWorkerId dprWorkerId)
         {
             // Before adding a worker, make sure all workers have already reported all (if any) locally outstanding 
             // checkpoints. We require this to be able to process the request.
             if (!recoveryState.RecoveryComplete()) throw new InvalidOperationException();
             (long, long) result;
-            if (volatileClusterState.worldLinePrefix.TryAdd(workerId, 0))
+            if (volatileClusterState.worldLinePrefix.TryAdd(dprWorkerId, 0))
             {
                 // First time we have seen this worker --- start them at current world-line
                 result = (volatileClusterState.currentWorldLine, 0);
-                currentCut.Add(workerId, 0);
+                currentCut.Add(dprWorkerId, 0);
                 cutChanged = true;
             }
             else
@@ -359,7 +359,7 @@ namespace FASTER.libdpr
                     objectPool.Return(list);
                 precedenceGraph.Clear();
                 outstandingWvs.Clear();
-                var survivingVersion = currentCut[workerId];
+                var survivingVersion = currentCut[dprWorkerId];
                 result = (volatileClusterState.currentWorldLine, survivingVersion);
             }
 
@@ -371,23 +371,23 @@ namespace FASTER.libdpr
         ///     any future operations or have outstanding unpersisted operations others may depend on. Until callback is
         ///     invoked, the worker is still considered part of the system and must be recovered if it crashes.
         /// </summary>
-        /// <param name="workerId"> the worker to delete from the cluster </param>
+        /// <param name="dprWorkerId"> the worker to delete from the cluster </param>
         /// <param name="callback"> callback to invoke when worker removal is persistent on storage </param>
-        public void DeleteWorker(WorkerId workerId, Action callback = null)
+        public void DeleteWorker(DprWorkerId dprWorkerId, Action callback = null)
         {
-            deleteQueue.Enqueue(ValueTuple.Create(workerId, callback));
+            deleteQueue.Enqueue(ValueTuple.Create(dprWorkerId, callback));
         }
 
-        private void ProcessDeleteWorker(WorkerId workerId)
+        private void ProcessDeleteWorker(DprWorkerId dprWorkerId)
         {
             // Before adding a worker, make sure all workers have already reported all (if any) locally outstanding 
             // checkpoints. We require this to be able to process the request.
             if (!recoveryState.RecoveryComplete()) throw new InvalidOperationException();
 
-            currentCut.Remove(workerId);
+            currentCut.Remove(dprWorkerId);
             cutChanged = true;
-            volatileClusterState.worldLinePrefix.Remove(workerId);
-            volatileClusterState.worldLinePrefix.Remove(workerId);
+            volatileClusterState.worldLinePrefix.Remove(dprWorkerId);
+            volatileClusterState.worldLinePrefix.Remove(dprWorkerId);
         }
 
         /// <inheritdoc cref="IDisposable" />
@@ -404,8 +404,8 @@ namespace FASTER.libdpr
             private readonly CountdownEvent countdown;
             private bool recoveryComplete;
 
-            private readonly ConcurrentDictionary<WorkerId, byte> workersUnaccontedFor =
-                new ConcurrentDictionary<WorkerId, byte>();
+            private readonly ConcurrentDictionary<DprWorkerId, byte> workersUnaccontedFor =
+                new ConcurrentDictionary<DprWorkerId, byte>();
 
             internal RecoveryState(GraphDprFinderBackend backend)
             {
@@ -435,11 +435,11 @@ namespace FASTER.libdpr
             }
 
             // Called when the backend has received all precedence graph information from a worker
-            internal void MarkWorkerAccountedFor(WorkerId workerId)
+            internal void MarkWorkerAccountedFor(DprWorkerId dprWorkerId)
             {
                 // A worker may repeatedly check-in due to crashes or other reason, we need to make sure each
                 // worker decrements the count exactly once
-                if (!workersUnaccontedFor.TryRemove(workerId, out _)) return;
+                if (!workersUnaccontedFor.TryRemove(dprWorkerId, out _)) return;
 
                 if (!countdown.Signal()) return;
                 // At this point, we have all information that is at least as up-to-date as when we crashed. We can

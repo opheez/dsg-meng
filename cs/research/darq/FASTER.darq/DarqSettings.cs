@@ -3,6 +3,55 @@ using FASTER.libdpr;
 
 namespace FASTER.darq
 {
+    
+    /// <summary>
+    ///     Each DARQ instance is uniquely numbered within a cluster  for identification and routing
+    /// </summary>
+    public struct DarqId : IEquatable<DarqId>
+    {
+
+        /// <summary>
+        ///  globally-unique worker ID within a DPR cluster
+        /// </summary>
+        public readonly long guid;
+
+        /// <summary>
+        ///     Constructs a worker with the given guid
+        /// </summary>
+        /// <param name="guid"> worker guid </param>
+        public DarqId(long guid)
+        {
+            this.guid = guid;
+        }
+
+        public readonly bool Equals(DarqId other)
+        {
+            return guid == other.guid;
+        }
+
+        public static bool operator ==(DarqId left, DarqId right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(DarqId left, DarqId right)
+        {
+            return !left.Equals(right);
+        }
+
+        /// <inheritdoc cref="object" />
+        public override bool Equals(object obj)
+        {
+            return obj is DarqId other && Equals(other);
+        }
+
+        /// <inheritdoc cref="object" />
+        public override int GetHashCode()
+        {
+            return guid.GetHashCode();
+        }
+    }
+    
     /// <summary>
     /// DARQ Settings
     /// </summary>
@@ -15,7 +64,9 @@ namespace FASTER.darq
         /// </summary>
         public IDprFinder DprFinder = null;
         
-        public WorkerId Me = WorkerId.INVALID;
+        public DarqId Me = new(0);
+
+        public DprWorkerId MyDpr = DprWorkerId.INVALID;
         
         public long CheckpointPeriodMilli = 5;
         
@@ -79,6 +130,12 @@ namespace FASTER.darq
         /// will result in data loss otherwise,
         /// </summary>
         public bool DeleteOnClose = false;
+        
+        /// <summary>
+        /// When CleanStart is true, DARQ will remove all persistent previous state on startup -- useful for testing but
+        /// will result in data loss otherwise
+        /// </summary>
+        public bool CleanStart = false;
 
         /// <summary>
         /// Create default configuration settings for DARQ. You need to create and specify LogDevice 

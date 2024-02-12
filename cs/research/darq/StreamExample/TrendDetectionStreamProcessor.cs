@@ -73,7 +73,7 @@ namespace SimpleStream.searchlist
     }
     public class TrendDetectionStreamProcessor : IDarqProcessor
     {
-        private WorkerId input;
+        private DprWorkerId input;
         private IDarqProcessorClientCapabilities capabilities;
         private StepRequest reusableRequest;
         // Emulate some persistent insight stored about each key/entry with an integer hash code
@@ -81,7 +81,7 @@ namespace SimpleStream.searchlist
         private int uncheckpointedSize = 0, checkpointThreshold = 1 << 15; 
 
         
-        public TrendDetectionStreamProcessor(WorkerId me)
+        public TrendDetectionStreamProcessor(DprWorkerId me)
         {
             this.input = me;
             reusableRequest = new StepRequest();

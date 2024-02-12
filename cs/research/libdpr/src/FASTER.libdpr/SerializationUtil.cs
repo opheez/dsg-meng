@@ -15,7 +15,7 @@ namespace FASTER.libdpr
                 var head = b;
                 if (!BitConverter.TryWriteBytes(new Span<byte>(head, (int) (end - head)), worldLine)) return 0;
                 head += sizeof(long);
-                if (!BitConverter.TryWriteBytes(new Span<byte>(head, (int) (end - head)), checkpointed.WorkerId.guid))
+                if (!BitConverter.TryWriteBytes(new Span<byte>(head, (int) (end - head)), checkpointed.DprWorkerId.guid))
                     return 0;
                 head += sizeof(long);
                 if (!BitConverter.TryWriteBytes(new Span<byte>(head, (int) (end - head)), checkpointed.Version))
@@ -30,7 +30,7 @@ namespace FASTER.libdpr
                 {
                     numDeps++;
                     head += sizeof(long);
-                    if (!BitConverter.TryWriteBytes(new Span<byte>(head, (int) (end - head)), wv.WorkerId.guid)) return 0;
+                    if (!BitConverter.TryWriteBytes(new Span<byte>(head, (int) (end - head)), wv.DprWorkerId.guid)) return 0;
                     head += sizeof(long);
                     if (!BitConverter.TryWriteBytes(new Span<byte>(head, (int) (end - head)), wv.Version)) return 0;
                 }

@@ -44,7 +44,7 @@ namespace FASTER.libdpr
         ///     Update the PrecomputedSyncResponse to hold the given cut
         /// </summary>
         /// <param name="newCut"> DPR cut to serialize </param>
-        public override void UpdateCut(Dictionary<WorkerId, long> newCut)
+        public override void UpdateCut(Dictionary<DprWorkerId, long> newCut)
         {
             // Update serialized under write latch so readers cannot see partial updates
             rwLatch.EnterWriteLock();
@@ -175,7 +175,7 @@ namespace FASTER.libdpr
                     backend.NewCheckpoint(command.worldLine, command.wv, command.deps);
                     break;
                 case DprFinderCommand.Type.GRAPH_RESENT:
-                    backend.MarkWorkerAccountedFor(command.wv.WorkerId);
+                    backend.MarkWorkerAccountedFor(command.wv.DprWorkerId);
                     socket.SendOk();
                     break;
                 case DprFinderCommand.Type.SYNC:

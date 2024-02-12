@@ -1,7 +1,5 @@
 using FASTER.client;
-using FASTER.core;
 using FASTER.darq;
-using FASTER.libdpr;
 
 namespace FASTER.server
 {
@@ -21,12 +19,7 @@ namespace FASTER.server
         public string Address = "127.0.0.1";
         
         public IDarqClusterInfo ClusterInfo;
-
-        public WorkerId me;
         
         public DarqSettings DarqSettings;
-        
-        public int commitIntervalMilli = 25;
-        public int refreshIntervalMilli = 10;
     }
 }

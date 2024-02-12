@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using FASTER.common;
 using FASTER.core;
+using FASTER.darq;
 using FASTER.libdpr;
 using FASTER.libdpr.proto;
 
@@ -20,33 +21,33 @@ namespace FASTER.client
 
         /// <summary></summary>
         /// <returns> workers present in the cluster and human-readable descriptions</returns>
-        IEnumerable<(WorkerId, string)> GetWorkers();
+        IEnumerable<(DarqId, string)> GetMembers();
 
         /// <summary></summary>
         /// <returns>number of workers present in the cluster</returns>
-        int GetNumWorkers();
+        int GetClusterSize();
 
         /// <summary></summary>
-        /// <param name="worker"> WorkerId of interest </param>
+        /// <param name="worker"> DarqId of interest </param>
         /// <returns> Return the IP address and port number the given worker is reachable at </returns>
-        (string, int) GetWorkerAddress(WorkerId worker);
+        (string, int) GetMemberAddress(DarqId worker);
     }
 
     [Serializable]
     public class HardCodedClusterInfo : IDarqClusterInfo
     {
-        private Dictionary<WorkerId, (string, string, int)> workerMap;
+        private Dictionary<DarqId, (string, string, int)> memberMap;
         private string dprFinderIp;
         private int dprFinderPort = -1;
 
         public HardCodedClusterInfo()
         {
-            workerMap = new Dictionary<WorkerId, (string, string, int)>();
+            memberMap = new Dictionary<DarqId, (string, string, int)>();
         }
 
-        public HardCodedClusterInfo AddWorker(WorkerId worker, string description, string ip, int port)
+        public HardCodedClusterInfo AddWorker(DarqId worker, string description, string ip, int port)
         {
-            workerMap.Add(worker, (description, ip, port));
+            memberMap.Add(worker, (description, ip, port));
             return this;
         }
 
@@ -66,16 +67,16 @@ namespace FASTER.client
             return new RespGraphDprFinder(dprFinderIp, dprFinderPort);
         }
 
-        public (string, int) GetWorkerAddress(WorkerId worker)
+        public (string, int) GetMemberAddress(DarqId worker)
         {
-            var (_, ip, port) = workerMap[worker];
+            var (_, ip, port) = memberMap[worker];
             return (ip, port);
         }
 
-        public IEnumerable<(WorkerId, string)> GetWorkers() =>
-            workerMap.Select(e => (e.Key, e.Value.Item1));
+        public IEnumerable<(DarqId, string)> GetMembers() =>
+            memberMap.Select(e => (e.Key, e.Value.Item1));
 
-        public int GetNumWorkers() => workerMap.Count;
+        public int GetClusterSize() => memberMap.Count;
     }
 
     /// <summary>
@@ -84,7 +85,7 @@ namespace FASTER.client
     public class DarqProducerClient : IDisposable
     {
         private IDarqClusterInfo darqClusterInfo;
-        private Dictionary<WorkerId, SingleDarqProducerClient> clients;
+        private Dictionary<DarqId, SingleDarqProducerClient> clients;
         private DprSession dprSession;
         private long serialNum = 0;
 
@@ -96,7 +97,7 @@ namespace FASTER.client
         public DarqProducerClient(IDarqClusterInfo darqClusterInfo, DprSession session = null)
         {
             this.darqClusterInfo = darqClusterInfo;
-            clients = new Dictionary<WorkerId, SingleDarqProducerClient>();
+            clients = new Dictionary<DarqId, SingleDarqProducerClient>();
             // TODO(Tianyu): Do something about session to set up SU correctly
             dprSession = session ?? new DprSession();
         }
@@ -120,13 +121,13 @@ namespace FASTER.client
         /// until a set number has been accumulated or until forced to flush
         /// </param>
         /// <returns></returns>
-        public Task EnqueueMessageAsync(WorkerId darqId, ReadOnlySpan<byte> message, long producerId = -1,
+        public Task EnqueueMessageAsync(DarqId darqId, ReadOnlySpan<byte> message, long producerId = -1,
             long lsn = -1,
             bool forceFlush = true)
         {
             if (!clients.TryGetValue(darqId, out var singleClient))
             {
-                var (ip, port) = darqClusterInfo.GetWorkerAddress(darqId);
+                var (ip, port) = darqClusterInfo.GetMemberAddress(darqId);
                 singleClient = new SingleDarqProducerClient(dprSession, ip, port);
             }
 
@@ -142,13 +143,13 @@ namespace FASTER.client
         }
 
         // TODO(Tianyu): Handle socket-related anomalies?
-        public void EnqueueMessageWithCallback(WorkerId darqId, ReadOnlySpan<byte> message, Action<bool> callback,
+        public void EnqueueMessageWithCallback(DarqId darqId, ReadOnlySpan<byte> message, Action<bool> callback,
             long producerId = -1, long lsn = -1,
             bool forceFlush = true)
         {
             if (!clients.TryGetValue(darqId, out var singleClient))
             {
-                var (ip, port) = darqClusterInfo.GetWorkerAddress(darqId);
+                var (ip, port) = darqClusterInfo.GetMemberAddress(darqId);
                 singleClient = new SingleDarqProducerClient(dprSession, ip, port);
             }
 

@@ -4,20 +4,21 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.core;
+using FASTER.darq;
 using FASTER.libdpr;
 
 namespace SimpleStream.searchlist
 {
     public class AggregateStreamProcessor : IDarqProcessor
     {
-        private WorkerId input, output;
+        private DarqId input, output;
         private IDarqProcessorClientCapabilities capabilities;
         private long currentBatchStartTime = -1;
         private Dictionary<int, long> currentBatchCount;
         private StepRequestBuilder batchedStepBuilder;
         private StepRequest reusableStepRequest;
 
-        public AggregateStreamProcessor(WorkerId me, WorkerId output)
+        public AggregateStreamProcessor(DarqId me, DarqId output)
         {
             this.input = me;
             this.output = output;

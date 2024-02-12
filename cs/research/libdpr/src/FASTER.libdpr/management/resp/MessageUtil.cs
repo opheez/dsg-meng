@@ -49,7 +49,7 @@ namespace FASTER.libdpr
             socket.Send(OkResponse);
         }
 
-        internal int SendGraphReconstruction(WorkerId workerId, IStateObject stateObject)
+        internal int SendGraphReconstruction(DprWorkerId dprWorkerId, IStateObject stateObject)
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = 0;
@@ -72,28 +72,28 @@ namespace FASTER.libdpr
             if (numRequests == 0) return 0;
             head += RespUtil.WriteRedisArrayHeader(2, buf, head);
             head += RespUtil.WriteRedisBulkString("GraphResent", buf, head);
-            var committedVersion = new WorkerVersion(workerId, minVersion == long.MaxValue ? 0 : minVersion);
+            var committedVersion = new WorkerVersion(dprWorkerId, minVersion == long.MaxValue ? 0 : minVersion);
             head += RespUtil.WriteRedisBulkString(committedVersion, buf, head);
             socket.Send(buf, 0, head, SocketFlags.None);
             return 1;
         }
 
-        internal void SendAddWorkerCommand(WorkerId workerId)
+        internal void SendAddWorkerCommand(DprWorkerId dprWorkerId)
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = RespUtil.WriteRedisArrayHeader(2, buf, 0);
             head += RespUtil.WriteRedisBulkString("AddWorker", buf, head);
-            head += RespUtil.WriteRedisBulkString(workerId.guid, buf, head);
+            head += RespUtil.WriteRedisBulkString(dprWorkerId.guid, buf, head);
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }
 
-        internal void SendDeleteWorkerCommand(WorkerId workerId)
+        internal void SendDeleteWorkerCommand(DprWorkerId dprWorkerId)
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = RespUtil.WriteRedisArrayHeader(2, buf, 0);
             head += RespUtil.WriteRedisBulkString("DeleteWorker", buf, head);
-            head += RespUtil.WriteRedisBulkString(workerId.guid, buf, head);
+            head += RespUtil.WriteRedisBulkString(dprWorkerId.guid, buf, head);
             socket.Send(buf, 0, head, SocketFlags.None);
             reusableMessageBuffers.Return(buf);
         }

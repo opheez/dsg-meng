@@ -112,13 +112,13 @@ namespace FASTER.server
                     {
                         var message = (DarqCommandType)(*src++);
                         Debug.Assert(message == DarqCommandType.DarqEnqueue);
-                        var worker = new WorkerId(*(long*)src);
+                        var producer = *(long*)src;
                         src += sizeof(long);
                         var lsn = *(long*)src;
                         src += sizeof(long);
                         var batch = new SerializedDarqEntryBatch(src);
 
-                        darq.Enqueue(batch, worker, lsn);
+                        darq.Enqueue(batch, producer, lsn);
                         src += batch.TotalSize();
                         hrw.Write((byte)message, ref dcurr, (int)(dend - dcurr));
                     }

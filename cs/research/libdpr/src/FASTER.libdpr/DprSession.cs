@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using FASTER.core;
 
 namespace FASTER.libdpr
 {
@@ -63,7 +64,7 @@ namespace FASTER.libdpr
                 // Populate header with relevant request information
                 if (headerBytes.Length >= DprMessageHeader.FixedLenSize)
                 {
-                    dprHeader.SrcWorkerId = WorkerId.INVALID;
+                    dprHeader.SrcWorkerId = DprWorkerId.INVALID;
                     dprHeader.WorldLine = worldLine;
                     dprHeader.Version = version;
                     dprHeader.NumClientDeps = 0;
@@ -83,6 +84,11 @@ namespace FASTER.libdpr
                 // Invert depends on whether or not we fit
                 return (int) (copyHead <= bend ? copyHead - b : b - copyHead);
             }
+        }
+
+        public bool CanInteract<TS, TV>(DprWorker<TS, TV> w) where TS : IStateObject where TV : IVersionScheme
+        {
+            return !RolledBack && w.WorldLine() == worldLine;
         }
 
         /// <summary>
@@ -116,7 +122,7 @@ namespace FASTER.libdpr
                 Debug.Assert(responseHeader.WorldLine == worldLine);
                 
                 // Add largest worker-version as dependency for future ops
-                if (!responseHeader.SrcWorkerId.Equals(WorkerId.INVALID))
+                if (!responseHeader.SrcWorkerId.Equals(DprWorkerId.INVALID))
                     deps.Update(responseHeader.SrcWorkerId, responseHeader.Version);
                 else
                 {
@@ -126,7 +132,7 @@ namespace FASTER.libdpr
                         for (var i = 0; i < responseHeader.NumClientDeps; i++)
                         {
                             ref var wv = ref Unsafe.AsRef<WorkerVersion>(depsHead);
-                            deps.Update(wv.WorkerId, wv.Version);
+                            deps.Update(wv.DprWorkerId, wv.Version);
                             depsHead += sizeof(WorkerVersion);
                         }
                     }

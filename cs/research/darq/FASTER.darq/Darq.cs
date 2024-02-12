@@ -71,23 +71,6 @@ namespace FASTER.darq
         }
     }
 
-    internal struct DarqInputEntryWrapper : ILogEnqueueEntry
-    {
-        private ILogEnqueueEntry wrapped;
-
-        public DarqInputEntryWrapper(ILogEnqueueEntry wrapped)
-        {
-            this.wrapped = wrapped;
-        }
-
-        public int SerializedLength => wrapped.SerializedLength + sizeof(DarqMessageType);
-        public void SerializeTo(Span<byte> dest)
-        {
-            dest[0] = (byte)DarqMessageType.IN;
-            wrapped.SerializeTo(dest[1..]);
-        }
-    }
-
     /// <summary>
     /// Underlying state object for DARQ
     /// </summary>
@@ -117,6 +100,11 @@ namespace FASTER.darq
                         settings.LogCommitDir ??
                         new FileInfo(settings.LogDevice.FileName).Directory.FullName));
             }
+            
+            if (this.settings.CleanStart)
+            {
+                settings.LogCommitManager.RemoveAllCommits();
+            }
 
             logSetting = new FasterLogSettings
             {
@@ -141,6 +129,7 @@ namespace FASTER.darq
                 TolerateDeviceFailure = false,
             };
             log = new FasterLog(logSetting);
+            
         }
 
         /// <inheritdoc/>
@@ -242,7 +231,7 @@ namespace FASTER.darq
         public Darq(DarqSettings darqSettings) : base(
             new DarqStateObject(darqSettings), new EpochProtectedVersionScheme(new LightEpoch()), new DprWorkerOptions
             {
-                Me = darqSettings.Me,
+                Me = darqSettings.MyDpr == DprWorkerId.INVALID ? new DprWorkerId(darqSettings.Me.guid) : darqSettings.MyDpr,
                 DprFinder = darqSettings.DprFinder,
                 CheckpointPeriodMilli = darqSettings.CheckpointPeriodMilli,
                 RefreshPeriodMilli = darqSettings.RefreshPeriodMilli
@@ -274,12 +263,7 @@ namespace FASTER.darq
         {
             StateObject().incompleteMessages.TryAdd(addr, 0);
         }
-
-        private void EnqueueCallback(DarqInputEntryWrapper w, long addr)
-        {
-            StateObject().incompleteMessages.TryAdd(addr, 0);
-
-        }
+        
 
         /// <summary>
         /// Enqueue given entries into DARQ, optionally deduplicated using the supplied producer ID and sequence number. 
@@ -293,7 +277,7 @@ namespace FASTER.darq
         /// sequence numbers from the same producer
         /// </param>
         /// <returns> whether enqueue is successful </returns>
-        public bool Enqueue(IReadOnlySpanBatch entries, WorkerId producerId, long sequenceNum)
+        public bool Enqueue(IReadOnlySpanBatch entries, long producerId, long sequenceNum)
         {
 #if DEBUG
             unsafe
@@ -306,7 +290,7 @@ namespace FASTER.darq
             }
 #endif
             // Check that we are not executing duplicates and update dvc accordingly
-            if (producerId.guid != -1 && !dvc.Process(producerId, sequenceNum))
+            if (producerId != -1 && !dvc.Process(producerId, sequenceNum))
                 return false;
 
             StateObject().log.Enqueue(entries, EnqueueCallbackBatch);
@@ -422,9 +406,7 @@ namespace FASTER.darq
         /// <summary>
         /// Scans the DARQ with an iterator 
         /// </summary>
-        /// <param name="speculative">whether to speculatively scan </param>
         /// <returns></returns>
-        public DarqScanIterator StartScan() =>
-            new DarqScanIterator(StateObject().log, largestSteppedLsn.value, true);
+        public DarqScanIterator StartScan() => new(StateObject().log, largestSteppedLsn.value, true);
     }
 }

@@ -48,25 +48,25 @@ namespace FASTER.libdpr
         /// <summary>
         ///     Add dependency of (worker, version)
         /// </summary>
-        /// <param name="workerId">worker</param>
+        /// <param name="dprWorkerId">worker</param>
         /// <param name="version">version</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Update(WorkerId workerId, long version)
+        public void Update(DprWorkerId dprWorkerId, long version)
         {
-            ref var originalVersion = ref dependentVersions[workerId.guid];
+            ref var originalVersion = ref dependentVersions[dprWorkerId.guid];
             core.Utility.MonotonicUpdate(ref originalVersion, version, out _);
         }
 
         /// <summary>
         ///     Removes the dependency of (worker, version) and all previous versions of the worker if present
         /// </summary>
-        /// <param name="workerId"> worker </param>
+        /// <param name="dprWorkerId"> worker </param>
         /// <param name="version"> version </param>
         /// <returns>whether the dependency was removed</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryRemove(WorkerId workerId, long version)
+        public bool TryRemove(DprWorkerId dprWorkerId, long version)
         {
-            ref var originalVersion = ref dependentVersions[workerId.guid];
+            ref var originalVersion = ref dependentVersions[dprWorkerId.guid];
             return Interlocked.CompareExchange(ref originalVersion, NoDependency, version) >= version;
         }
 

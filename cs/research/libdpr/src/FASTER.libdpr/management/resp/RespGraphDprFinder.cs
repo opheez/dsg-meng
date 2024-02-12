@@ -54,7 +54,7 @@ namespace FASTER.libdpr
                 socket.SendNewCheckpointCommand(worldLine, persisted, deps);
         }
 
-        protected override bool Sync(ClusterState stateToUpdate, Dictionary<WorkerId, long> cutToUpdate)
+        protected override bool Sync(ClusterState stateToUpdate, Dictionary<DprWorkerId, long> cutToUpdate)
         {
             lock (socket)
             {
@@ -69,7 +69,7 @@ namespace FASTER.libdpr
             }        
         }
 
-        protected override void SendGraphReconstruction(WorkerId id, IStateObject stateObject)
+        protected override void SendGraphReconstruction(DprWorkerId id, IStateObject stateObject)
         {
             lock (socket)
             {
@@ -78,7 +78,7 @@ namespace FASTER.libdpr
             }
         }
 
-        protected override void AddWorkerInternal(WorkerId id)
+        protected override void AddWorkerInternal(DprWorkerId id)
         {
             lock (socket)
             {
@@ -88,7 +88,7 @@ namespace FASTER.libdpr
         }
 
         /// <inheritdoc/>
-        public override void RemoveWorker(WorkerId id)
+        public override void RemoveWorker(DprWorkerId id)
         {
             lock (socket)
             {

@@ -24,7 +24,7 @@ namespace FASTER.libdpr
         ///     The largest version number that is recoverable for the given version (may be arbitrary if worker is
         ///     not part of the cluster)
         /// </returns>
-        long SafeVersion(WorkerId workerId);
+        long SafeVersion(DprWorkerId dprWorkerId);
 
         /// <summary>
         ///     Returns the current system world-line.
@@ -48,7 +48,7 @@ namespace FASTER.libdpr
         ///     Refreshes the local view of the system. This method must be called periodically to receive up-to-date
         ///     information about the rest of the cluster.
         /// </summary>
-        void Refresh(WorkerId id, IStateObject stateObject);
+        void Refresh(DprWorkerId id, IStateObject stateObject);
 
         void RefreshStateless();
 
@@ -59,12 +59,12 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="id"> id of the worker </param>
         /// <returns> the version state object should recover to before beginning execution, or 0 if no recovery is required </returns>
-        long AddWorker(WorkerId id, IStateObject stateObject);
+        long AddWorker(DprWorkerId id, IStateObject stateObject);
 
         /// <summary>
         ///     Removes the registered worker from the cluster. It is up to caller to ensure that the deleted worker is not
         ///     currently accepting operations and no other worker has outstanding dependencies on the deleted worker.
         /// </summary>
-        void RemoveWorker(WorkerId id);
+        void RemoveWorker(DprWorkerId id);
     }
 }

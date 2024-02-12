@@ -15,9 +15,9 @@ namespace FASTER.libdpr
                 dvc[i] = -1;
         }
 
-        public bool Process(WorkerId id, long lsn)
+        public bool Process(long id, long lsn)
         {
-            var result =  core.Utility.MonotonicUpdate(ref dvc[id.guid], lsn, out var old);
+            var result =  core.Utility.MonotonicUpdate(ref dvc[id], lsn, out var old);
             if (old == -1)
                 Interlocked.Increment(ref used);
             return result;

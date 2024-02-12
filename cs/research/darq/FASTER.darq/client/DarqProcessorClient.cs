@@ -105,7 +105,7 @@ namespace FASTER.client
             {
                 end = networkSender.GetResponseObjectHead() + bufferSize;
                 curr = networkSender.GetResponseObjectHead() + offset;
-                var serializedSize = sizeof(byte) + sizeof(WorkerId) + sizeof(long) * 2 + entryBatchSize;
+                var serializedSize = sizeof(byte) + sizeof(long) * 2 + entryBatchSize;
                 if (end - curr >= serializedSize && numMessages < maxOutstanding) break;
                 Flush();
             }

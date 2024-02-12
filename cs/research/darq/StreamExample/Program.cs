@@ -25,10 +25,10 @@ namespace SimpleStream
         {
             var loader = new SearchListDataLoader(traceFile, clusterInfo);
             loader.LoadData();
-            loader.Run(new WorkerId(0));
+            loader.Run(new DarqId(0));
         }
 
-        private static void RunDarqWithProcessor(WorkerId me, HardCodedClusterInfo clusterInfo,
+        private static void RunDarqWithProcessor(DarqId me, HardCodedClusterInfo clusterInfo,
             IDarqProcessor processor, bool remoteProcessor = false)
         {
             var logDevice = new LocalStorageDevice($"D:\\w{me.guid}\\data.log", deleteOnClose: true);
@@ -37,10 +37,10 @@ namespace SimpleStream
                 Port = 15721 + (int)me.guid,
                 Address = "127.0.0.1",
                 ClusterInfo = clusterInfo,
-                me = me,
                 DarqSettings = new DarqSettings
                 {
                     DprFinder = default,
+                    Me = me,
                     LogDevice = logDevice,
                     PageSize = 1L << 22,
                     MemorySize = 1L << 23,
@@ -50,10 +50,10 @@ namespace SimpleStream
                     LogChecksum = LogChecksumType.None,
                     MutableFraction = default,
                     FastCommitMode = true,
-                    DeleteOnClose = true
+                    DeleteOnClose = true,
+                    CheckpointPeriodMilli = 5,
+                    RefreshPeriodMilli = 5
                 },
-                commitIntervalMilli = 5,
-                refreshIntervalMilli = 5
             });
             darqServer.Start();
             IDarqProcessorClient processorClient;
@@ -88,7 +88,7 @@ namespace SimpleStream
             // Compose cluster architecture
             var clusterInfo = new HardCodedClusterInfo();
             for (var i = 0; i < 4; i++)
-                clusterInfo.AddWorker(new WorkerId(i), $"Test Worker {i}", "127.0.0.1", 15721 + i);
+                clusterInfo.AddWorker(new DarqId(i), $"Test Worker {i}", "127.0.0.1", 15721 + i);
 
             switch (options.Type)
             {
@@ -96,13 +96,13 @@ namespace SimpleStream
                     RunStreamProducer(options.TraceFile, clusterInfo);
                     break;
                 case "preprocessor":
-                    RunDarqWithProcessor(new WorkerId(0), clusterInfo, new FilterAndMapStreamProcessor(new WorkerId(0), new WorkerId(1)));
+                    RunDarqWithProcessor(new DarqId(0), clusterInfo, new FilterAndMapStreamProcessor(new DarqId(0), new DarqId(1)));
                     break;
                 case "aggregator":
-                    RunDarqWithProcessor(new WorkerId(1), clusterInfo, new AggregateStreamProcessor(new WorkerId(1), new WorkerId(2)));
+                    RunDarqWithProcessor(new DarqId(1), clusterInfo, new AggregateStreamProcessor(new DarqId(1), new DarqId(2)));
                     break;
                 case "detector":
-                    RunDarqWithProcessor(new WorkerId(2), clusterInfo, new TrendDetectionStreamProcessor(new WorkerId(2)));
+                    RunDarqWithProcessor(new DarqId(2), clusterInfo, new TrendDetectionStreamProcessor(new DprWorkerId(2)));
                     break;
             }
         }

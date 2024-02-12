@@ -13,7 +13,7 @@ namespace FASTER.libdpr
         public const int FixedLenSize = 36;
         public const string GprcMetadataKeyName = "DprHeader";
         [FieldOffset(0)] internal fixed byte data[FixedLenSize];
-        [FieldOffset(0)] internal WorkerId SrcWorkerId;
+        [FieldOffset(0)] internal DprWorkerId SrcWorkerId;
         [FieldOffset(8)] internal SUId SrcSU;
         // a batch should always consist of messages from the same world-lines on the client side.
         // We can artificially write the servers to not write reply batches with more than one world-line. 

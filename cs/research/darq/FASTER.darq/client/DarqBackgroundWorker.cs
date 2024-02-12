@@ -30,7 +30,6 @@ namespace FASTER.client
             this.clusterInfo = clusterInfo;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool), 1 << 15);
             this.batchSize = batchSize;
-            session = new DprSession(darq.WorldLine());
         }
 
         public long ProcessingLag => darq.StateObject().log.TailAddress - processedUpTo;
@@ -80,9 +79,9 @@ namespace FASTER.client
             var body = m.GetMessageBody();
             fixed (byte* h = body)
             {
-                var dest = *(WorkerId*)h;
-                var toSend = new ReadOnlySpan<byte>(h + sizeof(WorkerId),
-                    body.Length - sizeof(WorkerId));
+                var dest = *(DarqId*)h;
+                var toSend = new ReadOnlySpan<byte>(h + sizeof(DarqId),
+                    body.Length - sizeof(DarqId));
                 var completionTrackerLocal = completionTracker;
                 var lsn = m.GetLsn();
                 if (++numBatched < batchSize)
@@ -106,7 +105,7 @@ namespace FASTER.client
         {
             var hasNext = TryReadEntry(out var m);
             // Don't go through the normal receive code path for performance
-            if (session.RolledBack || darq.WorldLine() > session.WorldLine)
+            if (!session.CanInteract(darq))
             {
                 Console.WriteLine("Processor detected rollback, restarting");
                 Reset();
@@ -158,7 +157,7 @@ namespace FASTER.client
 
         private void Reset()
         {
-            session = new DprSession();
+            session = new DprSession(darq.WorldLine());
             producerClient = new DarqProducerClient(clusterInfo, session);
             completionTracker = new DarqCompletionTracker();
             iterator = darq.StartScan();

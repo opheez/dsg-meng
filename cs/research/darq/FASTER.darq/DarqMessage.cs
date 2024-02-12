@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using FASTER.common;
 using FASTER.core;
+using FASTER.darq;
 
 namespace FASTER.libdpr
 {
@@ -186,6 +187,7 @@ namespace FASTER.libdpr
         public StepRequestBuilder(StepRequest toBuild)
         {
             request = toBuild;
+            request.Reset();
         }
 
         /// <summary>
@@ -205,10 +207,10 @@ namespace FASTER.libdpr
         /// <param name="recipient">Intended recipient</param>
         /// <param name="message">message body, in bytes</param>
         /// <returns> self-reference for chaining </returns>
-        public unsafe StepRequestBuilder AddOutMessage(WorkerId recipient, ReadOnlySpan<byte> message)
+        public unsafe StepRequestBuilder AddOutMessage(DarqId recipient, ReadOnlySpan<byte> message)
         {
             while (request.serializationBuffer.Length - request.size <
-                   message.Length + sizeof(DarqMessageType) + sizeof(WorkerId))
+                   message.Length + sizeof(DarqMessageType) + sizeof(DarqId))
                 request.Grow();
 
             request.offsets.Add(request.size);
@@ -217,8 +219,8 @@ namespace FASTER.libdpr
                 var head = b + request.size;
 
                 *(DarqMessageType*)head++ = DarqMessageType.OUT;
-                *(WorkerId*)head = recipient;
-                head += sizeof(WorkerId);
+                *(DarqId*)head = recipient;
+                head += sizeof(DarqId);
 
                 message.CopyTo(new Span<byte>(head, message.Length));
                 head += message.Length;
@@ -228,11 +230,11 @@ namespace FASTER.libdpr
             return this;
         }
 
-        public unsafe StepRequestBuilder AddOutMessage(WorkerId recipient, ILogEnqueueEntry message)
+        public unsafe StepRequestBuilder AddOutMessage(DarqId recipient, ILogEnqueueEntry message)
         {
             var messageLength = message.SerializedLength;
             while (request.serializationBuffer.Length - request.size <
-                   messageLength + sizeof(DarqMessageType) + sizeof(WorkerId))
+                   messageLength + sizeof(DarqMessageType) + sizeof(DarqId))
                 request.Grow();
 
             request.offsets.Add(request.size);
@@ -241,8 +243,8 @@ namespace FASTER.libdpr
                 var head = b + request.size;
 
                 *(DarqMessageType*)head++ = DarqMessageType.OUT;
-                *(WorkerId*)head = recipient;
-                head += sizeof(WorkerId);
+                *(DarqId*)head = recipient;
+                head += sizeof(DarqId);
 
                 message.SerializeTo(new Span<byte>(head, messageLength));
                 head += messageLength;
@@ -261,7 +263,7 @@ namespace FASTER.libdpr
         public unsafe StepRequestBuilder AddSelfMessage(ReadOnlySpan<byte> message)
         {
             while (request.serializationBuffer.Length - request.size <
-                   message.Length + sizeof(DarqMessageType) + sizeof(WorkerId))
+                   message.Length + sizeof(DarqMessageType))
                 request.Grow();
 
             request.offsets.Add(request.size);
@@ -281,7 +283,7 @@ namespace FASTER.libdpr
         {
             var messageLength = message.SerializedLength;
             while (request.serializationBuffer.Length - request.size <
-                   messageLength + sizeof(DarqMessageType) + sizeof(WorkerId))
+                   messageLength + sizeof(DarqMessageType))
                 request.Grow();
 
             request.offsets.Add(request.size);
@@ -305,7 +307,7 @@ namespace FASTER.libdpr
         public unsafe StepRequestBuilder AddRecoveryMessage(ReadOnlySpan<byte> message)
         {
             while (request.serializationBuffer.Length - request.size <
-                   message.Length + sizeof(DarqMessageType) + sizeof(WorkerId))
+                   message.Length + sizeof(DarqMessageType))
                 request.Grow();
 
             request.offsets.Add(request.size);
@@ -326,7 +328,7 @@ namespace FASTER.libdpr
             var messageLength = message.SerializedLength;
 
             while (request.serializationBuffer.Length - request.size <
-                   messageLength + sizeof(DarqMessageType) + sizeof(WorkerId))
+                   messageLength + sizeof(DarqMessageType))
                 request.Grow();
 
             request.offsets.Add(request.size);

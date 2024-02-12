@@ -57,8 +57,7 @@ namespace FASTER.darq
                 }
                 else
                 {
-                    parent.darq.StartReceiveAction(header);
-
+                    parent.darq.StartLocalAction();
                     if (parent.darq.WorldLine() != session.WorldLine)
                         return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
                 }
@@ -106,7 +105,7 @@ namespace FASTER.darq
         public void Dispose()
         {
             messagePool.Dispose();
-            iterator.Dispose();
+            iterator?.Dispose();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -157,7 +156,7 @@ namespace FASTER.darq
             {
                 var hasNext = TryReadEntry(out var m);
                 // Manually check if worldLine matches without going through the heavyweight DPR path
-                if (darq.WorldLine() > capabilities.session.WorldLine)
+                if (!capabilities.session.CanInteract(darq))
                 {
                     Console.WriteLine("Processor detected rollback, restarting");
                     OnProcessorClientRestart(processor);
@@ -182,7 +181,6 @@ namespace FASTER.darq
                     default:
                         throw new NotImplementedException();
                 }
-
             }
             catch (DprSessionRolledBackException)
             {
@@ -191,8 +189,6 @@ namespace FASTER.darq
                 // Reset to next iteration without doing anything
                 return ProcessResult.CONTINUE;
             }
-
-            
         }
 
         private void OnProcessorClientRestart<T>(T processor) where T : IDarqProcessor
@@ -235,13 +231,13 @@ namespace FASTER.darq
                         break;
 
                     // FASTER.darq.StateObject().RefreshSafeReadTail();
-                    var iteratorWait = iterator.WaitAsync().AsTask();
-                    if (await Task.WhenAny(iteratorWait, Task.Delay(10)) == iteratorWait)
-                    {
-                        // No more entries, can signal finished and return 
-                        if (!iteratorWait.Result)
-                            break;
-                    }
+                    await iterator.WaitAsync().AsTask();
+                    // if (await Task.WhenAny(iteratorWait, Task.Delay(10)) == iteratorWait)
+                    // {
+                    //     // No more entries, can signal finished and return 
+                    //     if (!iteratorWait.Result)
+                    //         break;
+                    // }
                     // Otherwise, just continue looping
                 }
 

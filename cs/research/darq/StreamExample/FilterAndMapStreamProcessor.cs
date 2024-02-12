@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using FASTER.darq;
 using FASTER.libdpr;
 using Newtonsoft.Json;
 
@@ -6,13 +7,13 @@ namespace SimpleStream.searchlist
 {
     public class FilterAndMapStreamProcessor : IDarqProcessor
     {
-        private WorkerId input, output;
+        private DarqId input, output;
         private IDarqProcessorClientCapabilities capabilities;
         private StepRequest reusableStepRequest;
         private StepRequestBuilder batchedStepBuilder;
         private int processedCount = 0, batchSize, currentlyBatched = 0;
 
-        public FilterAndMapStreamProcessor(WorkerId me, WorkerId output, int batchSize = 10)
+        public FilterAndMapStreamProcessor(DarqId me, DarqId output, int batchSize = 10)
         {
             this.input = me;
             this.output = output;

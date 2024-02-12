@@ -5,9 +5,9 @@ namespace FASTER.libdpr
     /// <summary>
     ///     A worker in the system manipulates uniquely exactly one state object.
     /// </summary>
-    public struct WorkerId : IEquatable<WorkerId>
+    public struct DprWorkerId : IEquatable<DprWorkerId>
     {
-        public static readonly WorkerId INVALID = new WorkerId(-1);
+        public static readonly DprWorkerId INVALID = new DprWorkerId(-1);
 
         /// <summary>
         ///  globally-unique worker ID within a DPR cluster
@@ -18,22 +18,22 @@ namespace FASTER.libdpr
         ///     Constructs a worker with the given guid
         /// </summary>
         /// <param name="guid"> worker guid </param>
-        public WorkerId(long guid)
+        public DprWorkerId(long guid)
         {
             this.guid = guid;
         }
 
-        public readonly bool Equals(WorkerId other)
+        public readonly bool Equals(DprWorkerId other)
         {
             return guid == other.guid;
         }
 
-        public static bool operator ==(WorkerId left, WorkerId right)
+        public static bool operator ==(DprWorkerId left, DprWorkerId right)
         {
             return left.Equals(right);
         }
 
-        public static bool operator !=(WorkerId left, WorkerId right)
+        public static bool operator !=(DprWorkerId left, DprWorkerId right)
         {
             return !left.Equals(right);
         }
@@ -41,7 +41,7 @@ namespace FASTER.libdpr
         /// <inheritdoc cref="object" />
         public override bool Equals(object obj)
         {
-            return obj is WorkerId other && Equals(other);
+            return obj is DprWorkerId other && Equals(other);
         }
 
         /// <inheritdoc cref="object" />
@@ -59,7 +59,7 @@ namespace FASTER.libdpr
         /// <summary>
         ///     Worker
         /// </summary>
-        public WorkerId WorkerId { get; set; }
+        public DprWorkerId DprWorkerId { get; set; }
         
         /// <summary>
         ///     Version
@@ -69,15 +69,15 @@ namespace FASTER.libdpr
         /// <summary>
         ///     Constructs a new worker version object with given parameters
         /// </summary>
-        /// <param name="workerId">worker</param>
+        /// <param name="dprWorkerId">worker</param>
         /// <param name="version">version</param>
-        public WorkerVersion(WorkerId workerId, long version)
+        public WorkerVersion(DprWorkerId dprWorkerId, long version)
         {
-            WorkerId = workerId;
+            DprWorkerId = dprWorkerId;
             Version = version;
         }
 
-        internal WorkerVersion(long worker, long version) : this(new WorkerId(worker), version)
+        internal WorkerVersion(long worker, long version) : this(new DprWorkerId(worker), version)
         {
         }
 
@@ -93,7 +93,7 @@ namespace FASTER.libdpr
 
         public bool Equals(WorkerVersion other)
         {
-            return WorkerId.Equals(other.WorkerId) && Version == other.Version;
+            return DprWorkerId.Equals(other.DprWorkerId) && Version == other.Version;
         }
 
         /// <inheritdoc cref="object" />
@@ -107,7 +107,7 @@ namespace FASTER.libdpr
         {
             unchecked
             {
-                return (WorkerId.GetHashCode() * 397) ^ Version.GetHashCode();
+                return (DprWorkerId.GetHashCode() * 397) ^ Version.GetHashCode();
             }
         }
     }

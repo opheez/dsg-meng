@@ -69,7 +69,7 @@ namespace FASTER.libdpr
 
         /// <summary></summary>
         /// <returns> Worker ID of this DprServer instance </returns>
-        public WorkerId Me() => options.Me;
+        public DprWorkerId Me() => options.Me;
 
         // TODO: The following two methods are technically only meaningful under protection
         /// <summary></summary>
@@ -318,7 +318,7 @@ namespace FASTER.libdpr
             // could get processed at a future version instead due to thread timing. However, this is not a correctness
             // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
             var deps = versions[versionScheme.CurrentState().Version];
-            if (!header.SrcWorkerId.Equals(WorkerId.INVALID))
+            if (!header.SrcWorkerId.Equals(DprWorkerId.INVALID))
                 deps.Update(header.SrcWorkerId, header.Version);
             unsafe
             {
@@ -328,7 +328,7 @@ namespace FASTER.libdpr
                     for (var i = 0; i < header.NumClientDeps; i++)
                     {
                         ref var wv = ref Unsafe.AsRef<WorkerVersion>(depsHead);
-                        deps.Update(wv.WorkerId, wv.Version);
+                        deps.Update(wv.DprWorkerId, wv.Version);
                         depsHead += sizeof(WorkerVersion);
                     }
                 }

@@ -18,14 +18,14 @@ namespace FASTER.libdpr
         {
             var request = new NewCheckpointRequest
             {
-                Id = persisted.WorkerId.guid,
+                Id = persisted.DprWorkerId.guid,
                 Version = persisted.Version,
                 WorldLine = worldLine
             };
             foreach (var dep in deps)
                 request.Deps.Add(new proto.WorkerVersion
                 {
-                    Id = dep.WorkerId.guid,
+                    Id = dep.DprWorkerId.guid,
                     Version = dep.Version
                 });
 
@@ -33,20 +33,20 @@ namespace FASTER.libdpr
             finderClient.NewCheckpointAsync(request);
         }
 
-        protected override bool Sync(ClusterState stateToUpdate, Dictionary<WorkerId, long> cutToUpdate)
+        protected override bool Sync(ClusterState stateToUpdate, Dictionary<DprWorkerId, long> cutToUpdate)
         {
             var response = finderClient.Sync(new SyncRequest());
             if (response.CurrentCut.Count == 0) return false;
             
             stateToUpdate.currentWorldLine = response.WorldLine;
             foreach (var entry in response.WorldLinePrefix)
-                stateToUpdate.worldLinePrefix.Add(new WorkerId(entry.Id), entry.Version);
+                stateToUpdate.worldLinePrefix.Add(new DprWorkerId(entry.Id), entry.Version);
             foreach (var entry in response.CurrentCut)
-                cutToUpdate.Add(new WorkerId(entry.Id), entry.Version);
+                cutToUpdate.Add(new DprWorkerId(entry.Id), entry.Version);
             return true;
         }
 
-        protected override void SendGraphReconstruction(WorkerId id, IStateObject stateObject)
+        protected override void SendGraphReconstruction(DprWorkerId id, IStateObject stateObject)
         {
             var checkpoints = stateObject.GetUnprunedVersions();
             var request = new ResendGraphRequest();
@@ -63,7 +63,7 @@ namespace FASTER.libdpr
                 foreach (var dep in deps)
                     checkpointRequest.Deps.Add(new proto.WorkerVersion
                     {
-                        Id = dep.WorkerId.guid,
+                        Id = dep.DprWorkerId.guid,
                         Version = dep.Version
                     });
                 request.GraphNodes.Add(checkpointRequest);
@@ -73,7 +73,7 @@ namespace FASTER.libdpr
             finderClient.ResendGraph(request);        
         }
 
-        protected override void AddWorkerInternal(WorkerId id)
+        protected override void AddWorkerInternal(DprWorkerId id)
         {
             finderClient.AddWorker(new AddWorkerRequest
             {
@@ -81,7 +81,7 @@ namespace FASTER.libdpr
             });
         }
 
-        public override void RemoveWorker(WorkerId id)
+        public override void RemoveWorker(DprWorkerId id)
         {
             finderClient.RemoveWorker(new RemoveWorkerRequest
             {

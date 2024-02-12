@@ -25,7 +25,7 @@ namespace FASTER.libdpr
             rwLatch.ExitReadLock();
         }
 
-        public override void UpdateCut(Dictionary<WorkerId, long> newCut)
+        public override void UpdateCut(Dictionary<DprWorkerId, long> newCut)
         {
             rwLatch.EnterWriteLock();
             obj.CurrentCut.Clear();
@@ -69,7 +69,7 @@ namespace FASTER.libdpr
         public override Task<AddWorkerResponse> AddWorker(AddWorkerRequest request, ServerCallContext context)
         {
             var result = new TaskCompletionSource<AddWorkerResponse>();
-            backend.AddWorker(new WorkerId(request.Id),
+            backend.AddWorker(new DprWorkerId(request.Id),
                 r => result.SetResult(new AddWorkerResponse
                     { Id = request.Id, WorldLine = r.Item1, RecoveredVersion = r.Item2 }));
             return result.Task;
@@ -78,7 +78,7 @@ namespace FASTER.libdpr
         public override Task<RemoveWorkerResponse> RemoveWorker(RemoveWorkerRequest request, ServerCallContext context)
         {
             var result = new TaskCompletionSource<RemoveWorkerResponse>();
-            backend.DeleteWorker(new WorkerId(request.Id),
+            backend.DeleteWorker(new DprWorkerId(request.Id),
                 () => result.SetResult(new RemoveWorkerResponse { Ok = true }));
             return result.Task;
         }
@@ -109,7 +109,7 @@ namespace FASTER.libdpr
                 backend.NewCheckpoint(n.WorldLine, new WorkerVersion(n.Id, n.Version),
                     n.Deps.Select(wv => new WorkerVersion(wv.Id, wv.Version)));
             }
-            backend.MarkWorkerAccountedFor(new WorkerId(request.GraphNodes.First().Id));
+            backend.MarkWorkerAccountedFor(new DprWorkerId(request.GraphNodes.First().Id));
             return Task.FromResult(new ResendGraphResponse
             {
                 Ok = true

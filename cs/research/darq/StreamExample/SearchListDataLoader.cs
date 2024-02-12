@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using FASTER.client;
 using FASTER.core;
+using FASTER.darq;
 using FASTER.libdpr;
 using Newtonsoft.Json;
 
@@ -33,7 +34,7 @@ namespace SimpleStream.searchlist
             return parsedJson.Count;
         }
 
-        public void Run(WorkerId destDarq)
+        public void Run(DarqId destDarq)
         {
             var serializationBuffer = new byte[1 << 20];
             var darqClient = new DarqProducerClient(info);

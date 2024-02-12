@@ -104,7 +104,7 @@ namespace FASTER.libdpr
             buf[head++] = (byte) '\r';
             buf[head++] = (byte) '\n';
 
-            BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), val.WorkerId.guid);
+            BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), val.DprWorkerId.guid);
             head += sizeof(long);
             BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), val.Version);
             head += sizeof(long);
@@ -136,7 +136,7 @@ namespace FASTER.libdpr
             head += sizeof(int);
             foreach (var wv in val)
             {
-                BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), wv.WorkerId.guid);
+                BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), wv.DprWorkerId.guid);
                 head += sizeof(long);
                 BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(long)), wv.Version);
                 head += sizeof(long);
@@ -163,12 +163,12 @@ namespace FASTER.libdpr
             return head - offset;
         }
 
-        internal static int DictionarySerializedSize(IDictionary<WorkerId, long> dict)
+        internal static int DictionarySerializedSize(IDictionary<DprWorkerId, long> dict)
         {
             return sizeof(int) + dict.Count * 2 * sizeof(long);
         }
 
-        internal static int SerializeDictionary(IDictionary<WorkerId, long> dict, byte[] buf, int head)
+        internal static int SerializeDictionary(IDictionary<DprWorkerId, long> dict, byte[] buf, int head)
         {
             if (head + DictionarySerializedSize(dict) > buf.Length) return 0;
             BitConverter.TryWriteBytes(new Span<byte>(buf, head, sizeof(int)), dict.Count);
@@ -184,7 +184,7 @@ namespace FASTER.libdpr
             return head;
         }
 
-        public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<WorkerId, long> result)
+        public static int ReadDictionaryFromBytes(byte[] buf, int head, IDictionary<DprWorkerId, long> result)
         {
             var size = BitConverter.ToInt32(buf, head);
             head += sizeof(int);
@@ -195,7 +195,7 @@ namespace FASTER.libdpr
                 var val = BitConverter.ToInt64(buf, head);
                 head += sizeof(long);
                 if (result != null)
-                    result[new WorkerId(workerId)] = val;
+                    result[new DprWorkerId(workerId)] = val;
             }
 
             return head;

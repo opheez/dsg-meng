@@ -72,7 +72,7 @@ namespace FASTER.libdpr
     ///     The implementation relies on state objects to persist dependencies and avoids incurring additional storage
     ///     round-trips on the commit critical path.
     /// </summary>
-    public class GraphDprFinderBackend
+    public class GraphDprFinderBackend : IDisposable
     {
         // Used to send add/delete worker requests to processing thread
         private readonly ConcurrentQueue<(DprWorkerId, Action<(long, long)>)> addQueue =

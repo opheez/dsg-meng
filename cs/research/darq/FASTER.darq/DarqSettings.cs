@@ -1,4 +1,5 @@
-﻿using FASTER.core;
+﻿using darq;
+using FASTER.core;
 using FASTER.libdpr;
 
 namespace FASTER.darq
@@ -63,6 +64,8 @@ namespace FASTER.darq
         ///  DARQ will operate in speculative mode.
         /// </summary>
         public IDprFinder DprFinder = null;
+        
+        public DarqBackgroundWorkerPool workerPool = null;
         
         public DarqId Me = new(0);
 

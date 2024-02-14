@@ -4,9 +4,42 @@ using System.Threading;
 
 namespace FASTER.core;
 
+public class NonThreadBasedReaderWriterLatch
+{
+    private long readerCount = 0;
+    private int writerPending = 0;
+
+    public void EnterReadLock()
+    {
+        while (true)
+        {
+            while (writerPending != 0) {}
+            Interlocked.Increment(ref readerCount);
+            if (writerPending == 0) return;
+            Interlocked.Decrement(ref readerCount);
+        }
+    }
+
+    public void ExitReadLock()
+    {
+        Interlocked.Decrement(ref readerCount);
+    }
+
+    public void EnterWriteLock()
+    {
+        while (Interlocked.CompareExchange(ref writerPending, 1, 0) != 0) {}
+        while (readerCount != 0) {}
+    }
+
+    public void ExitWriteLock()
+    {
+        writerPending = 0;
+    }
+}
+
 public class RwLatchVersionScheme : VersionSchemeBase
 {
-    private ReaderWriterLockSlim rwLatch = new();
+    private NonThreadBasedReaderWriterLatch rwLatch = new();
     
     // Atomic transition from expectedState -> nextState
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -47,7 +47,8 @@ message SyncResponse {
 }
 
 message ResendGraphRequest {
-  repeated NewCheckpointRequest graphNodes = 1;
+  int64 id = 1;
+  repeated NewCheckpointRequest graphNodes = 2;
 }
 
 message ResendGraphResponse {

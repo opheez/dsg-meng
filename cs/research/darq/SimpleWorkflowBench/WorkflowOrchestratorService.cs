@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using darq;
 using FASTER.client;
 using FASTER.common;
 using FASTER.core;
@@ -82,17 +83,19 @@ public class WorkflowHandle
 public class WorkflowOrchestratorServiceSettings
 {
     public DarqSettings DarqSettings;
-    public List<TaskExecutor.TaskExecutorClient> Workers;
+    public List<TaskExecutor.TaskExecutorClient> Executors;
+    public DarqBackgroundWorkerPool WorkerPool;
 }
 
 public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestratorBase, IDarqProcessor, IDisposable
 {
-    private Darq backend;
-    private readonly DarqBackgroundWorker backgroundWorker;
+    private Darq<RwLatchVersionScheme> backend;
+    private readonly DarqBackgroundWorker<RwLatchVersionScheme> backgroundWorker;
+    private readonly DarqBackgroundWorkerPool workerPool;
     private readonly ManualResetEventSlim terminationStart;
     private readonly CountdownEvent terminationComplete;
-    private Thread backgroundThread, refreshThread, processingThread;
-    private ColocatedDarqProcessorClient processorClient;
+    private Thread refreshThread, processingThread;
+    private ColocatedDarqProcessorClient<RwLatchVersionScheme> processorClient;
 
     private ConcurrentDictionary<long, WorkflowHandle> startedWorkflows;
     private IDarqProcessorClientCapabilities capabilities;
@@ -104,16 +107,16 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
 
     public WorkflowOrchestratorService(WorkflowOrchestratorServiceSettings settings)
     {
-        backend = new Darq(settings.DarqSettings);
-        workers = settings.Workers;
+        backend = new Darq<RwLatchVersionScheme>(settings.DarqSettings, new RwLatchVersionScheme());
+        workers = settings.Executors;
         // no need to supply a cluster because we don't use inter-DARQ messaging in this use case
-        backgroundWorker = new DarqBackgroundWorker(backend, null);
+        backgroundWorker = new DarqBackgroundWorker<RwLatchVersionScheme>(backend, settings.WorkerPool, null);
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new CountdownEvent(2);
+        this.workerPool = settings.WorkerPool;
         backend.ConnectToCluster();
         
-        backgroundThread = new Thread(() => backgroundWorker.StartProcessingAsync().GetAwaiter().GetResult());
-        backgroundThread.Start();
+        backgroundWorker.StopProcessing();
 
         refreshThread = new Thread(() =>
         {
@@ -123,7 +126,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         });
         refreshThread.Start();
 
-        processorClient = new ColocatedDarqProcessorClient(backend);
+        processorClient = new ColocatedDarqProcessorClient<RwLatchVersionScheme>(backend);
         processingThread = new Thread(() =>
         {
             processorClient.StartProcessing(this);
@@ -134,19 +137,20 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         while (capabilities == null) {}
     }
 
+    public Darq<RwLatchVersionScheme> GetBackend() => backend;
+
     public void Dispose()
     {
         terminationStart.Set();
         // TODO(Tianyu): this shutdown process is unsafe and may leave things unsent/unprocessed in the queue
         backend.ForceCheckpoint();
         Thread.Sleep(1000);
-        backgroundWorker.StopProcessingAsync().GetAwaiter().GetResult();
+        backgroundWorker.StopProcessing();
         backgroundWorker?.Dispose();
         processorClient.StopProcessingAsync().GetAwaiter().GetResult();
         processorClient.Dispose();
         terminationComplete.Wait();
         backend.StateObject().Dispose();
-        backgroundThread.Join();
         refreshThread.Join();
         processingThread.Join();
     }
@@ -177,6 +181,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
             Console.WriteLine($"Workflow {request.WorkflowId} started");
             stepRequestPool.Return(stepRequest);
         }
+        backend.EndAction();
         
         // Otherwise, some other concurrent thread will start this workflow -- simply forward the result
         var result = await handle.tcs.Task;
@@ -207,15 +212,16 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     {
         // round-robin executor to execute the next request
         Console.WriteLine($"Workflow {r.WorkflowId} starting an activity");
-
+        var session = backend.DetachFromWorker();
+        // TODO(Tianyu): Change to using new clients per connection as they are "lightweight" with fresh interceptors
         var worker = Interlocked.Increment(ref nextWorker) % workers.Count;
         var response = await workers[worker].ExecuteTaskAsync(r);
         
         Console.WriteLine($"Workflow {r.WorkflowId} activity completed");
 
+        backend.StartLocalAction();
         var workflowHandle = startedWorkflows[r.WorkflowId];
         var decremented = Interlocked.Decrement(ref workflowHandle.remainingTasks);
-        
         var stepRequest = stepRequestPool.Checkout();
         var requestBuilder = new StepRequestBuilder(stepRequest);
         requestBuilder.MarkMessageConsumed(lsn);
@@ -252,10 +258,12 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
 
         await capabilities.Step(requestBuilder.FinishStep());
         stepRequestPool.Return(stepRequest);
+        backend.EndAction();
     }
 
     public unsafe void ApplyWorkflowStatusUpdate(DarqMessage m)
     {
+        backend.StartLocalAction();
         fixed (byte* d = m.GetMessageBody())
         {
             var head = d;
@@ -278,6 +286,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
             }
         }
         m.Dispose();
+        backend.EndAction();
     }
 
     public bool ProcessMessage(DarqMessage m)
@@ -287,8 +296,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
             case DarqMessageType.IN:
                 var request = ComposeActivityRequest(m);
                 var lsn = m.GetLsn();
-                // TODO(Tianyu): Throttle?
-                Task.Run(() => ExecuteActivity(request, lsn));
+                workerPool.AddWork(() => ExecuteActivity(request, lsn));
                 break;
             case DarqMessageType.RECOVERY:
                 ApplyWorkflowStatusUpdate(m);
@@ -303,6 +311,8 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     public void OnRestart(IDarqProcessorClientCapabilities capabilities)
     {
         this.capabilities = capabilities;
+        foreach (var handle in startedWorkflows.Values)
+            handle.tcs.TrySetCanceled();
         startedWorkflows = new ConcurrentDictionary<long, WorkflowHandle>();
     }
 }

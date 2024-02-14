@@ -1,17 +1,18 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using FASTER.common;
+using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 
 namespace FASTER.server
 {
-    internal sealed class DarqSubscriptionSession : ServerSessionBase
+    internal sealed class DarqSubscriptionSession<TVersionScheme> : ServerSessionBase where TVersionScheme : IVersionScheme
     {
         readonly HeaderReaderWriter hrw;
         int readHead;
         int seqNo, msgnum, start;
-        private Darq dprServer;
+        private Darq<TVersionScheme> dprServer;
         private ManualResetEventSlim terminationStart, terminationComplete;
         private Thread pushThread;
         private unsafe byte* dcurr, dend;
@@ -22,7 +23,7 @@ namespace FASTER.server
         private byte[] tempBuffer = new byte[1 << 12];
 
 
-        public DarqSubscriptionSession(INetworkSender networkSender, Darq dprServer) : base(networkSender)
+        public DarqSubscriptionSession(INetworkSender networkSender, Darq<TVersionScheme> dprServer) : base(networkSender)
         {
             this.dprServer = dprServer;
         }
@@ -147,7 +148,7 @@ namespace FASTER.server
             // reserve a size field for DPR header;
             var dprHeaderSizeField = (int*) dcurr;
             dcurr += sizeof(int);
-            dprServer.EndActionAndProduceTag(new Span<byte>(dcurr, (int) (dend - dcurr)));
+            dprServer.ProduceTagAndEndAction(new Span<byte>(dcurr, (int) (dend - dcurr)));
             dcurr += DprMessageHeader.FixedLenSize;
             // Write size
             *dprHeaderSizeField = DprMessageHeader.FixedLenSize;

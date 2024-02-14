@@ -10,7 +10,7 @@ namespace FASTER.libdpr
     ///     Class used to inexpensively track worker version dependency for a workers and client sessions.
     ///     Can only correctly track dependencies within a cluster up to size MaxClusterSize
     /// </summary>
-    public sealed class LightDependencySet : IEnumerable<WorkerVersion>, IDisposable
+    public sealed class LightDependencySet : IEnumerable<WorkerVersion>
     {
         private const int MaxSizeBits = 8;
 
@@ -32,8 +32,6 @@ namespace FASTER.libdpr
                 dependentVersions[i] = NoDependency;
         }
         
-        public void Dispose() {}
-
         /// <inheritdoc />
         public IEnumerator<WorkerVersion> GetEnumerator()
         {
@@ -68,6 +66,12 @@ namespace FASTER.libdpr
         {
             ref var originalVersion = ref dependentVersions[dprWorkerId.guid];
             return Interlocked.CompareExchange(ref originalVersion, NoDependency, version) >= version;
+        }
+
+        internal void UnsafeClear()
+        {
+            for (var i = 0; i < dependentVersions.Length; i++)
+                dependentVersions[i] = NoDependency;
         }
 
         private class LightDependencySetEnumerator : IEnumerator<WorkerVersion>

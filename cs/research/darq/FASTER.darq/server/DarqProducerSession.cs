@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using FASTER.common;
+using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 
@@ -26,16 +27,16 @@ namespace FASTER.server
         public void Dispose() => pool?.Return(this);
     }
 
-    internal sealed unsafe class DarqProducerSession : ServerSessionBase
+    internal sealed unsafe class DarqProducerSession<TVersionScheme> : ServerSessionBase where TVersionScheme : IVersionScheme
     {
         readonly HeaderReaderWriter hrw;
         int readHead;
         int seqNo, msgnum, start;
-        private Darq darq;
+        private Darq<TVersionScheme> darq;
         private readonly SimpleObjectPool<ProducerResponseBuffer> sendBufferPool;
         private ConcurrentQueue<ProducerResponseBuffer> responseQueue;
 
-        public DarqProducerSession(INetworkSender networkSender, Darq darq,
+        public DarqProducerSession(INetworkSender networkSender, Darq<TVersionScheme> darq,
             ConcurrentQueue<ProducerResponseBuffer> responseQueue) : base(
             networkSender)
         {
@@ -99,7 +100,7 @@ namespace FASTER.server
                 src += sizeof(int);
                 var request = new ReadOnlySpan<byte>(src, dprHeaderSize);
                 src += dprHeaderSize;
-                if (!darq.StartReceiveAction(request))
+                if (!darq.TryReceiveAndStartAction(request))
                 {
                     for (msgnum = 0; msgnum < num; msgnum++)
                         hrw.Write((byte)DarqCommandType.INVALID, ref dcurr, (int)(dend - dcurr));
@@ -127,7 +128,7 @@ namespace FASTER.server
                 }
 
 
-                darq.EndActionAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
+                darq.ProduceTagAndEndAction(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
                 SendResponseBuffer(d, dcurr, response);
             }
         }

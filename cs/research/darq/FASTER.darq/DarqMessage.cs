@@ -298,7 +298,7 @@ namespace FASTER.libdpr
 
             return this;
         }
-
+        
         /// <summary>
         /// Add a self message to this step.
         /// </summary>

@@ -9,20 +9,22 @@ namespace FASTER.darq
     /// <summary>
     /// A DarqConsumer that runs in the same process as a DARQ instance
     /// </summary>
-    public class ColocatedDarqProcessorClient : IDarqProcessorClient
+    public class ColocatedDarqProcessorClient<TVersionScheme> : IDarqProcessorClient
+        where TVersionScheme : IVersionScheme
     {
-        private Darq darq;
+        private Darq<TVersionScheme> darq;
         private SimpleObjectPool<DarqMessage> messagePool;
         private ManualResetEventSlim terminationStart, terminationComplete;
+
         private bool shouldSnapshotDpr;
+
         // TODO(Tianyu): For benchmark purposes only
-        public Stopwatch sw = new ();
+        public Stopwatch sw = new();
 
         // TODO(Tianyu): Reason about behavior in the case of rollback
         private long incarnation;
         private DarqScanIterator iterator;
         private Capabilities capabilities;
-        private bool unsafeMode = false;
 
         private enum ProcessResult
         {
@@ -33,61 +35,24 @@ namespace FASTER.darq
 
         private class Capabilities : IDarqProcessorClientCapabilities
         {
-            internal ColocatedDarqProcessorClient parent;
-            internal DprSession session;
+            private readonly ColocatedDarqProcessorClient<TVersionScheme> parent;
+            internal readonly long worldLine;
 
-            public Capabilities(ColocatedDarqProcessorClient parent, DprSession session)
+            public Capabilities(ColocatedDarqProcessorClient<TVersionScheme> parent, long worldLine)
             {
                 this.parent = parent;
-                this.session = session;
+                this.worldLine = worldLine;
             }
 
             public unsafe ValueTask<StepStatus> Step(StepRequest request)
             {
                 Span<byte> header = default;
                 // If step results in a version mismatch, rely on the scan to trigger a rollback for simplicity
-                if (parent.unsafeMode)
-                {
-                    // TODO(Tianyu): magic number
-                    var headerBytes = stackalloc byte[120];
-                    header = new Span<byte>(headerBytes, 120);
-                    session.TagMessage(header);
-                    if (!parent.darq.StartReceiveAction(header))
-                        return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
-                }
-                else
-                {
-                    parent.darq.StartLocalAction();
-                    if (parent.darq.WorldLine() != session.WorldLine)
-                        return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
-                }
-
+                if (parent.darq.WorldLine() != worldLine)
+                    return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
 
                 var status = parent.darq.Step(parent.incarnation, request);
-                parent.darq.EndAction();
                 return new ValueTask<StepStatus>(status);
-            }
-
-            public DprSession StartUsingDprSessionExternally()
-            {
-                parent.unsafeMode = true;
-                unsafe
-                {
-                    // Bring dependency of the underlying client session up to date as it was not used before
-                    var headerBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
-                    var header = new Span<byte>(headerBytes, 120);
-                    // TODO(Tianyu): hacky
-                    parent.darq.StartLocalAction();
-                    parent.darq.EndActionAndProduceTag(header);
-                    var ok = session.Receive(header);
-                    Debug.Assert(ok);
-                }
-                return session;
-            }
-
-            public void StopUsingDprSessionExternally()
-            {
-                parent.unsafeMode = false;
             }
         }
 
@@ -96,12 +61,12 @@ namespace FASTER.darq
         /// </summary>
         /// <param name="darq">DARQ DprServer that this consumer attaches to </param>
         /// <param name="clusterInfo"> information about the DARQ cluster </param>
-        public ColocatedDarqProcessorClient(Darq darq)
+        public ColocatedDarqProcessorClient(Darq<TVersionScheme> darq)
         {
             this.darq = darq;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool));
         }
-        
+
         public void Dispose()
         {
             messagePool.Dispose();
@@ -113,38 +78,22 @@ namespace FASTER.darq
         {
             message = null;
             var headerBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
-            try
-            {
-                darq.StartLocalAction();
-                if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
-                        out var lsn, out var nextLsn, out var type))
-                    return false;
 
-                // Short circuit without looking at the entry -- no need to process in background
-                if (type != DarqMessageType.IN && type != DarqMessageType.RECOVERY)
-                {
-                    iterator.UnsafeRelease();
-                    return true;
-                }
-                // Copy out the entry before dropping protection
-                message = messagePool.Checkout();
-                message.Reset(type, lsn, nextLsn, new ReadOnlySpan<byte>(entry, entryLength));
-                iterator.UnsafeRelease();
-            }
-            finally
+            if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
+                    out var lsn, out var nextLsn, out var type))
+                return false;
+
+            // Short circuit without looking at the entry -- no need to process in background
+            if (type != DarqMessageType.IN && type != DarqMessageType.RECOVERY)
             {
-                if (unsafeMode)
-                {
-                    var header = new Span<byte>(headerBytes, DprMessageHeader.FixedLenSize);
-                    darq.EndActionAndProduceTag(header);
-                    capabilities.session.Receive(header);
-                    // TODO(Tianyu): handle if client session is ahead of DARQ in worldline
-                }
-                else
-                {
-                    darq.EndAction();
-                }
+                iterator.UnsafeRelease();
+                return true;
             }
+
+            // Copy out the entry before dropping protection
+            message = messagePool.Checkout();
+            message.Reset(type, lsn, nextLsn, new ReadOnlySpan<byte>(entry, entryLength));
+            iterator.UnsafeRelease();
 
             return true;
         }
@@ -156,7 +105,7 @@ namespace FASTER.darq
             {
                 var hasNext = TryReadEntry(out var m);
                 // Manually check if worldLine matches without going through the heavyweight DPR path
-                if (!capabilities.session.CanInteract(darq))
+                if (capabilities.worldLine != darq.WorldLine())
                 {
                     Console.WriteLine("Processor detected rollback, restarting");
                     OnProcessorClientRestart(processor);
@@ -193,7 +142,7 @@ namespace FASTER.darq
 
         private void OnProcessorClientRestart<T>(T processor) where T : IDarqProcessor
         {
-            capabilities = new Capabilities(this, new DprSession(darq.WorldLine()));
+            capabilities = new Capabilities(this, darq.WorldLine());
             processor.OnRestart(capabilities);
             iterator = darq.StartScan();
         }

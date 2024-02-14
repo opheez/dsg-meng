@@ -36,6 +36,8 @@ namespace FASTER.libdpr
         private List<IStateObjectAttachment> attachments = new List<IStateObjectAttachment>();
         private byte[] metadataBuffer = new byte[1 << 15];
 
+        private SimpleObjectPool<DprSession> sessionPool;
+
         /// <summary>
         /// Creates a new DprServer.
         /// </summary>
@@ -52,6 +54,7 @@ namespace FASTER.libdpr
             dependencySetPool = new SimpleObjectPool<LightDependencySet>(() => new LightDependencySet());
             depSerializationArray = new byte[2 * LightDependencySet.MaxClusterSize * sizeof(long)];
             nextCommit = new TaskCompletionSource<long>();
+            sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         }
 
         /// <summary></summary>
@@ -280,7 +283,7 @@ namespace FASTER.libdpr
                 stateObject.PruneVersion(i);
         }
 
-        public bool StartReceiveAction(ReadOnlySpan<byte> headerBytes)
+        public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -340,7 +343,7 @@ namespace FASTER.libdpr
 
         public void EndAction() => versionScheme.Leave();
 
-        public int EndActionAndProduceTag(Span<byte> outputHeaderBytes)
+        public int ProduceTag(Span<byte> outputHeaderBytes)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -355,8 +358,31 @@ namespace FASTER.libdpr
             outputHeader.WorldLine = worldLine;
             outputHeader.Version = versionScheme.CurrentState().Version;
             outputHeader.NumClientDeps = 0;
-            versionScheme.Leave();
             return DprMessageHeader.FixedLenSize;
+        }
+
+        public int ProduceTagAndEndAction(Span<byte> outputHeaderBytes)
+        {
+            var result = ProduceTag(outputHeaderBytes);
+            EndAction();
+            return result;
+        }
+
+        public DprSession DetachFromWorker()
+        {
+            var session = sessionPool.Checkout();
+            session.UnsafeReset(this);
+            return session;
+        }
+
+        public unsafe bool TryMergeAndStartAction(DprSession detachedSession)
+        {
+            var headerBytes = stackalloc byte[120];
+            var header = new Span<byte>(headerBytes, 120);
+            // TODO(Tianyu): handle case where we run out of space
+            detachedSession.TagMessage(header);            
+            sessionPool.Return(detachedSession);
+            return TryReceiveAndStartAction(header);
         }
 
         /// <summary>

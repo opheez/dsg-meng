@@ -22,7 +22,7 @@ namespace FASTER.libdpr
                     Id = entry.Key.guid,
                     Version = entry.Value
                 });
-            rwLatch.ExitReadLock();
+            rwLatch.ExitWriteLock();
         }
 
         public override void UpdateCut(Dictionary<DprWorkerId, long> newCut)
@@ -109,7 +109,7 @@ namespace FASTER.libdpr
                 backend.NewCheckpoint(n.WorldLine, new WorkerVersion(n.Id, n.Version),
                     n.Deps.Select(wv => new WorkerVersion(wv.Id, wv.Version)));
             }
-            backend.MarkWorkerAccountedFor(new DprWorkerId(request.GraphNodes.First().Id));
+            backend.MarkWorkerAccountedFor(new DprWorkerId(request.Id));
             return Task.FromResult(new ResendGraphResponse
             {
                 Ok = true

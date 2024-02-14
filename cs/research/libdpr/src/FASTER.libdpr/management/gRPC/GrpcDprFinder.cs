@@ -49,7 +49,10 @@ namespace FASTER.libdpr
         protected override void SendGraphReconstruction(DprWorkerId id, IStateObject stateObject)
         {
             var checkpoints = stateObject.GetUnprunedVersions();
-            var request = new ResendGraphRequest();
+            var request = new ResendGraphRequest
+            {
+                Id = id.guid
+            };
             foreach (var m in checkpoints)
             {
                 SerializationUtil.DeserializeCheckpointMetadata(m.Span,

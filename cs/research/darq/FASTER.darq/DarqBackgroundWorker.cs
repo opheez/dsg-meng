@@ -1,35 +1,51 @@
 using System.Diagnostics;
+using darq;
 using FASTER.common;
+using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 
 namespace FASTER.client
 {
-    public class DarqBackgroundWorker : IDisposable
+    public class DarqBackgroundWorker<TVersionScheme> : IDisposable where TVersionScheme : IVersionScheme
     {
-        private Darq darq;
-        private SimpleObjectPool<DarqMessage> messagePool;
+        private Darq<TVersionScheme> darq;
+        private DarqBackgroundWorkerPool workerPool;
         private ManualResetEventSlim terminationStart, terminationComplete;
-        private IDarqClusterInfo clusterInfo;
-        private DprSession session;
+        private const int morselSize = 512;
+
+        private long worldLine;
         private DarqScanIterator iterator;
-        private DarqProducerClient producerClient;
         private DarqCompletionTracker completionTracker;
         private long processedUpTo;
+
+        private SimpleObjectPool<DarqMessage> messagePool;
+        private IDarqClusterInfo clusterInfo;
+        private DarqProducerClient producerClient;
         private int batchSize, numBatched = 0;
-
-
+        
         /// <summary>
         /// Constructs a new ColocatedDarqProcessorClient
         /// </summary>
         /// <param name="darq">DARQ DprServer that this consumer attaches to </param>
         /// <param name="clusterInfo"> information about the DARQ cluster </param>
-        public DarqBackgroundWorker(Darq darq, IDarqClusterInfo clusterInfo, int batchSize = 16)
+        public DarqBackgroundWorker(Darq<TVersionScheme> darq,
+            DarqBackgroundWorkerPool workerPool, IDarqClusterInfo clusterInfo, int batchSize = 16)
         {
             this.darq = darq;
+            this.workerPool = workerPool;
             this.clusterInfo = clusterInfo;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool), 1 << 15);
             this.batchSize = batchSize;
+            Reset();
+        }
+
+        private void Reset()
+        {
+            worldLine = darq.WorldLine();
+            producerClient = new DarqProducerClient(clusterInfo, new DprSession());
+            completionTracker = new DarqCompletionTracker();
+            iterator = darq.StartScan();
         }
 
         public long ProcessingLag => darq.StateObject().log.TailAddress - processedUpTo;
@@ -44,35 +60,29 @@ namespace FASTER.client
         {
             message = null;
             long nextAddress = 0;
-            try
+
+            if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
+                    out var lsn, out processedUpTo, out var type))
+                return false;
+
+            completionTracker.AddEntry(lsn, processedUpTo);
+            // Short circuit without looking at the entry -- no need to process in background
+            if (type != DarqMessageType.OUT && type != DarqMessageType.COMPLETION)
             {
-                darq.StartLocalAction();
-
-                if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
-                        out var lsn, out processedUpTo, out var type))
-                    return false;
-
-                completionTracker.AddEntry(lsn, processedUpTo);
-                // Short circuit without looking at the entry -- no need to process in background
-                if (type != DarqMessageType.OUT && type != DarqMessageType.COMPLETION)
-                {
-                    iterator.UnsafeRelease();
-                    return true;
-                }
-                // Copy out the entry before dropping protection
-                message = messagePool.Checkout();
-                message.Reset(type, lsn, processedUpTo,
-                    new ReadOnlySpan<byte>(entry, entryLength));
                 iterator.UnsafeRelease();
+                return true;
             }
-            finally
-            {
-                darq.EndAction();
-            }
+
+            // Copy out the entry before dropping protection
+            message = messagePool.Checkout();
+            message.Reset(type, lsn, processedUpTo,
+                new ReadOnlySpan<byte>(entry, entryLength));
+            iterator.UnsafeRelease();
 
             return true;
         }
 
+        // TODO(Tianyu): Create variants that allow DARQ instances to talk with each other through more than just the FASTER wire protocol
         private unsafe void SendMessage(DarqMessage m)
         {
             Debug.Assert(m.GetMessageType() == DarqMessageType.OUT);
@@ -84,6 +94,7 @@ namespace FASTER.client
                     body.Length - sizeof(DarqId));
                 var completionTrackerLocal = completionTracker;
                 var lsn = m.GetLsn();
+                // TODO(Tianyu): Make ack more efficient through batching
                 if (++numBatched < batchSize)
                 {
                     producerClient.EnqueueMessageWithCallback(dest, toSend,
@@ -105,14 +116,14 @@ namespace FASTER.client
         {
             var hasNext = TryReadEntry(out var m);
             // Don't go through the normal receive code path for performance
-            if (!session.CanInteract(darq))
+            if (worldLine != darq.WorldLine())
             {
                 Console.WriteLine("Processor detected rollback, restarting");
                 Reset();
                 // Reset to next iteration without doing anything
                 return true;
             }
-            
+
             if (!hasNext) return false;
             // Not a message we care about
             if (m == null) return true;
@@ -155,64 +166,55 @@ namespace FASTER.client
             return true;
         }
 
-        private void Reset()
-        {
-            session = new DprSession(darq.WorldLine());
-            producerClient = new DarqProducerClient(clusterInfo, session);
-            completionTracker = new DarqCompletionTracker();
-            iterator = darq.StartScan();
-        }
-
-        public async Task StartProcessingAsync()
+        private async Task ProcessBatch()
         {
             try
             {
-                var terminationToken = new ManualResetEventSlim();
-                if (Interlocked.CompareExchange(ref terminationStart, terminationToken, null) != null)
-                    // already started
-                    return;
-                terminationComplete = new ManualResetEventSlim();
-
-                Reset();
-                Console.WriteLine($"Starting background send from address {darq.StateObject().log.BeginAddress}");
-                while (!terminationStart.IsSet)
+                for (var i = 0; i < morselSize; i++)
                 {
-                    while (TryConsumeNext())
-                    {
-                    }
-
+                    if (TryConsumeNext()) continue;
                     producerClient.ForceFlush();
                     var iteratorWait = iterator.WaitAsync().AsTask();
-                    if (await Task.WhenAny(iteratorWait, Task.Delay(5)) == iteratorWait)
-                    {
-                        // No more entries, can signal finished and return 
-                        if (!iteratorWait.Result) break;
-                    }
-                    // Otherwise, just continue looping
+                    await Task.WhenAny(iteratorWait, Task.Delay(5));
+                    break;
                 }
 
-                producerClient.ForceFlush();
-                terminationComplete.Set();
+                if (!terminationStart.IsSet)
+                    workerPool.AddWork(ProcessBatch);
+                else
+                    terminationComplete.Set();
             }
             catch (Exception e)
             {
                 // Just restart the failed background thread
                 Console.WriteLine($"Exception {e.Message} was thrown, restarting background worker");
-                terminationComplete.Set();
-                terminationStart = null;
-                await StartProcessingAsync();
+                Reset();
+                if (!terminationStart.IsSet)
+                    workerPool.AddWork(ProcessBatch);
             }
         }
 
-        public async Task StopProcessingAsync()
+        public void BeginProcessing()
+        {
+            var terminationToken = new ManualResetEventSlim();
+            if (Interlocked.CompareExchange(ref terminationStart, terminationToken, null) != null)
+                // already started
+                return;
+            terminationComplete = new ManualResetEventSlim();
+
+            Reset();
+            Console.WriteLine($"Starting background send from address {darq.StateObject().log.BeginAddress}");
+            workerPool.AddWork(ProcessBatch);
+        }
+
+        public void StopProcessing()
         {
             var t = terminationStart;
             var c = terminationComplete;
             if (t == null) return;
 
             t.Set();
-            while (!c.IsSet)
-                await Task.Delay(10);
+            while (!c.IsSet) Thread.Yield();
             terminationStart = null;
         }
     }

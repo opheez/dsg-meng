@@ -1,18 +1,19 @@
 using System.Runtime.CompilerServices;
 using FASTER.common;
+using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 
 namespace FASTER.server
 {
-    internal sealed unsafe class DarqProcessorSession : ServerSessionBase
+    internal sealed unsafe class DarqProcessorSession<TVersionScheme> : ServerSessionBase where TVersionScheme : IVersionScheme
     {
         readonly HeaderReaderWriter hrw;
         int readHead;
         int seqNo, msgnum, start;
-        private Darq darq;
+        private Darq<TVersionScheme> darq;
 
-        public DarqProcessorSession(INetworkSender networkSender, Darq darq) : base(networkSender)
+        public DarqProcessorSession(INetworkSender networkSender, Darq<TVersionScheme> darq) : base(networkSender)
         {
             this.darq = darq;
         }
@@ -69,7 +70,7 @@ namespace FASTER.server
             var request = new ReadOnlySpan<byte>(src, dprHeaderSize);
             src += dprHeaderSize;
             // Error code path
-            if (!darq.StartReceiveAction(request))
+            if (!darq.TryReceiveAndStartAction(request))
             {
                 for (msgnum = 0; msgnum < num; msgnum++)
                     hrw.Write((byte)DarqCommandType.INVALID, ref dcurr, (int)(dend - dcurr));
@@ -108,7 +109,7 @@ namespace FASTER.server
                 }
             }
 
-            darq.EndActionAndProduceTag(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
+            darq.ProduceTagAndEndAction(new Span<byte>(dprResponseOffset, DprMessageHeader.FixedLenSize));
             // Send replies
             Send(d, dcurr);
         }

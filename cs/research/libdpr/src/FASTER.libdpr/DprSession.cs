@@ -6,7 +6,6 @@ using FASTER.core;
 
 namespace FASTER.libdpr
 {
-
     public class DprSessionRolledBackException : Exception
     {
         public readonly long NewWorldLine;
@@ -43,6 +42,23 @@ namespace FASTER.libdpr
             // 0 denotes that the session does not yet exist in a worldline
             worldLine = initialWorldLine;
             deps = new LightDependencySet();
+        }
+
+        internal void UnsafeReset(long initialWorldLine = 0)
+        {
+            version = 1;
+            // 0 denotes that the session does not yet exist in a worldline
+            worldLine = initialWorldLine;
+            deps.UnsafeClear();
+        }
+        
+
+        internal void UnsafeReset<TS, TV>(DprWorker<TS, TV> to) where TS : IStateObject where TV : IVersionScheme
+        {
+            version = to.Version();
+            worldLine = to.WorldLine();
+            deps.UnsafeClear();
+            deps.Update(to.Me(), version);
         }
 
         /// <summary>
@@ -85,12 +101,7 @@ namespace FASTER.libdpr
                 return (int) (copyHead <= bend ? copyHead - b : b - copyHead);
             }
         }
-
-        public bool CanInteract<TS, TV>(DprWorker<TS, TV> w) where TS : IStateObject where TV : IVersionScheme
-        {
-            return !RolledBack && w.WorldLine() == worldLine;
-        }
-
+        
         /// <summary>
         /// Receive a message with the given header in this session. 
         /// </summary>

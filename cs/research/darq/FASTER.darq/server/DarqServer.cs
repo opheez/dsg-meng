@@ -1,18 +1,20 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using darq;
 using FASTER.client;
 using FASTER.common;
+using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 
 namespace FASTER.server
 {
-    public class DarqProvider : ISessionProvider
+    public class DarqProvider<TVersionScheme> : ISessionProvider where TVersionScheme : IVersionScheme
     {
-        private Darq backend;
+        private Darq<TVersionScheme> backend;
         private ConcurrentQueue<ProducerResponseBuffer> responseQueue;
 
-        internal DarqProvider(Darq backend, ConcurrentQueue<ProducerResponseBuffer> responseQueue)
+        internal DarqProvider(Darq<TVersionScheme> backend, ConcurrentQueue<ProducerResponseBuffer> responseQueue)
         {
             this.backend = backend;
             GetMaxSizeSettings = new MaxSizeSettings();
@@ -24,11 +26,11 @@ namespace FASTER.server
             switch ((DarqProtocolType) wireFormat)
             {
                 case DarqProtocolType.DarqSubscribe:
-                    return new DarqSubscriptionSession(networkSender, backend);
+                    return new DarqSubscriptionSession<TVersionScheme>(networkSender, backend);
                 case DarqProtocolType.DarqProducer:
-                    return new DarqProducerSession(networkSender, backend, responseQueue);
+                    return new DarqProducerSession<TVersionScheme>(networkSender, backend, responseQueue);
                 case DarqProtocolType.DarqProcessor:
-                    return new DarqProcessorSession(networkSender, backend);
+                    return new DarqProcessorSession<TVersionScheme>(networkSender, backend);
                 default:
                     throw new NotSupportedException();
             }
@@ -37,26 +39,27 @@ namespace FASTER.server
         public MaxSizeSettings GetMaxSizeSettings { get; }
     }
 
-    public class DarqServer : IDisposable
+    public class DarqServer<TVersionScheme> : IDisposable where TVersionScheme : IVersionScheme
     {
         private readonly IFasterServer server;
-        private readonly Darq darq;
-        private readonly DarqProvider provider;
-        private readonly DarqBackgroundWorker backgroundWorker;
+        private readonly Darq<TVersionScheme> darq;
+        private readonly DarqBackgroundWorkerPool workerPool;
+        private readonly DarqProvider<TVersionScheme> provider;
+        private readonly DarqBackgroundWorker<TVersionScheme> backgroundWorker;
         private readonly ManualResetEventSlim terminationStart;
         private readonly CountdownEvent terminationComplete;
-        private Thread backgroundThread, refreshThread, responseThread;
+        private Thread refreshThread, responseThread;
         private ConcurrentQueue<ProducerResponseBuffer> responseQueue;
 
-        public DarqServer(DarqServerOptions options)
+        public DarqServer(DarqServerOptions options, TVersionScheme versionScheme)
         {
-            darq = new Darq(options.DarqSettings);
-            backgroundWorker = new DarqBackgroundWorker(darq, options.ClusterInfo);
+            darq = new Darq<TVersionScheme>(options.DarqSettings, versionScheme);
+            backgroundWorker = new DarqBackgroundWorker<TVersionScheme>(darq, options.WorkerPool, options.ClusterInfo);
             terminationStart = new ManualResetEventSlim();
             terminationComplete = new CountdownEvent(2);
             darq.ConnectToCluster();
             responseQueue = new();
-            provider = new DarqProvider(darq, responseQueue);
+            provider = new DarqProvider<TVersionScheme>(darq, responseQueue);
             server = new FasterServerTcp(options.Address, options.Port);
             // Check that our custom defined wire format is not clashing with anything implemented by FASTER
             Debug.Assert(!Enum.IsDefined(typeof(WireFormat), (WireFormat) (int) DarqProtocolType.DarqSubscribe));
@@ -68,18 +71,14 @@ namespace FASTER.server
             server.Register((WireFormat) DarqProtocolType.DarqProducer, provider);
         }
 
-        public Darq GetDarq() => darq;
+        public Darq<TVersionScheme> GetDarq() => darq;
 
         public long BackgroundProcessingLag => backgroundWorker.ProcessingLag;
 
         public void Start()
         {
             server.Start();
-            if (backgroundWorker != default)
-            {
-                backgroundThread = new Thread(() => backgroundWorker.StartProcessingAsync());
-                backgroundThread.Start();
-            }
+            backgroundWorker.BeginProcessing();
 
             refreshThread = new Thread(() =>
             {
@@ -117,12 +116,11 @@ namespace FASTER.server
             // TODO(Tianyu): this shutdown process is unsafe and may leave things unsent/unprocessed in the queue
             darq.ForceCheckpoint();
             Thread.Sleep(2000);
-            backgroundWorker?.StopProcessingAsync().GetAwaiter().GetResult();
+            backgroundWorker?.StopProcessing();
             backgroundWorker?.Dispose();
             server.Dispose();
             terminationComplete.Wait();
             darq.StateObject().Dispose();
-            backgroundThread?.Join();
             refreshThread.Join();
         }
     }

@@ -32,7 +32,7 @@ namespace SimpleStream
             IDarqProcessor processor, bool remoteProcessor = false)
         {
             var logDevice = new LocalStorageDevice($"D:\\w{me.guid}\\data.log", deleteOnClose: true);
-            var darqServer = new DarqServer(new DarqServerOptions
+            var darqServer = new DarqServer<EpochProtectedVersionScheme>(new DarqServerOptions
             {
                 Port = 15721 + (int)me.guid,
                 Address = "127.0.0.1",
@@ -54,13 +54,13 @@ namespace SimpleStream
                     CheckpointPeriodMilli = 5,
                     RefreshPeriodMilli = 5
                 },
-            });
+            }, new EpochProtectedVersionScheme(new LightEpoch()));
             darqServer.Start();
             IDarqProcessorClient processorClient;
             if (remoteProcessor)
                 processorClient = new DarqProcessorClient("127.0.0.1", 15721 + (int)me.guid);
             else
-                processorClient = new ColocatedDarqProcessorClient(darqServer.GetDarq());
+                processorClient = new ColocatedDarqProcessorClient<EpochProtectedVersionScheme>(darqServer.GetDarq());
             
             processorClient.StartProcessingAsync(processor).GetAwaiter().GetResult();
             

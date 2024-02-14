@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using FASTER.client;
 using FASTER.common;
+using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 using Google.Protobuf;
@@ -10,13 +11,13 @@ using DarqMessageType = FASTER.libdpr.DarqMessageType;
 
 namespace darq.gRPC;
 
-public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposable
+public class DarqGrpcServiceImpl<TVersionScheme> : DarqGrpcService.DarqGrpcServiceBase, IDisposable where TVersionScheme : IVersionScheme
 {
-    private Darq backend;
-    private readonly DarqBackgroundWorker backgroundWorker;
+    private Darq<TVersionScheme> backend;
+    private readonly DarqBackgroundWorker<TVersionScheme> backgroundWorker;
     private readonly ManualResetEventSlim terminationStart;
     private readonly CountdownEvent terminationComplete;
-    private Thread backgroundThread, refreshThread;
+    private Thread refreshThread;
 
     private ThreadLocalObjectPool<StepRequest> stepRequestPool;
     private ThreadLocalObjectPool<byte[]> enqueueRequestPool;
@@ -24,21 +25,16 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
     private long currentIncarnationId;
     private DarqScanIterator currentIterator;
 
-    public DarqGrpcServiceImpl(DarqSettings darqSettings, IDarqClusterInfo clusterInfo)
+    public DarqGrpcServiceImpl(DarqSettings darqSettings, DarqBackgroundWorkerPool workerPool, IDarqClusterInfo clusterInfo, TVersionScheme versionScheme)
     {
-        backend = new Darq(darqSettings);
-        backgroundWorker = new DarqBackgroundWorker(backend, clusterInfo);
+        backend = new Darq<TVersionScheme>(darqSettings, versionScheme);
+        backgroundWorker = new DarqBackgroundWorker<TVersionScheme>(backend, workerPool, clusterInfo);
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new CountdownEvent(2);
         stepRequestPool = new ThreadLocalObjectPool<StepRequest>(() => new StepRequest());
         enqueueRequestPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 15]);
         backend.ConnectToCluster();
-
-        if (backgroundWorker != default)
-        {
-            backgroundThread = new Thread(() => backgroundWorker.StartProcessingAsync());
-            backgroundThread.Start();
-        }
+        backgroundWorker.StopProcessing();
 
         refreshThread = new Thread(() =>
         {
@@ -55,15 +51,14 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
         // TODO(Tianyu): this shutdown process is unsafe and may leave things unsent/unprocessed in the queue
         backend.ForceCheckpoint();
         Thread.Sleep(2000);
-        backgroundWorker?.StopProcessingAsync().GetAwaiter().GetResult();
+        backgroundWorker.StopProcessing();
         backgroundWorker?.Dispose();
         terminationComplete.Wait();
         backend.StateObject().Dispose();
-        backgroundThread?.Join();
         refreshThread.Join();
     }
 
-    public Darq GetDarq() => backend;
+    public Darq<TVersionScheme> GetDarq() => backend;
 
     public override async Task<RegisterProcessorResult> RegisterProcessor(RegisterProcessorRequest request,
         ServerCallContext context)

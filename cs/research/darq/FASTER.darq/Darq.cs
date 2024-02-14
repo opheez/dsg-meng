@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using darq;
 using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
@@ -216,7 +217,7 @@ namespace FASTER.darq
     /// <summary>
     /// DARQ data structure 
     /// </summary>
-    public class Darq : DprWorker<DarqStateObject, EpochProtectedVersionScheme>, IDisposable
+    public class Darq<TVersionScheme> : DprWorker<DarqStateObject, TVersionScheme>, IDisposable where TVersionScheme : IVersionScheme
     {
         private readonly DeduplicationVector dvc;
         private readonly LongValueAttachment incarnation, largestSteppedLsn;
@@ -228,8 +229,8 @@ namespace FASTER.darq
         /// </summary>
         /// <param name="me">unique identity for this DARQ</param>
         /// <param name="darqSettings">parameters for DARQ</param>
-        public Darq(DarqSettings darqSettings) : base(
-            new DarqStateObject(darqSettings), new EpochProtectedVersionScheme(new LightEpoch()), new DprWorkerOptions
+        public Darq(DarqSettings darqSettings, TVersionScheme versionScheme) : base(
+            new DarqStateObject(darqSettings), versionScheme, new DprWorkerOptions
             {
                 Me = darqSettings.MyDpr == DprWorkerId.INVALID ? new DprWorkerId(darqSettings.Me.guid) : darqSettings.MyDpr,
                 DprFinder = darqSettings.DprFinder,
@@ -394,13 +395,13 @@ namespace FASTER.darq
             return RegisterNewProcessorAsync().GetAwaiter().GetResult();
         }
 
-        public Task<long> RegisterNewProcessorAsync()
+        public async Task<long> RegisterNewProcessorAsync()
         {
             var tcs = new TaskCompletionSource<long>();
-            // TODO(Tianyu): Can this deadlock against itself?
-            versionScheme.GetUnderlyingEpoch()
-                .BumpCurrentEpoch(() => tcs.SetResult(Interlocked.Increment(ref incarnation.value)));
-            return tcs.Task;
+            var result = Interlocked.Increment(ref incarnation.value);
+            // TODO(Tianyu): This is not necessary and just an easy way to ensure there is no overlap of processing from two processor
+            await NextCommit();
+            return result;
         }
 
         /// <summary>

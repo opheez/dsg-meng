@@ -2,9 +2,13 @@
 
 using System.Net;
 using CommandLine;
+using darq;
 using FASTER.core;
 using FASTER.darq;
+using FASTER.libdpr;
+using FASTER.libdpr.gRPC;
 using Google.Protobuf;
+using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -21,7 +25,7 @@ public class Options
     [Option('n', "num-workflows", Required = false,
         HelpText = "Number of workflows to execute")]
     public int NumWorkflows { get; set; }
-    
+
     [Option('d', "depth", Required = false,
         HelpText = "Depth of each workflow to execute")]
     public int Depth { get; set; }
@@ -42,34 +46,35 @@ public class Program
         if (options.Type.Equals("client"))
         {
             using var channel = GrpcChannel.ForAddress("http://localhost:15721");
-            var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
+            var client =
+            new WorkflowOrchestrator.WorkflowOrchestratorClient(
+            channel.Intercept(new DprClientInterceptor(new DprSession())));
+            // var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
             for (var i = 0; i < options.NumWorkflows; i++)
             {
-                client.ExecuteWorkflow(new ExecuteWorkflowRequest
+                client.ExecuteWorkflowAsync(new ExecuteWorkflowRequest
                 {
                     WorkflowId = i,
                     Depth = options.Depth,
                     Input = ByteString.CopyFrom(inputBytes)
-                });
+                }).GetAwaiter().GetResult();
                 Console.WriteLine($"Workflow number {i} finished");
             }
-            
-        } 
+        }
         else if (options.Type.Equals("orchestrator"))
         {
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.ConfigureKestrel(serverOptions =>
             {
-                serverOptions.Listen(IPAddress.Loopback, 15721, listenOptions =>
-                {
-                    listenOptions.Protocols = HttpProtocols.Http2;
-                });
+                serverOptions.Listen(IPAddress.Loopback, 15721,
+                    listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
             });
-            builder.Services.AddGrpc();
-            
-            var darqSetting = new DarqSettings
+
+            using var dprFinderChannel = GrpcChannel.ForAddress("http://localhost:15720");
+            var darqSettings = new DarqSettings
             {
-                LogDevice =  new LocalStorageDevice($"D:\\w0\\data.log", deleteOnClose: true),
+                DprFinder = new GrpcDprFinder(dprFinderChannel),
+                LogDevice = new LocalStorageDevice($"D:\\w0\\data.log", deleteOnClose: true),
                 PageSize = 1L << 22,
                 MemorySize = 1L << 28,
                 SegmentSize = 1L << 30,
@@ -77,22 +82,35 @@ public class Program
                 DeleteOnClose = true,
                 CleanStart = true
             };
-            var workers = new List<TaskExecutor.TaskExecutorClient>();
-            var channel = GrpcChannel.ForAddress("http://localhost:15722");           
-            workers.Add(new TaskExecutor.TaskExecutorClient(channel));
-            
-            builder.Services.AddSingleton(new WorkflowOrchestratorServiceSettings
+            using var workerChannel = GrpcChannel.ForAddress("http://localhost:15722");
+            var executors = new List<TaskExecutor.TaskExecutorClient>();
+            // TODO(Tianyu): Properly hook up session to DARQ's DPR tracking
+            executors.Add(
+            new TaskExecutor.TaskExecutorClient(
+            workerChannel.Intercept(new DprClientInterceptor(new DprSession()))));
+            // workers.Add(new TaskExecutor.TaskExecutorClient(workerChannel));
+
+            using var workerPool = new DarqBackgroundWorkerPool(4);
+            var orchestratorService = new WorkflowOrchestratorService(new WorkflowOrchestratorServiceSettings
             {
-                DarqSettings = darqSetting,
-                Workers = workers
+                DarqSettings = darqSettings,
+                Executors = executors,
+                WorkerPool = workerPool
             });
-            // TODO(Tianyu): Probably want to do some more DI shit and leave a per-request service handler, but who cares
-            builder.Services.AddSingleton<WorkflowOrchestratorService>();
+            builder.Services.AddSingleton<DprWorker<DarqStateObject, RwLatchVersionScheme>>(orchestratorService
+                .GetBackend());
+            builder.Services.AddSingleton<DprServerInterceptor<DarqStateObject>>();
+            builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<DarqStateObject>>(); });
+            // builder.Services.AddGrpc();
+            // TODO(Tianyu): Probably want to do some more DI shit and leave a per-request service handler and
+            // configure background services, but who cares
+            builder.Services.AddSingleton(orchestratorService);
+
             var app = builder.Build();
-            app.Lifetime.ApplicationStopping.Register(() => channel.Dispose());
-            
             app.MapGrpcService<WorkflowOrchestratorService>();
-            app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+            app.MapGet("/",
+                () =>
+                    "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
             app.Run();
         }
         else if (options.Type.Equals("worker"))
@@ -100,15 +118,37 @@ public class Program
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.ConfigureKestrel(serverOptions =>
             {
-                serverOptions.Listen(IPAddress.Loopback, 15722, listenOptions =>
-                {
-                    listenOptions.Protocols = HttpProtocols.Http2;
-                });
+                serverOptions.Listen(IPAddress.Loopback, 15722,
+                    listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
             });
-            builder.Services.AddGrpc();
+            builder.Services.AddSingleton<DprStatelessServerInterceptor>();
+            builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprStatelessServerInterceptor>(); });
+            // builder.Services.AddGrpc();
             var app = builder.Build();
             app.MapGrpcService<TaskExecutorService>();
-            app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+            app.MapGet("/",
+                () =>
+                    "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+            app.Run();
+        }
+        else if (options.Type.Equals("dprfinder"))
+        {
+            var builder = WebApplication.CreateBuilder();
+            builder.WebHost.ConfigureKestrel(serverOptions =>
+            {
+                serverOptions.Listen(IPAddress.Loopback, 15720,
+                    listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
+            });
+            var dprFinderServiceDevice = new PingPongDevice(new LocalMemoryDevice(1L << 30, 1L << 30, 1),
+                new LocalMemoryDevice(1L << 30, 1L << 30, 1));
+            var backend = new GraphDprFinderBackend(dprFinderServiceDevice);
+            builder.Services.AddSingleton(new DprFinderGrpcService(backend));
+            builder.Services.AddGrpc();
+            var app = builder.Build();
+            app.MapGrpcService<DprFinderGrpcService>();
+            app.MapGet("/",
+                () =>
+                    "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
             app.Run();
         }
         else

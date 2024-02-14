@@ -11,7 +11,7 @@ namespace FASTER.libdpr
     public unsafe struct DprMessageHeader
     {
         public const int FixedLenSize = 36;
-        public const string GprcMetadataKeyName = "DprHeader";
+        public const string GprcMetadataKeyName = "DprHeader-bin";
         [FieldOffset(0)] internal fixed byte data[FixedLenSize];
         [FieldOffset(0)] internal DprWorkerId SrcWorkerId;
         [FieldOffset(8)] internal SUId SrcSU;

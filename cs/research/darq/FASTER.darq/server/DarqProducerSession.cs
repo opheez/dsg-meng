@@ -32,11 +32,11 @@ namespace FASTER.server
         readonly HeaderReaderWriter hrw;
         int readHead;
         int seqNo, msgnum, start;
-        private Darq<TVersionScheme> darq;
+        private Darq darq;
         private readonly SimpleObjectPool<ProducerResponseBuffer> sendBufferPool;
         private ConcurrentQueue<ProducerResponseBuffer> responseQueue;
 
-        public DarqProducerSession(INetworkSender networkSender, Darq<TVersionScheme> darq,
+        public DarqProducerSession(INetworkSender networkSender, Darq darq,
             ConcurrentQueue<ProducerResponseBuffer> responseQueue) : base(
             networkSender)
         {

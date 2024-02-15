@@ -17,13 +17,13 @@ namespace FASTER.libdpr
     /// StateObject implementation.
     /// </summary>
     /// <typeparam name="TStateObject"> type of state object</typeparam>
-    public class DprWorker<TStateObject, TVersionScheme> where TStateObject : IStateObject where TVersionScheme : IVersionScheme
+    public class DprWorker<TStateObject> where TStateObject : IStateObject
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         private readonly DprWorkerOptions options;
 
         private readonly ConcurrentDictionary<long, LightDependencySet> versions;
-        protected readonly TVersionScheme versionScheme;
+        protected readonly IVersionScheme versionScheme;
         private long worldLine = 1;
 
         private long lastCheckpointMilli, lastRefreshMilli;
@@ -44,7 +44,7 @@ namespace FASTER.libdpr
         /// <param name="stateObject"> underlying state object </param>
         /// <param name="options"> DPR worker options </param>
         // TODO(Tianyu): Put some design work into the different operating modes of applications written this way -- speculative/pessimistic/no guarantees
-        public DprWorker(TStateObject stateObject, TVersionScheme versionScheme, DprWorkerOptions options)
+        public DprWorker(TStateObject stateObject, IVersionScheme versionScheme, DprWorkerOptions options)
         {
             this.stateObject = stateObject;
             this.options = options;

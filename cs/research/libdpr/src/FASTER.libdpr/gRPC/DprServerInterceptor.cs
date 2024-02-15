@@ -1,21 +1,20 @@
 using System.Diagnostics;
 using System.Threading.Tasks;
 using FASTER.common;
-using FASTER.core;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Status = Grpc.Core.Status;
 
 namespace FASTER.libdpr.gRPC
 {
-    public class DprServerInterceptor<TStateObject> : Interceptor where TStateObject : IStateObject
+    public class DprServerInterceptor<TStateObject, TService> : Interceptor where TStateObject : IStateObject
     {
-        private DprWorker<TStateObject, RwLatchVersionScheme> dprWorker;
+        private DprWorker<TStateObject> dprWorker;
         private ThreadLocalObjectPool<byte[]> serializationArrayPool;
         
         // For now, require that the gRPC integration only works with RwLatchVersionScheme, which supports protected
         // blocks that start and end on different threads
-        public DprServerInterceptor(DprWorker<TStateObject, RwLatchVersionScheme> dprWorker)
+        public DprServerInterceptor(DprWorker<TStateObject> dprWorker, TService service)
         {
             this.dprWorker = dprWorker;
             serializationArrayPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 10]);

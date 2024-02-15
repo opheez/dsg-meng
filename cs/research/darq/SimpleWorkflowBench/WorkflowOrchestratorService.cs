@@ -83,49 +83,40 @@ public class WorkflowHandle
     }
 }
 
-public class WorkflowOrchestratorServiceSettings
-{
-    public DarqSettings DarqSettings;
-    public List<GrpcChannel> Executors;
-    public DarqBackgroundWorkerPool WorkerPool;
-}
-
 public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestratorBase, IDarqProcessor, IDisposable
 {
-    private Darq<RwLatchVersionScheme> backend;
-    private readonly DarqBackgroundWorker<RwLatchVersionScheme> backgroundWorker;
+    private Darq backend;
+    private readonly DarqBackgroundTask _backgroundTask;
     private readonly DarqBackgroundWorkerPool workerPool;
-    private readonly ManualResetEventSlim terminationStart;
-    private readonly CountdownEvent terminationComplete;
+    private readonly ManualResetEventSlim terminationStart, terminationComplete;
     private Thread refreshThread, processingThread;
     private ColocatedDarqProcessorClient<RwLatchVersionScheme> processorClient;
 
-    private ConcurrentDictionary<long, WorkflowHandle> startedWorkflows = new();
+    private ConcurrentDictionary<long, WorkflowHandle> startedWorkflows;
     private IDarqProcessorClientCapabilities capabilities;
 
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
     private List<GrpcChannel> workers;
     private int nextWorker = 0;
 
-
-    public WorkflowOrchestratorService(WorkflowOrchestratorServiceSettings settings)
+    public WorkflowOrchestratorService(Darq darq, List<GrpcChannel> executors, DarqBackgroundWorkerPool workerPool)
     {
-        backend = new Darq<RwLatchVersionScheme>(settings.DarqSettings, new RwLatchVersionScheme());
-        workers = settings.Executors;
+        backend = darq;
+        workers = executors;
         // no need to supply a cluster because we don't use inter-DARQ messaging in this use case
-        backgroundWorker = new DarqBackgroundWorker<RwLatchVersionScheme>(backend, settings.WorkerPool, null);
+        _backgroundTask = new DarqBackgroundTask(backend, workerPool, null);
         terminationStart = new ManualResetEventSlim();
-        terminationComplete = new CountdownEvent(2);
-        workerPool = settings.WorkerPool;
+        terminationComplete = new ManualResetEventSlim();
+        this.workerPool = workerPool;
         backend.ConnectToCluster();
         
-        backgroundWorker.StopProcessing();
+        _backgroundTask.StopProcessing();
 
         refreshThread = new Thread(() =>
         {
             while (!terminationStart.IsSet)
                 backend.Refresh();
-            terminationComplete.Signal();
+            terminationComplete.Set();
         });
         refreshThread.Start();
 
@@ -140,7 +131,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         while (capabilities == null) {}
     }
 
-    public Darq<RwLatchVersionScheme> GetBackend() => backend;
+    public Darq GetBackend() => backend;
 
     public void Dispose()
     {
@@ -148,12 +139,11 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         // TODO(Tianyu): this shutdown process is unsafe and may leave things unsent/unprocessed in the queue
         backend.ForceCheckpoint();
         Thread.Sleep(1000);
-        backgroundWorker.StopProcessing();
-        backgroundWorker?.Dispose();
+        _backgroundTask.StopProcessing();
+        _backgroundTask.Dispose();
         processorClient.StopProcessingAsync().GetAwaiter().GetResult();
         processorClient.Dispose();
         terminationComplete.Wait();
-        backend.StateObject().Dispose();
         refreshThread.Join();
         processingThread.Join();
     }
@@ -316,9 +306,13 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
 
     public void OnRestart(IDarqProcessorClientCapabilities capabilities)
     {
-        this.capabilities = capabilities;
-        foreach (var handle in startedWorkflows.Values)
-            handle.tcs.TrySetCanceled();
+        if (startedWorkflows != null)
+        {
+            foreach (var handle in startedWorkflows.Values)
+                handle.tcs.TrySetCanceled();
+        }
         startedWorkflows = new ConcurrentDictionary<long, WorkflowHandle>();
+        this.capabilities = capabilities;
+
     }
 }

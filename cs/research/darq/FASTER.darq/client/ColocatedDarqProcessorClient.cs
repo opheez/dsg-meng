@@ -12,7 +12,7 @@ namespace FASTER.darq
     public class ColocatedDarqProcessorClient<TVersionScheme> : IDarqProcessorClient
         where TVersionScheme : IVersionScheme
     {
-        private Darq<TVersionScheme> darq;
+        private Darq darq;
         private SimpleObjectPool<DarqMessage> messagePool;
         private ManualResetEventSlim terminationStart, terminationComplete;
 
@@ -25,6 +25,7 @@ namespace FASTER.darq
         private long incarnation;
         private DarqScanIterator iterator;
         private Capabilities capabilities;
+        private CancellationTokenSource loopAwaitCancellationTokenSource;
 
         private enum ProcessResult
         {
@@ -61,10 +62,11 @@ namespace FASTER.darq
         /// </summary>
         /// <param name="darq">DARQ DprServer that this consumer attaches to </param>
         /// <param name="clusterInfo"> information about the DARQ cluster </param>
-        public ColocatedDarqProcessorClient(Darq<TVersionScheme> darq)
+        public ColocatedDarqProcessorClient(Darq darq)
         {
             this.darq = darq;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool));
+            loopAwaitCancellationTokenSource = new CancellationTokenSource();
         }
 
         public void Dispose()
@@ -159,16 +161,13 @@ namespace FASTER.darq
         {
             try
             {
-                var terminationToken = new ManualResetEventSlim();
-                if (Interlocked.CompareExchange(ref terminationStart, terminationToken, null) != null)
-                    // already started
-                    throw new FasterException("Attempting to start a processor twice");
+                terminationStart = new ManualResetEventSlim();
                 terminationComplete = new ManualResetEventSlim();
 
                 incarnation = darq.RegisterNewProcessor();
                 OnProcessorClientRestart(processor);
                 Console.WriteLine("Starting Processor...");
-                while (!terminationToken.IsSet)
+                while (!terminationStart.IsSet)
                 {
                     ProcessResult result;
                     do
@@ -180,14 +179,11 @@ namespace FASTER.darq
                         break;
 
                     // FASTER.darq.StateObject().RefreshSafeReadTail();
-                    await iterator.WaitAsync().AsTask();
-                    // if (await Task.WhenAny(iteratorWait, Task.Delay(10)) == iteratorWait)
-                    // {
-                    //     // No more entries, can signal finished and return 
-                    //     if (!iteratorWait.Result)
-                    //         break;
-                    // }
-                    // Otherwise, just continue looping
+                    try
+                    {
+                        await iterator.WaitAsync(loopAwaitCancellationTokenSource.Token).AsTask();
+                    }
+                    catch (OperationCanceledException) {}
                 }
 
                 Console.WriteLine($"Colocated processor has exited on worker {darq.Me().guid}");
@@ -210,13 +206,10 @@ namespace FASTER.darq
         /// <inheritdoc/>
         public async Task StopProcessingAsync()
         {
-            var t = terminationStart;
-            var c = terminationComplete;
-            if (t == null) return;
-            t.Set();
-            while (!c.IsSet)
+            terminationStart.Set();
+            loopAwaitCancellationTokenSource.Cancel();
+            while (!terminationComplete.IsSet)
                 await Task.Delay(10);
-            terminationStart = null;
             iterator.Dispose();
             if (sw.IsRunning) sw.Stop();
         }

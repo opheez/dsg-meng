@@ -60,8 +60,6 @@ namespace FASTER.libdpr
         /// </summary>
         public void Dispose()
         {
-            frontDevice?.Dispose();
-            backDevice?.Dispose();
             checksumHasher?.Dispose();
         }
 

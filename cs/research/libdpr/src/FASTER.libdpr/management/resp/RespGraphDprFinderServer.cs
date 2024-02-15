@@ -108,7 +108,6 @@ namespace FASTER.libdpr
             // TODO(Tianyu): Clean shutdown of client connections
             termination.Set();
             processThread.Join();
-            backend.Dispose();
         }
 
         /// <summary>

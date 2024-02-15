@@ -2,22 +2,27 @@ using System.Collections.Concurrent;
 
 namespace darq;
 
+public class DarqBackgroundWorkerPoolSettings
+{
+    public int numWorkers = 2;
+}
+
 public class DarqBackgroundWorkerPool : IDisposable
 {
     private ConcurrentQueue<Func<Task>> workQueue;
     private ManualResetEventSlim terminationStart;
     private CountdownEvent terminationComplete;
 
-    public DarqBackgroundWorkerPool(int numWorkers)
+    public DarqBackgroundWorkerPool(DarqBackgroundWorkerPoolSettings settings)
     {
         workQueue = new ConcurrentQueue<Func<Task>>();
         terminationStart = new ManualResetEventSlim();
-        terminationComplete = new CountdownEvent(numWorkers);
-        for (var i = 0; i < numWorkers; i++)
+        terminationComplete = new CountdownEvent(settings.numWorkers);
+        for (var i = 0; i < settings.numWorkers; i++)
         {
             Task.Run(async () =>
             {
-                while (!terminationComplete.IsSet)
+                while (!terminationStart.IsSet)
                 {
                     while (workQueue.TryDequeue(out var task))
                         await task();

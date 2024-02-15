@@ -72,7 +72,7 @@ namespace FASTER.libdpr
     ///     The implementation relies on state objects to persist dependencies and avoids incurring additional storage
     ///     round-trips on the commit critical path.
     /// </summary>
-    public class GraphDprFinderBackend : IDisposable
+    public class GraphDprFinderBackend
     {
         // Used to send add/delete worker requests to processing thread
         private readonly ConcurrentQueue<(DprWorkerId, Action<(long, long)>)> addQueue =
@@ -388,12 +388,6 @@ namespace FASTER.libdpr
             cutChanged = true;
             volatileClusterState.worldLinePrefix.Remove(dprWorkerId);
             volatileClusterState.worldLinePrefix.Remove(dprWorkerId);
-        }
-
-        /// <inheritdoc cref="IDisposable" />
-        public void Dispose()
-        {
-            persistentStorage?.Dispose();
         }
 
         // Recovery state is the information the backend needs to keep when restarting (presumably because

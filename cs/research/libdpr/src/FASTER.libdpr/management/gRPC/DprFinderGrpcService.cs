@@ -62,8 +62,8 @@ namespace FASTER.libdpr
 
         public void Dispose()
         {
+            termination.Set();
             processThread.Join();
-            backend.Dispose();
         }
 
         public override Task<AddWorkerResponse> AddWorker(AddWorkerRequest request, ServerCallContext context)

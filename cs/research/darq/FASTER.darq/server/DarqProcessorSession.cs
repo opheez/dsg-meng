@@ -11,9 +11,9 @@ namespace FASTER.server
         readonly HeaderReaderWriter hrw;
         int readHead;
         int seqNo, msgnum, start;
-        private Darq<TVersionScheme> darq;
+        private Darq darq;
 
-        public DarqProcessorSession(INetworkSender networkSender, Darq<TVersionScheme> darq) : base(networkSender)
+        public DarqProcessorSession(INetworkSender networkSender, Darq darq) : base(networkSender)
         {
             this.darq = darq;
         }

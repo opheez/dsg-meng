@@ -12,7 +12,7 @@ namespace FASTER.server
         readonly HeaderReaderWriter hrw;
         int readHead;
         int seqNo, msgnum, start;
-        private Darq<TVersionScheme> dprServer;
+        private Darq dprServer;
         private ManualResetEventSlim terminationStart, terminationComplete;
         private Thread pushThread;
         private unsafe byte* dcurr, dend;
@@ -23,7 +23,7 @@ namespace FASTER.server
         private byte[] tempBuffer = new byte[1 << 12];
 
 
-        public DarqSubscriptionSession(INetworkSender networkSender, Darq<TVersionScheme> dprServer) : base(networkSender)
+        public DarqSubscriptionSession(INetworkSender networkSender, Darq dprServer) : base(networkSender)
         {
             this.dprServer = dprServer;
         }

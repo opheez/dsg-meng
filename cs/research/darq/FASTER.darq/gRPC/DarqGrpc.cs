@@ -11,10 +11,10 @@ using DarqMessageType = FASTER.libdpr.DarqMessageType;
 
 namespace darq.gRPC;
 
-public class DarqGrpcServiceImpl<TVersionScheme> : DarqGrpcService.DarqGrpcServiceBase, IDisposable where TVersionScheme : IVersionScheme
+public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposable
 {
-    private Darq<TVersionScheme> backend;
-    private readonly DarqBackgroundWorker<TVersionScheme> backgroundWorker;
+    private Darq backend;
+    private readonly DarqBackgroundTask backgroundTask;
     private readonly ManualResetEventSlim terminationStart;
     private readonly CountdownEvent terminationComplete;
     private Thread refreshThread;
@@ -25,16 +25,16 @@ public class DarqGrpcServiceImpl<TVersionScheme> : DarqGrpcService.DarqGrpcServi
     private long currentIncarnationId;
     private DarqScanIterator currentIterator;
 
-    public DarqGrpcServiceImpl(DarqSettings darqSettings, DarqBackgroundWorkerPool workerPool, IDarqClusterInfo clusterInfo, TVersionScheme versionScheme)
+    public DarqGrpcServiceImpl(Darq darq, DarqBackgroundWorkerPool workerPool, IDarqClusterInfo clusterInfo)
     {
-        backend = new Darq<TVersionScheme>(darqSettings, versionScheme);
-        backgroundWorker = new DarqBackgroundWorker<TVersionScheme>(backend, workerPool, clusterInfo);
+        backend = darq;
+        backgroundTask = new DarqBackgroundTask(backend, workerPool, clusterInfo);
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new CountdownEvent(2);
         stepRequestPool = new ThreadLocalObjectPool<StepRequest>(() => new StepRequest());
         enqueueRequestPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 15]);
         backend.ConnectToCluster();
-        backgroundWorker.StopProcessing();
+        backgroundTask.StopProcessing();
 
         refreshThread = new Thread(() =>
         {
@@ -51,14 +51,14 @@ public class DarqGrpcServiceImpl<TVersionScheme> : DarqGrpcService.DarqGrpcServi
         // TODO(Tianyu): this shutdown process is unsafe and may leave things unsent/unprocessed in the queue
         backend.ForceCheckpoint();
         Thread.Sleep(2000);
-        backgroundWorker.StopProcessing();
-        backgroundWorker?.Dispose();
+        backgroundTask.StopProcessing();
+        backgroundTask?.Dispose();
         terminationComplete.Wait();
         backend.StateObject().Dispose();
         refreshThread.Join();
     }
 
-    public Darq<TVersionScheme> GetDarq() => backend;
+    public Darq GetDarq() => backend;
 
     public override async Task<RegisterProcessorResult> RegisterProcessor(RegisterProcessorRequest request,
         ServerCallContext context)

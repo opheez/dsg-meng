@@ -217,7 +217,7 @@ namespace FASTER.darq
     /// <summary>
     /// DARQ data structure 
     /// </summary>
-    public class Darq<TVersionScheme> : DprWorker<DarqStateObject, TVersionScheme>, IDisposable where TVersionScheme : IVersionScheme
+    public class Darq : DprWorker<DarqStateObject>, IDisposable
     {
         private readonly DeduplicationVector dvc;
         private readonly LongValueAttachment incarnation, largestSteppedLsn;
@@ -229,7 +229,7 @@ namespace FASTER.darq
         /// </summary>
         /// <param name="me">unique identity for this DARQ</param>
         /// <param name="darqSettings">parameters for DARQ</param>
-        public Darq(DarqSettings darqSettings, TVersionScheme versionScheme) : base(
+        public Darq(DarqSettings darqSettings, IVersionScheme versionScheme) : base(
             new DarqStateObject(darqSettings), versionScheme, new DprWorkerOptions
             {
                 Me = darqSettings.MyDpr == DprWorkerId.INVALID ? new DprWorkerId(darqSettings.Me.guid) : darqSettings.MyDpr,

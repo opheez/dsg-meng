@@ -7,9 +7,9 @@ using FASTER.libdpr;
 
 namespace FASTER.client
 {
-    public class DarqBackgroundWorker<TVersionScheme> : IDisposable where TVersionScheme : IVersionScheme
+    public class DarqBackgroundTask : IDisposable
     {
-        private Darq<TVersionScheme> darq;
+        private Darq darq;
         private DarqBackgroundWorkerPool workerPool;
         private ManualResetEventSlim terminationStart, terminationComplete;
         private const int morselSize = 512;
@@ -29,7 +29,7 @@ namespace FASTER.client
         /// </summary>
         /// <param name="darq">DARQ DprServer that this consumer attaches to </param>
         /// <param name="clusterInfo"> information about the DARQ cluster </param>
-        public DarqBackgroundWorker(Darq<TVersionScheme> darq,
+        public DarqBackgroundTask(Darq darq,
             DarqBackgroundWorkerPool workerPool, IDarqClusterInfo clusterInfo, int batchSize = 16)
         {
             this.darq = darq;

@@ -49,7 +49,6 @@ public class Program
             var client =
             new WorkflowOrchestrator.WorkflowOrchestratorClient(
             channel.Intercept(new DprClientInterceptor(new DprSession())));
-            // var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
             for (var i = 0; i < options.NumWorkflows; i++)
             {
                 client.ExecuteWorkflowAsync(new ExecuteWorkflowRequest
@@ -78,19 +77,16 @@ public class Program
                 PageSize = 1L << 22,
                 MemorySize = 1L << 28,
                 SegmentSize = 1L << 30,
+                CheckpointPeriodMilli = 10,
+                RefreshPeriodMilli = 5,
                 FastCommitMode = true,
                 DeleteOnClose = true,
                 CleanStart = true
             };
             using var workerChannel = GrpcChannel.ForAddress("http://localhost:15722");
-            var executors = new List<TaskExecutor.TaskExecutorClient>();
-            // TODO(Tianyu): Properly hook up session to DARQ's DPR tracking
-            executors.Add(
-            new TaskExecutor.TaskExecutorClient(
-            workerChannel.Intercept(new DprClientInterceptor(new DprSession()))));
-            // workers.Add(new TaskExecutor.TaskExecutorClient(workerChannel));
+            var executors = new List<GrpcChannel> { workerChannel };
 
-            using var workerPool = new DarqBackgroundWorkerPool(4);
+            using var workerPool = new DarqBackgroundWorkerPool(2);
             var orchestratorService = new WorkflowOrchestratorService(new WorkflowOrchestratorServiceSettings
             {
                 DarqSettings = darqSettings,
@@ -101,7 +97,6 @@ public class Program
                 .GetBackend());
             builder.Services.AddSingleton<DprServerInterceptor<DarqStateObject>>();
             builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<DarqStateObject>>(); });
-            // builder.Services.AddGrpc();
             // TODO(Tianyu): Probably want to do some more DI shit and leave a per-request service handler and
             // configure background services, but who cares
             builder.Services.AddSingleton(orchestratorService);
@@ -123,7 +118,6 @@ public class Program
             });
             builder.Services.AddSingleton<DprStatelessServerInterceptor>();
             builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprStatelessServerInterceptor>(); });
-            // builder.Services.AddGrpc();
             var app = builder.Build();
             app.MapGrpcService<TaskExecutorService>();
             app.MapGet("/",

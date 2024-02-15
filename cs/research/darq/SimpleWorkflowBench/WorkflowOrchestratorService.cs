@@ -5,8 +5,11 @@ using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
+using FASTER.libdpr.gRPC;
 using Google.Protobuf;
 using Grpc.Core;
+using Grpc.Core.Interceptors;
+using Grpc.Net.Client;
 
 namespace SimpleWorkflowBench;
 
@@ -83,7 +86,7 @@ public class WorkflowHandle
 public class WorkflowOrchestratorServiceSettings
 {
     public DarqSettings DarqSettings;
-    public List<TaskExecutor.TaskExecutorClient> Executors;
+    public List<GrpcChannel> Executors;
     public DarqBackgroundWorkerPool WorkerPool;
 }
 
@@ -97,11 +100,11 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     private Thread refreshThread, processingThread;
     private ColocatedDarqProcessorClient<RwLatchVersionScheme> processorClient;
 
-    private ConcurrentDictionary<long, WorkflowHandle> startedWorkflows;
+    private ConcurrentDictionary<long, WorkflowHandle> startedWorkflows = new();
     private IDarqProcessorClientCapabilities capabilities;
 
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
-    private List<TaskExecutor.TaskExecutorClient> workers;
+    private List<GrpcChannel> workers;
     private int nextWorker = 0;
 
 
@@ -113,7 +116,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         backgroundWorker = new DarqBackgroundWorker<RwLatchVersionScheme>(backend, settings.WorkerPool, null);
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new CountdownEvent(2);
-        this.workerPool = settings.WorkerPool;
+        workerPool = settings.WorkerPool;
         backend.ConnectToCluster();
         
         backgroundWorker.StopProcessing();
@@ -212,14 +215,17 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     {
         // round-robin executor to execute the next request
         Console.WriteLine($"Workflow {r.WorkflowId} starting an activity");
-        var session = backend.DetachFromWorker();
-        // TODO(Tianyu): Change to using new clients per connection as they are "lightweight" with fresh interceptors
-        var worker = Interlocked.Increment(ref nextWorker) % workers.Count;
-        var response = await workers[worker].ExecuteTaskAsync(r);
         
+        var worker = Interlocked.Increment(ref nextWorker) % workers.Count;
+        var session = backend.DetachFromWorker();
+        var client = new TaskExecutor.TaskExecutorClient(
+            workers[worker].Intercept(new DprClientInterceptor(session)));
+
+        var response = await client.ExecuteTaskAsync(r);
         Console.WriteLine($"Workflow {r.WorkflowId} activity completed");
 
-        backend.StartLocalAction();
+        if (!backend.TryMergeAndStartAction(session)) return;
+        
         var workflowHandle = startedWorkflows[r.WorkflowId];
         var decremented = Interlocked.Decrement(ref workflowHandle.remainingTasks);
         var stepRequest = stepRequestPool.Checkout();

@@ -32,8 +32,6 @@ namespace FASTER.libdpr
         /// <returns>the current system world-line</returns>
         long SystemWorldLine();
         
-        DprStatus CheckStatus(ReadOnlySpan<byte> header);
-        
         /// <summary>
         ///     Report a version as locally persistent with the given dependencies.
         ///     It suffices for the dependencies to contain only the largest version number for each worker (e.g. if a

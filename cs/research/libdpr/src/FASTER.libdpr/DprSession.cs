@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 using FASTER.core;
 
 namespace FASTER.libdpr
@@ -24,7 +26,7 @@ namespace FASTER.libdpr
     {
         private long version, worldLine;
         private LightDependencySet deps;
-
+        
         /// <summary>
         /// WorldLine of the session
         /// </summary>
@@ -169,6 +171,29 @@ namespace FASTER.libdpr
             }
 
             return true;
+        }
+
+        // Not safe to invoke concurrently with other methods on this session
+        public async Task SpeculationBarrier(IDprFinder dprFinder, bool autoRefresh = false)
+        {
+            while (true)
+            {
+                if (autoRefresh)
+                    dprFinder.RefreshStateless();
+                if (worldLine != 0 && dprFinder.SystemWorldLine() != worldLine)
+                {
+                    worldLine = -dprFinder.SystemWorldLine();
+                    throw new DprSessionRolledBackException(WorldLine);
+                }
+
+                if (deps.All(wv => dprFinder.SafeVersion(wv.DprWorkerId) >= wv.Version))
+                {
+                    deps.UnsafeClear();
+                    return;
+                }
+
+                await Task.Yield();
+            }
         }
     }
 }

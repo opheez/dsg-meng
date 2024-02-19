@@ -60,20 +60,18 @@ public class Program
     public static void LaunchBenchmarkClient(Options options)
     {
         using var channel = GrpcChannel.ForAddress("http://localhost:15721");
-        var client =
-            new WorkflowOrchestrator.WorkflowOrchestratorClient(
-                channel.Intercept(new DprClientInterceptor(new DprSession())));
+        var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
         var random = new Random();
         var inputBytes = new byte[1 << 15];
         for (var i = 0; i < options.NumWorkflows; i++)
         {
             random.NextBytes(inputBytes);
-            client.ExecuteWorkflowAsync(new ExecuteWorkflowRequest
+            client.ExecuteWorkflow(new ExecuteWorkflowRequest
             {
                 WorkflowId = i,
                 Depth = options.Depth,
                 Input = ByteString.CopyFrom(inputBytes)
-            }).GetAwaiter().GetResult();
+            });
             Console.WriteLine($"Workflow number {i} finished");
         }
     }
@@ -111,11 +109,13 @@ public class Program
         });
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
         builder.Services.AddSingleton<Darq>();
-        builder.Services.AddSingleton<DprWorker<DarqStateObject>>(sp => sp.GetService<Darq>());
         builder.Services.AddSingleton<DarqBackgroundWorkerPool>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();
+        
+        builder.Services.AddSingleton<DprWorker<DarqStateObject>>(sp => sp.GetService<Darq>());
         builder.Services.AddSingleton<DprServerInterceptor<DarqStateObject, WorkflowOrchestratorService>>();
         builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<DarqStateObject, WorkflowOrchestratorService>>(); });
+        // builder.Services.AddGrpc();
 
         var app = builder.Build();
         app.MapGrpcService<WorkflowOrchestratorService>();
@@ -158,6 +158,7 @@ public class Program
         });
         builder.Services.AddSingleton<DprStatelessServerInterceptor>();
         builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprStatelessServerInterceptor>(); });
+        // builder.Services.AddGrpc();
         var app = builder.Build();
         app.MapGrpcService<TaskExecutorService>();
         app.MapGet("/",

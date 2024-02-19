@@ -343,7 +343,7 @@ namespace FASTER.libdpr
 
         public void EndAction() => versionScheme.Leave();
 
-        public int ProduceTag(Span<byte> outputHeaderBytes)
+        public int ProduceTagAndEndAction(Span<byte> outputHeaderBytes)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -358,14 +358,8 @@ namespace FASTER.libdpr
             outputHeader.WorldLine = worldLine;
             outputHeader.Version = versionScheme.CurrentState().Version;
             outputHeader.NumClientDeps = 0;
-            return DprMessageHeader.FixedLenSize;
-        }
-
-        public int ProduceTagAndEndAction(Span<byte> outputHeaderBytes)
-        {
-            var result = ProduceTag(outputHeaderBytes);
             EndAction();
-            return result;
+            return DprMessageHeader.FixedLenSize;
         }
 
         public DprSession DetachFromWorker()

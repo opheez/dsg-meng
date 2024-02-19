@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
@@ -11,10 +10,12 @@ namespace FASTER.libdpr.gRPC
             UnaryServerMethod<TRequest, TResponse> continuation)
         {
             var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
-            Debug.Assert(header != null);
-            // Simply reflect the dependency information back
             var response = await continuation.Invoke(request, context);
-            context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, header);
+
+            if (header != null)
+                // Simply reflect the dependency information back
+                context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, header);
+
             return response;
         }
     }

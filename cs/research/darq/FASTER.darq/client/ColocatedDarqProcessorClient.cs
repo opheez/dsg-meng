@@ -79,8 +79,6 @@ namespace FASTER.darq
         private unsafe bool TryReadEntry(out DarqMessage message)
         {
             message = null;
-            var headerBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
-
             if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
                     out var lsn, out var nextLsn, out var type))
                 return false;

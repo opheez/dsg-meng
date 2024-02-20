@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using darq.client;
 using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
@@ -82,7 +83,7 @@ namespace FASTER.client
     /// <summary>
     /// Producer client to add entries to DARQ. Should be invoked single-threaded. 
     /// </summary>
-    public class DarqProducerClient : IDisposable
+    public class DarqProducerClient : IDarqProducer
     {
         private IDarqClusterInfo darqClusterInfo;
         private Dictionary<DarqId, SingleDarqProducerClient> clients;
@@ -144,8 +145,7 @@ namespace FASTER.client
 
         // TODO(Tianyu): Handle socket-related anomalies?
         public void EnqueueMessageWithCallback(DarqId darqId, ReadOnlySpan<byte> message, Action<bool> callback,
-            long producerId = -1, long lsn = -1,
-            bool forceFlush = true)
+            long producerId = -1, long lsn = -1)
         {
             if (!clients.TryGetValue(darqId, out var singleClient))
             {
@@ -154,13 +154,9 @@ namespace FASTER.client
             }
 
             singleClient.EnqueueMessageWithCallback(message, producerId, lsn, callback);
-            if (forceFlush)
-            {
-                foreach (var client in clients.Values)
-                    client.Flush();
-            }
         }
 
+        
         public void ForceFlush()
         {
             foreach (var client in clients.Values)

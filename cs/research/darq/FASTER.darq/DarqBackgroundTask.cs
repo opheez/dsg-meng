@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using darq;
+using darq.client;
 using FASTER.common;
-using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 
@@ -20,8 +20,9 @@ namespace FASTER.client
         private long processedUpTo;
 
         private SimpleObjectPool<DarqMessage> messagePool;
-        private IDarqClusterInfo clusterInfo;
-        private DarqProducerClient producerClient;
+
+        private Func<DprSession, IDarqProducer> producerFactory;
+        private IDarqProducer currentProducerClient;
         private int batchSize, numBatched = 0;
         
         /// <summary>
@@ -30,11 +31,11 @@ namespace FASTER.client
         /// <param name="darq">DARQ DprServer that this consumer attaches to </param>
         /// <param name="clusterInfo"> information about the DARQ cluster </param>
         public DarqBackgroundTask(Darq darq,
-            DarqBackgroundWorkerPool workerPool, IDarqClusterInfo clusterInfo, int batchSize = 16)
+            DarqBackgroundWorkerPool workerPool, Func<DprSession, IDarqProducer> producerFactory, int batchSize = 16)
         {
             this.darq = darq;
             this.workerPool = workerPool;
-            this.clusterInfo = clusterInfo;
+            this.producerFactory = producerFactory;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool), 1 << 15);
             this.batchSize = batchSize;
             Reset();
@@ -43,7 +44,7 @@ namespace FASTER.client
         private void Reset()
         {
             worldLine = darq.WorldLine();
-            producerClient = new DarqProducerClient(clusterInfo, new DprSession());
+            currentProducerClient = producerFactory.Invoke(new DprSession());
             completionTracker = new DarqCompletionTracker();
             iterator = darq.StartScan();
         }
@@ -53,7 +54,7 @@ namespace FASTER.client
         public void Dispose()
         {
             iterator?.Dispose();
-            producerClient?.Dispose();
+            currentProducerClient?.Dispose();
         }
 
         private unsafe bool TryReadEntry(out DarqMessage message)
@@ -95,17 +96,12 @@ namespace FASTER.client
                 var completionTrackerLocal = completionTracker;
                 var lsn = m.GetLsn();
                 // TODO(Tianyu): Make ack more efficient through batching
-                if (++numBatched < batchSize)
-                {
-                    producerClient.EnqueueMessageWithCallback(dest, toSend,
-                        _ => { completionTrackerLocal.RemoveEntry(lsn); }, darq.Me().guid, lsn, forceFlush: false);
-                }
-                else
+                currentProducerClient.EnqueueMessageWithCallback(dest, toSend,
+                    _ => { completionTrackerLocal.RemoveEntry(lsn); }, darq.Me().guid, lsn);
+                if (++numBatched == batchSize)
                 {
                     numBatched = 0;
-                    producerClient.EnqueueMessageWithCallback(dest, toSend,
-                        _ => { completionTrackerLocal.RemoveEntry(lsn); }, darq.Me().guid, lsn,
-                        forceFlush: true);
+                    currentProducerClient.ForceFlush();
                 }
             }
 
@@ -173,10 +169,10 @@ namespace FASTER.client
                 for (var i = 0; i < morselSize; i++)
                 {
                     if (TryConsumeNext()) continue;
-                    producerClient.ForceFlush();
+                    currentProducerClient.ForceFlush();
                     var iteratorWait = iterator.WaitAsync().AsTask();
-                    await Task.WhenAny(iteratorWait, Task.Delay(5));
-                    break;
+                    if (await Task.WhenAny(iteratorWait, Task.Delay(5)) != iteratorWait)
+                        break;
                 }
 
                 if (!terminationStart.IsSet)

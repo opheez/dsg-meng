@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using darq;
+using darq.client;
 using FASTER.client;
 using FASTER.common;
 using FASTER.core;
@@ -54,7 +55,7 @@ namespace FASTER.server
         public DarqServer(DarqServerOptions options, TVersionScheme versionScheme)
         {
             darq = new Darq(options.DarqSettings, versionScheme);
-            _backgroundTask = new DarqBackgroundTask(darq, options.WorkerPool, options.ClusterInfo);
+            _backgroundTask = new DarqBackgroundTask(darq, options.WorkerPool, session => new DarqProducerClient(options.ClusterInfo, session));
             terminationStart = new ManualResetEventSlim();
             terminationComplete = new CountdownEvent(2);
             darq.ConnectToCluster();

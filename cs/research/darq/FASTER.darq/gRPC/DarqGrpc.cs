@@ -1,15 +1,64 @@
-using System.Diagnostics;
+using System.Collections.Concurrent;
+using darq.client;
 using FASTER.client;
 using FASTER.common;
-using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
+using FASTER.libdpr.gRPC;
 using Google.Protobuf;
 using Grpc.Core;
+using Grpc.Core.Interceptors;
+using Grpc.Net.Client;
 using protobuf;
 using DarqMessageType = FASTER.libdpr.DarqMessageType;
 
 namespace darq.gRPC;
+
+public class DarqGrpcProducerWrapper : IDarqProducer
+{
+    private Dictionary<DarqId, GrpcChannel> clusterMap;
+    private ConcurrentDictionary<DarqId, DarqGrpcService.DarqGrpcServiceClient> clients = new();
+    private DprSession session;
+
+    public DarqGrpcProducerWrapper(Dictionary<DarqId, GrpcChannel> clusterMap, DprSession session)
+    {
+        this.clusterMap = clusterMap;
+        this.session = session;
+    }
+    
+    public void Dispose() {}
+
+    public void EnqueueMessageWithCallback(DarqId darqId, ReadOnlySpan<byte> message, Action<bool> callback, long producerId, long lsn)
+    {
+        var client = clients.GetOrAdd(darqId,
+            _ => new DarqGrpcService.DarqGrpcServiceClient(clusterMap[darqId]
+                .Intercept(new DprClientInterceptor(session))));
+        var enqueueRequest = new DarqEnqueueRequest
+        {
+            Message = ByteString.CopyFrom(message),
+            ProducerId = producerId,
+            Lsn = lsn
+        };
+        Task.Run(async () =>
+        {
+            try
+            {
+                await client.EnqueueAsync(enqueueRequest);
+                callback(true);
+            }
+            catch
+            {
+                callback(false);
+                throw;
+            }
+        });
+    }
+
+    public void ForceFlush()
+    {
+        // TODO(Tianyu): Not implemented for now
+    }
+}
 
 public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposable
 {
@@ -25,10 +74,10 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
     private long currentIncarnationId;
     private DarqScanIterator currentIterator;
 
-    public DarqGrpcServiceImpl(Darq darq, DarqBackgroundWorkerPool workerPool, IDarqClusterInfo clusterInfo)
+    public DarqGrpcServiceImpl(Darq darq, DarqBackgroundWorkerPool workerPool, Dictionary<DarqId, GrpcChannel> clusterMap)
     {
         backend = darq;
-        backgroundTask = new DarqBackgroundTask(backend, workerPool, clusterInfo);
+        backgroundTask = new DarqBackgroundTask(backend, workerPool, session => new DarqGrpcProducerWrapper(clusterMap, session));
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new CountdownEvent(2);
         stepRequestPool = new ThreadLocalObjectPool<StepRequest>(() => new StepRequest());

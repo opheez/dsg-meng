@@ -153,21 +153,6 @@ namespace FASTER.libdpr
 
                 // Update versioning information
                 core.Utility.MonotonicUpdate(ref this.version, responseHeader.Version, out _);
-
-                // TODO(Tianyu): Figure out other ways to prune dependencies
-                // // Remove deps only if this is a response header from a worker session
-                // if (!responseHeader.SrcWorkerId.Equals(WorkerId.INVALID))
-                // {
-                //     // Update dependency tracking
-                //     var depsHead = h + responseHeader.ClientDepsOffset;
-                //     for (var i = 0; i < responseHeader.NumClientDeps; i++)
-                //     {
-                //         ref var wv = ref Unsafe.AsRef<WorkerVersion>(depsHead);
-                //         if (wv.WorkerId.Equals(responseHeader.SrcWorkerId)) continue;
-                //         deps.TryRemove(wv.WorkerId, wv.Version);
-                //         depsHead += sizeof(WorkerVersion);
-                //     }
-                // }
             }
 
             return true;

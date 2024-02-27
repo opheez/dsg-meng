@@ -250,6 +250,8 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
                 durationMilli = 10,
                 taskInput = response.Output
             });
+            if (decremented == 2)
+                await session.SpeculationBarrier(backend.GetDprFinder());
         }
 
         await capabilities.Step(requestBuilder.FinishStep());

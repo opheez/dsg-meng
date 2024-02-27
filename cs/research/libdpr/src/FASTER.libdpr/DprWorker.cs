@@ -57,6 +57,8 @@ namespace FASTER.libdpr
             sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         }
 
+        public IDprFinder GetDprFinder() => options.DprFinder; 
+
         /// <summary></summary>
         /// <returns> A task that completes when the next commit is recoverable</returns>
         public Task<long> NextCommit() => nextCommit.Task;

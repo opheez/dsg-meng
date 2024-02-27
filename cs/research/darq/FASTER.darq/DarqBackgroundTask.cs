@@ -44,7 +44,7 @@ namespace FASTER.client
         private void Reset()
         {
             worldLine = darq.WorldLine();
-            currentProducerClient = producerFactory.Invoke(new DprSession());
+            currentProducerClient = producerFactory?.Invoke(new DprSession());
             completionTracker = new DarqCompletionTracker();
             iterator = darq.StartScan();
         }

@@ -97,7 +97,7 @@ public class Program
         builder.Services.AddSingleton(new DarqSettings
         {
             DprFinder = new GrpcDprFinder(dprFinderChannel),
-            LogDevice = new LocalStorageDevice($"D:\\w0\\data.log", deleteOnClose: true),
+            LogDevice = new ManagedLocalStorageDevice("./data.log", deleteOnClose:true),
             PageSize = 1L << 22,
             MemorySize = 1L << 28,
             SegmentSize = 1L << 30,

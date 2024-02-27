@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection.Metadata;
 using darq;
 using FASTER.client;
 using FASTER.common;
@@ -175,13 +176,22 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
             stepRequestPool.Return(stepRequest);
         }
         backend.EndAction();
-        
-        // Otherwise, some other concurrent thread will start this workflow -- simply forward the result
-        var result = await handle.tcs.Task;
-        Console.WriteLine($"Workflow {request.WorkflowId} finished");
-        return result;
+        return await GetWorkflowResultAsync(handle);
     }
 
+    private async Task<ExecuteWorkflowResult> GetWorkflowResultAsync(WorkflowHandle handle)
+    {
+        while (true)
+        {
+            var s = backend.DetachFromWorker();
+            var result = await handle.tcs.Task;
+            if (backend.TryMergeAndStartAction(s)) return result;
+            // Otherwise, there has been a rollback, should retry with a new handle, if any
+            while (!startedWorkflows.TryGetValue(handle.workflowId, out handle))
+                await Task.Yield();                
+        }
+    }
+    
     private unsafe ExecuteTaskRequest ComposeActivityRequest(DarqMessage m)
     {
         var result = new ExecuteTaskRequest();
@@ -208,8 +218,11 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         
         var worker = Interlocked.Increment(ref nextWorker) % workers.Count;
         var session = backend.DetachFromWorker();
+        if (r.TaskId == 3)
+            await session.SpeculationBarrier(backend.GetDprFinder());
         var client = new TaskExecutor.TaskExecutorClient(
             workers[worker].Intercept(new DprClientInterceptor(session)));
+
 
         var response = await client.ExecuteTaskAsync(r);
         Console.WriteLine($"Workflow {r.WorkflowId} activity completed");
@@ -250,8 +263,6 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
                 durationMilli = 10,
                 taskInput = response.Output
             });
-            if (decremented == 2)
-                await session.SpeculationBarrier(backend.GetDprFinder());
         }
 
         await capabilities.Step(requestBuilder.FinishStep());
@@ -315,6 +326,5 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         }
         startedWorkflows = new ConcurrentDictionary<long, WorkflowHandle>();
         this.capabilities = capabilities;
-
     }
 }

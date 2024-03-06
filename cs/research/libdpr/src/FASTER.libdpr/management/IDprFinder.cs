@@ -15,6 +15,7 @@ namespace FASTER.libdpr
     /// </summary>
     public interface IDprFinder
     {
+        public delegate IEnumerable<Memory<byte>> UnprunedVersionsProvider();
         /// <summary>
         ///     For a given version, returns the largest version number that is recoverable. Method may return arbitrary
         ///     number for a worker that is not part of the cluster. This should be equivalent to calling
@@ -46,7 +47,7 @@ namespace FASTER.libdpr
         ///     Refreshes the local view of the system. This method must be called periodically to receive up-to-date
         ///     information about the rest of the cluster.
         /// </summary>
-        void Refresh(DprWorkerId id, IStateObject stateObject);
+        void Refresh(DprWorkerId id, UnprunedVersionsProvider provider);
 
         void RefreshStateless();
 
@@ -57,7 +58,7 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="id"> id of the worker </param>
         /// <returns> the version state object should recover to before beginning execution, or 0 if no recovery is required </returns>
-        long AddWorker(DprWorkerId id, IStateObject stateObject);
+        long AddWorker(DprWorkerId id, UnprunedVersionsProvider provider);
 
         /// <summary>
         ///     Removes the registered worker from the cluster. It is up to caller to ensure that the deleted worker is not

@@ -17,7 +17,7 @@ namespace FASTER.libdpr
     /// StateObject implementation.
     /// </summary>
     /// <typeparam name="TStateObject"> type of state object</typeparam>
-    public class DprWorker<TStateObject> where TStateObject : IStateObject
+    public abstract class DprWorker : IDisposable
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         private readonly DprWorkerOptions options;
@@ -29,7 +29,6 @@ namespace FASTER.libdpr
         private long lastCheckpointMilli, lastRefreshMilli;
         private Stopwatch sw = Stopwatch.StartNew();
 
-        private readonly TStateObject stateObject;
         private readonly byte[] depSerializationArray;
         private TaskCompletionSource<long> nextCommit;
 
@@ -44,9 +43,8 @@ namespace FASTER.libdpr
         /// <param name="stateObject"> underlying state object </param>
         /// <param name="options"> DPR worker options </param>
         // TODO(Tianyu): Put some design work into the different operating modes of applications written this way -- speculative/pessimistic/no guarantees
-        public DprWorker(TStateObject stateObject, IVersionScheme versionScheme, DprWorkerOptions options)
+        public DprWorker(IVersionScheme versionScheme, DprWorkerOptions options)
         {
-            this.stateObject = stateObject;
             this.options = options;
             this.versionScheme = versionScheme;
             
@@ -94,7 +92,7 @@ namespace FASTER.libdpr
             versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
             {
                 // Restore underlying state object state
-                stateObject.RestoreCheckpoint(version, out var metadata);
+                RestoreCheckpoint(version, out var metadata);
                 // Use the restored metadata to restore attachments state
                 unsafe
                 {
@@ -172,7 +170,7 @@ namespace FASTER.libdpr
                 }
 
                 // Perform checkpoint with a callback to report persistence and clean-up leftover tracking state
-                stateObject.PerformCheckpoint(vOld, new Span<byte>(metadataBuffer, 0, length), () =>
+                PerformCheckpoint(vOld, new Span<byte>(metadataBuffer, 0, length), () =>
                 {
                     versions.TryRemove(vOld, out var deps);
                     var workerVersion = new WorkerVersion(options.Me, vOld);
@@ -200,11 +198,11 @@ namespace FASTER.libdpr
             long versionToRecover = 0;
             if (options.DprFinder != null)
             {
-                versionToRecover = options.DprFinder.AddWorker(options.Me, stateObject);
+                versionToRecover = options.DprFinder.AddWorker(options.Me, GetUnprunedVersions);
             }
             else
             {
-                foreach (var v in stateObject.GetUnprunedVersions())
+                foreach (var v in GetUnprunedVersions())
                 {
                     SerializationUtil.DeserializeCheckpointMetadata(v.Span, out _, out var wv, out _);
                     if (wv.Version > versionToRecover)
@@ -222,14 +220,7 @@ namespace FASTER.libdpr
                 Debug.Assert(success);
             }
 
-            options.DprFinder?.Refresh(options.Me, stateObject);
-        }
-
-        /// <summary></summary>
-        /// <returns> The underlying state object </returns>
-        public TStateObject StateObject()
-        {
-            return stateObject;
+            options.DprFinder?.Refresh(options.Me, GetUnprunedVersions);
         }
 
         private ReadOnlySpan<byte> ComputeCheckpointMetadata(long version)
@@ -257,7 +248,7 @@ namespace FASTER.libdpr
             {
                 // A false return indicates that the DPR finder does not have a cut available, this is usually due to
                 // restart from crash, at which point we should resend the graph 
-                options.DprFinder.Refresh(options.Me, stateObject);
+                options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
                 core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
                 if (worldLine != options.DprFinder.SystemWorldLine())
                     BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me))
@@ -282,7 +273,7 @@ namespace FASTER.libdpr
             }
 
             for (var i = lastCommitted; i < newCommitted; i++)
-                stateObject.PruneVersion(i);
+                PruneVersion(i);
         }
 
         public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes)
@@ -395,11 +386,48 @@ namespace FASTER.libdpr
         public void ForceRefresh()
         {
             if (options.DprFinder == null) return;
-            options.DprFinder.Refresh(options.Me, stateObject);
+            options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
             core.Utility.MonotonicUpdate(ref lastRefreshMilli, sw.ElapsedMilliseconds, out _);
             if (worldLine != options.DprFinder.SystemWorldLine())
                 BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me))
                     .GetAwaiter().GetResult();
         }
+        
+        /// <summary>
+        /// Performs a checkpoint uniquely identified by the given version number along with the given metadata to be
+        /// persisted. Implementers are allowed to return as soon as the checkpoint content is finalized, but before
+        /// it is persistent, but must invoke onPersist afterwards. LibDPR will ensure that this function does not
+        /// interleave with protected processing logic, other checkpoint requests, or restores. 
+        /// </summary>
+        /// <param name="version"> A monotonically increasing unique ID describing this checkpoint </param>>
+        /// <param name="metadata"> Any metadata, in bytes, to be persisted along with the checkpoint </param>
+        /// <param name="onPersist"> Callback to invoke when checkpoint is persistent </param>
+        public abstract void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist);
+
+        /// <summary>
+        /// Recovers to a previous checkpoint as identified by the version number, along with any metadata. The function
+        /// returns only after the state is restored for all future calls. LibDPR will not interleave batch operation,
+        /// other checkpoint requests, or restore requests with this function.
+        /// </summary>
+        /// <param name="version"> unique ID for the checkpoint to recover </param>>
+        /// <param name="metadata"> Any metadata, in bytes, persisted along with the checkpoint </param>
+        public abstract void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata);
+
+        /// <summary>
+        /// Removes a version from persistent storage. This method is only invoked when a version will no longer be
+        /// recovered to.
+        /// </summary>
+        /// <param name="version"> unique ID for the checkpoint to remove </param>
+        public abstract void PruneVersion(long version);
+
+        /// <summary>
+        /// Retrieves information about all unpruned checkpoints on persistent storage, along with persisted metadata. 
+        /// </summary>
+        /// <returns>
+        /// enumerable of bytes that denotes the metadata of each unpruned checkpoint
+        /// </returns>
+        public abstract IEnumerable<Memory<byte>> GetUnprunedVersions();
+
+        public abstract void Dispose();
     }
 }

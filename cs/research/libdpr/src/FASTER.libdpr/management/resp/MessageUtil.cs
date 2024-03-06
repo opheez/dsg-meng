@@ -49,11 +49,11 @@ namespace FASTER.libdpr
             socket.Send(OkResponse);
         }
 
-        internal int SendGraphReconstruction(DprWorkerId dprWorkerId, IStateObject stateObject)
+        internal int SendGraphReconstruction(DprWorkerId dprWorkerId, IDprFinder.UnprunedVersionsProvider provider)
         {
             var buf = reusableMessageBuffers.Checkout();
             var head = 0;
-            var checkpoints = stateObject.GetUnprunedVersions();
+            var checkpoints = provider();
             var minVersion = long.MaxValue;
             var numRequests = 0;
             foreach (var m in checkpoints)

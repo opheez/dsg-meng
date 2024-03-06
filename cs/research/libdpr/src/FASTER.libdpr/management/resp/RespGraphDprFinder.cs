@@ -69,11 +69,11 @@ namespace FASTER.libdpr
             }        
         }
 
-        protected override void SendGraphReconstruction(DprWorkerId id, IStateObject stateObject)
+        protected override void SendGraphReconstruction(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider)
         {
             lock (socket)
             {
-                var acks = socket.SendGraphReconstruction(id, stateObject);
+                var acks = socket.SendGraphReconstruction(id, provider);
                 socket.WaitForAcks(acks);
             }
         }

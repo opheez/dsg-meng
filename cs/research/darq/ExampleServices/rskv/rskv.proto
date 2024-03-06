@@ -1,0 +1,51 @@
+syntax = "proto3";
+option csharp_namespace = "protobuf";
+
+message RskvReadRequest {
+  string key = 1;
+}
+
+message RskvReadResponse {
+  bool ok = 1;
+  string response = 2; 
+}
+
+message RskvUpsertRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message RskvUpsertResponse {
+  bool ok = 1;
+}
+
+message RskvDeleteRequest {
+  string key = 1;
+}
+
+message RskvDeleteResponse {
+  bool ok = 1;
+}
+
+service RskvService {
+  rpc Read(RskvReadRequest) returns (RskvReadResponse);
+  rpc Upsert(RskvUpsertRequest) returns (RskvReadResponse);
+  rpc Delete(RskvDeleteRequest) returns (RskvDeleteRequest);
+}
+
+message RskvReplayRequest {
+  string key = 1;
+  string value = 2;
+  int64 version = 3;
+  bool delete = 4;
+  bool commit = 5;
+  bool prune = 6;
+}
+
+message RskvReplayAck {
+  int64 version = 1;
+}
+
+service RskvFollowerService {
+  rpc ReplicateContinuously(stream RskvReplayRequest) returns (stream RskvReplayAck);
+}

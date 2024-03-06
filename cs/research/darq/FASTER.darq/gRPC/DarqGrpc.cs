@@ -103,7 +103,7 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
         backgroundTask.StopProcessing();
         backgroundTask?.Dispose();
         terminationComplete.Wait();
-        backend.StateObject().Dispose();
+        backend.Dispose();
         refreshThread.Join();
     }
 

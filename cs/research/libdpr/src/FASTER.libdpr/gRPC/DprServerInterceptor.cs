@@ -6,15 +6,15 @@ using Status = Grpc.Core.Status;
 
 namespace FASTER.libdpr.gRPC
 {
-    public class DprServerInterceptor<TStateObject, TService> : Interceptor where TStateObject : IStateObject
+    public class DprServerInterceptor<TService> : Interceptor
     {
-        private DprWorker<TStateObject> dprWorker;
+        private DprWorker dprWorker;
         private ThreadLocalObjectPool<byte[]> serializationArrayPool;
 
         // For now, we require that the gRPC integration only works with RwLatchVersionScheme, which supports protected
         // blocks that start and end on different threads
         // TService is a parameter for DI to only create interceptors after the service is up 
-        public DprServerInterceptor(DprWorker<TStateObject> dprWorker, TService service)
+        public DprServerInterceptor(DprWorker dprWorker, TService service)
         {
             this.dprWorker = dprWorker;
             serializationArrayPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 10]);
@@ -47,6 +47,7 @@ namespace FASTER.libdpr.gRPC
             // Proceed with request
             var response = await continuation.Invoke(request, context);
             dprWorker.EndAction();
+            // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
             await dprWorker.NextCommit();
             return response;
         }
@@ -59,7 +60,6 @@ namespace FASTER.libdpr.gRPC
             var response = await continuation.Invoke(request, context);
             var buf = serializationArrayPool.Checkout();
             dprWorker.ProduceTagAndEndAction(buf);
-            // TODO(Tianyu): Add SU handling logic here to await for the response to become committed
             context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
             serializationArrayPool.Return(buf);
             return response;

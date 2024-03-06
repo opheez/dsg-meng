@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using darq;
 using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
@@ -73,20 +72,32 @@ namespace FASTER.darq
     }
 
     /// <summary>
-    /// Underlying state object for DARQ
+    /// DARQ data structure 
     /// </summary>
-    public class DarqStateObject : IStateObject, IDisposable
+    public class Darq : DprWorker, IDisposable
     {
         internal DarqSettings settings;
         internal FasterLog log;
         internal ConcurrentDictionary<long, byte> incompleteMessages = new();
         private FasterLogSettings logSetting;
+        
+        private readonly DeduplicationVector dvc;
+        private readonly LongValueAttachment incarnation, largestSteppedLsn;
+        private WorkQueueLIFO<StepRequestHandle> stepQueue;
+        private ThreadLocalObjectPool<StepRequestHandle> stepRequestPool;
 
         /// <summary>
-        ///  Constructs a new DarqStateObject using the given parameters
+        /// Initialize DARQ with the given identity and parameters
         /// </summary>
-        /// <param name="settings">parameters for the DarqStateObject</param>
-        public DarqStateObject(DarqSettings settings)
+        /// <param name="me">unique identity for this DARQ</param>
+        /// <param name="darqSettings">parameters for DARQ</param>
+        public Darq(DarqSettings settings, IVersionScheme versionScheme) : base(versionScheme, new DprWorkerOptions
+            {
+                Me = settings.MyDpr == DprWorkerId.INVALID ? new DprWorkerId(settings.Me.guid) : settings.MyDpr,
+                DprFinder = settings.DprFinder,
+                CheckpointPeriodMilli = settings.CheckpointPeriodMilli,
+                RefreshPeriodMilli = settings.RefreshPeriodMilli
+            })
         {
             this.settings = settings;
             if (settings.LogDevice == null)
@@ -129,12 +140,26 @@ namespace FASTER.darq
                 AutoCommit = false,
                 TolerateDeviceFailure = false,
             };
-            log = new FasterLog(logSetting);
             
+            log = new FasterLog(logSetting);
+            dvc = new DeduplicationVector();
+            incarnation = new LongValueAttachment();
+            largestSteppedLsn = new LongValueAttachment();
+            AddAttachment(dvc);
+            AddAttachment(incarnation);
+            AddAttachment(largestSteppedLsn);
+
+            stepQueue = new WorkQueueLIFO<StepRequestHandle>(StepSequential);
+            stepRequestPool = new ThreadLocalObjectPool<StepRequestHandle>(() => new StepRequestHandle());
         }
 
+        /// <summary>
+        /// Return the tail address that this DARQ will need to replay to upon failure recovery
+        /// </summary>
+        public long ReplayEnd => largestSteppedLsn.value;
+
         /// <inheritdoc/>
-        public void Dispose()
+        public override void Dispose()
         {
             if (settings.DeleteOnClose)
                 settings.LogCommitManager.RemoveAllCommits();
@@ -143,36 +168,162 @@ namespace FASTER.darq
             settings.LogCommitManager.Dispose();
         }
 
-        /// <inheritdoc/>
-        public void PruneVersion(long version)
+        private void EnqueueCallbackBatch(IReadOnlySpanBatch m, int idx, long addr)
         {
-            settings.LogCommitManager.RemoveCommit(version);
+            incompleteMessages.TryAdd(addr, 0);
         }
+        
 
-        /// <inheritdoc/>
-        public IEnumerable<Memory<byte>> GetUnprunedVersions()
+        /// <summary>
+        /// Enqueue given entries into DARQ, optionally deduplicated using the supplied producer ID and sequence number. 
+        /// </summary>
+        /// <param name="entries">
+        /// Entries to enqueue. must already be well-formed on a byte level with message types, etc.
+        /// </param>
+        /// <param name="producerId"> Unique id of the producer for deduplication, or -1 if not required</param>
+        /// <param name="sequenceNum">
+        /// sequence number for deduplication. DARQ will only accept enqueue requests with monotonically increasing
+        /// sequence numbers from the same producer
+        /// </param>
+        /// <returns> whether enqueue is successful </returns>
+        public bool Enqueue(IReadOnlySpanBatch entries, long producerId, long sequenceNum)
         {
-            var commits = settings.LogCommitManager.ListCommits().ToList();
-            return commits.Select(commitNum =>
+#if DEBUG
+            unsafe
             {
-                // TODO(Tianyu): hacky
-                var newLog = new FasterLog(logSetting);
-                newLog.Recover(commitNum);
-                var commitCookie = newLog.RecoveredCookie;
-                newLog.Dispose();
-                return new Memory<byte>(commitCookie);
-            });
+                for (var i = 0; i < entries.TotalEntries(); i++)
+                {
+                    fixed (byte* h = entries.Get(i))
+                        Debug.Assert((DarqMessageType)(*h) == DarqMessageType.IN);
+                }
+            }
+#endif
+            // Check that we are not executing duplicates and update dvc accordingly
+            if (producerId != -1 && !dvc.Process(producerId, sequenceNum))
+                return false;
+
+            log.Enqueue(entries, EnqueueCallbackBatch);
+            return true;
+        }
+        
+        private void StepCallback(IReadOnlySpanBatch ms, int idx, long addr)
+        {
+            var entry = ms.Get(idx);
+            // Get first byte for type
+            if ((DarqMessageType)entry[0] == DarqMessageType.RECOVERY ||
+                (DarqMessageType)entry[0] == DarqMessageType.IN)
+                incompleteMessages.TryAdd(addr, 0);
+
+            largestSteppedLsn.value = addr;
         }
 
-        /// <inheritdoc/>
-        public void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
+        private unsafe void StepSequential(StepRequestHandle stepRequestHandle)
+        {
+            // Maintain incarnation number
+            if (stepRequestHandle.incarnation != incarnation.value)
+            {
+                stepRequestHandle.status = StepStatus.REINCARNATED;
+                stepRequestHandle.done.Set();
+                return;
+            }
+
+            Debug.Assert(incarnation.value == stepRequestHandle.incarnation);
+
+            // Validation of input batch
+            var numTotalEntries = stepRequestHandle.stepMessages.TotalEntries();
+            // Validate if The last entry of the step is a completion record that steps some previous message
+            var lastEntry = stepRequestHandle.stepMessages.Get(numTotalEntries - 1);
+            fixed (byte* h = lastEntry)
+            {
+                var end = h + lastEntry.Length;
+                var messageType = (DarqMessageType)(*h);
+                if (messageType == DarqMessageType.COMPLETION)
+                {
+                    Debug.Assert(lastEntry.Length % sizeof(long) == 1);
+                    for (var head = h + sizeof(DarqMessageType); head < end; head += sizeof(long))
+                    {
+                        var completedLsn = *(long*)head;
+                        if (!incompleteMessages.TryRemove(completedLsn, out _))
+                        {
+                            // This means we are trying to step something twice. Roll back all previous steps before
+                            // failing this step
+                            for (var rollbackHead = h + sizeof(DarqMessageType);
+                                 rollbackHead < head;
+                                 rollbackHead += sizeof(long))
+                                incompleteMessages.TryAdd(*(long*)rollbackHead, 0);
+                            stepRequestHandle.status = StepStatus.INVALID;
+                            stepRequestHandle.done.Set();
+                            Console.WriteLine($"step failed on lsn {completedLsn}");
+                            return;
+                        }
+                    }
+                }
+            }
+            log.Enqueue(stepRequestHandle.stepMessages, StepCallback);
+            stepRequestHandle.done.Set();
+            stepRequestHandle.status = StepStatus.SUCCESS;
+        }
+
+        /// <summary>
+        /// Step the DARQ with given incarnation number and step content
+        /// </summary>
+        /// <param name="incarnation"> incarnation number of the originating processor </param>
+        /// <param name="stepMessages">
+        /// Step content. must already be well-formed on a byte level with message
+        /// types, etc. with the last entry being a completion record
+        /// </param>
+        /// <returns>step result</returns>
+        public StepStatus Step(long incarnation, IReadOnlySpanBatch stepMessages)
+        {
+            var request = stepRequestPool.Checkout();
+            request.Reset(incarnation, stepMessages);
+            stepQueue.EnqueueAndTryWork(request, false);
+            while (request.status == StepStatus.INCOMPLETE)
+                request.done.Wait();
+            var result = request.status;
+            stepRequestPool.Return(request);
+            return result;
+        }
+
+        /// <summary>
+        /// Truncate DARQ until the given lsn
+        /// </summary>
+        /// <param name="lsn">truncation point</param>
+        public void TruncateUntil(long lsn)
+        {
+            log.TruncateUntil(lsn);
+        }
+
+        /// <summary>
+        /// Registers a new processor the submit steps to this DARQ.
+        /// </summary>
+        /// <returns>the unique incarnation number assigned to this processor</returns>
+        public long RegisterNewProcessor()
+        {
+            return RegisterNewProcessorAsync().GetAwaiter().GetResult();
+        }
+
+        public async Task<long> RegisterNewProcessorAsync()
+        {
+            var result = Interlocked.Increment(ref incarnation.value);
+            // TODO(Tianyu): This is not necessary and just an easy way to ensure there is no overlap of processing from two processor
+            await NextCommit();
+            return result;
+        }
+
+        /// <summary>
+        /// Scans the DARQ with an iterator 
+        /// </summary>
+        /// <returns></returns>
+        public DarqScanIterator StartScan() => new(log, largestSteppedLsn.value, true);
+
+        public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
         {
             var commitCookie = metadata.ToArray();
             log.CommitStrongly(out var tail, out _, false, commitCookie, version, onPersist);
         }
 
-        /// <inheritdoc/>
-        public void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
+        public override void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
         {
             Console.WriteLine($"Restoring checkpoint {version}");
             incompleteMessages.Clear();
@@ -212,202 +363,24 @@ namespace FASTER.darq
 
             Console.WriteLine($"Recovery Finished");
         }
-    }
 
-    /// <summary>
-    /// DARQ data structure 
-    /// </summary>
-    public class Darq : DprWorker<DarqStateObject>, IDisposable
-    {
-        private readonly DeduplicationVector dvc;
-        private readonly LongValueAttachment incarnation, largestSteppedLsn;
-        private WorkQueueLIFO<StepRequestHandle> stepQueue;
-        private ThreadLocalObjectPool<StepRequestHandle> stepRequestPool;
+        public override void PruneVersion(long version)
+        {
+            settings.LogCommitManager.RemoveCommit(version);
+        }
 
-        /// <summary>
-        /// Initialize DARQ with the given identity and parameters
-        /// </summary>
-        /// <param name="me">unique identity for this DARQ</param>
-        /// <param name="darqSettings">parameters for DARQ</param>
-        public Darq(DarqSettings darqSettings, IVersionScheme versionScheme) : base(
-            new DarqStateObject(darqSettings), versionScheme, new DprWorkerOptions
+        public override IEnumerable<Memory<byte>> GetUnprunedVersions()
+        {
+            var commits = settings.LogCommitManager.ListCommits().ToList();
+            return commits.Select(commitNum =>
             {
-                Me = darqSettings.MyDpr == DprWorkerId.INVALID ? new DprWorkerId(darqSettings.Me.guid) : darqSettings.MyDpr,
-                DprFinder = darqSettings.DprFinder,
-                CheckpointPeriodMilli = darqSettings.CheckpointPeriodMilli,
-                RefreshPeriodMilli = darqSettings.RefreshPeriodMilli
-            })
-        {
-            dvc = new DeduplicationVector();
-            incarnation = new LongValueAttachment();
-            largestSteppedLsn = new LongValueAttachment();
-            AddAttachment(dvc);
-            AddAttachment(incarnation);
-            AddAttachment(largestSteppedLsn);
-
-            stepQueue = new WorkQueueLIFO<StepRequestHandle>(StepSequential);
-            stepRequestPool = new ThreadLocalObjectPool<StepRequestHandle>(() => new StepRequestHandle());
+                // TODO(Tianyu): hacky
+                var newLog = new FasterLog(logSetting);
+                newLog.Recover(commitNum);
+                var commitCookie = newLog.RecoveredCookie;
+                newLog.Dispose();
+                return new Memory<byte>(commitCookie);
+            });
         }
-
-        /// <summary>
-        /// Return the tail address that this DARQ will need to replay to upon failure recovery
-        /// </summary>
-        public long ReplayEnd => largestSteppedLsn.value;
-
-        /// <inheritdoc/>
-        public void Dispose()
-        {
-            StateObject().Dispose();
-        }
-
-        private void EnqueueCallbackBatch(IReadOnlySpanBatch m, int idx, long addr)
-        {
-            StateObject().incompleteMessages.TryAdd(addr, 0);
-        }
-        
-
-        /// <summary>
-        /// Enqueue given entries into DARQ, optionally deduplicated using the supplied producer ID and sequence number. 
-        /// </summary>
-        /// <param name="entries">
-        /// Entries to enqueue. must already be well-formed on a byte level with message types, etc.
-        /// </param>
-        /// <param name="producerId"> Unique id of the producer for deduplication, or -1 if not required</param>
-        /// <param name="sequenceNum">
-        /// sequence number for deduplication. DARQ will only accept enqueue requests with monotonically increasing
-        /// sequence numbers from the same producer
-        /// </param>
-        /// <returns> whether enqueue is successful </returns>
-        public bool Enqueue(IReadOnlySpanBatch entries, long producerId, long sequenceNum)
-        {
-#if DEBUG
-            unsafe
-            {
-                for (var i = 0; i < entries.TotalEntries(); i++)
-                {
-                    fixed (byte* h = entries.Get(i))
-                        Debug.Assert((DarqMessageType)(*h) == DarqMessageType.IN);
-                }
-            }
-#endif
-            // Check that we are not executing duplicates and update dvc accordingly
-            if (producerId != -1 && !dvc.Process(producerId, sequenceNum))
-                return false;
-
-            StateObject().log.Enqueue(entries, EnqueueCallbackBatch);
-            return true;
-        }
-        
-        private void StepCallback(IReadOnlySpanBatch ms, int idx, long addr)
-        {
-            var entry = ms.Get(idx);
-            // Get first byte for type
-            if ((DarqMessageType)entry[0] == DarqMessageType.RECOVERY ||
-                (DarqMessageType)entry[0] == DarqMessageType.IN)
-                StateObject().incompleteMessages.TryAdd(addr, 0);
-
-            largestSteppedLsn.value = addr;
-        }
-
-        private unsafe void StepSequential(StepRequestHandle stepRequestHandle)
-        {
-            // Maintain incarnation number
-            if (stepRequestHandle.incarnation != incarnation.value)
-            {
-                stepRequestHandle.status = StepStatus.REINCARNATED;
-                stepRequestHandle.done.Set();
-                return;
-            }
-
-            Debug.Assert(incarnation.value == stepRequestHandle.incarnation);
-
-            // Validation of input batch
-            var numTotalEntries = stepRequestHandle.stepMessages.TotalEntries();
-            // Validate if The last entry of the step is a completion record that steps some previous message
-            var lastEntry = stepRequestHandle.stepMessages.Get(numTotalEntries - 1);
-            fixed (byte* h = lastEntry)
-            {
-                var end = h + lastEntry.Length;
-                var messageType = (DarqMessageType)(*h);
-                if (messageType == DarqMessageType.COMPLETION)
-                {
-                    Debug.Assert(lastEntry.Length % sizeof(long) == 1);
-                    for (var head = h + sizeof(DarqMessageType); head < end; head += sizeof(long))
-                    {
-                        var completedLsn = *(long*)head;
-                        if (!StateObject().incompleteMessages.TryRemove(completedLsn, out _))
-                        {
-                            // This means we are trying to step something twice. Roll back all previous steps before
-                            // failing this step
-                            for (var rollbackHead = h + sizeof(DarqMessageType);
-                                 rollbackHead < head;
-                                 rollbackHead += sizeof(long))
-                                StateObject().incompleteMessages.TryAdd(*(long*)rollbackHead, 0);
-                            stepRequestHandle.status = StepStatus.INVALID;
-                            stepRequestHandle.done.Set();
-                            Console.WriteLine($"step failed on lsn {completedLsn}");
-                            return;
-                        }
-                    }
-                }
-            }
-            StateObject().log.Enqueue(stepRequestHandle.stepMessages, StepCallback);
-            stepRequestHandle.done.Set();
-            stepRequestHandle.status = StepStatus.SUCCESS;
-        }
-
-        /// <summary>
-        /// Step the DARQ with given incarnation number and step content
-        /// </summary>
-        /// <param name="incarnation"> incarnation number of the originating processor </param>
-        /// <param name="stepMessages">
-        /// Step content. must already be well-formed on a byte level with message
-        /// types, etc. with the last entry being a completion record
-        /// </param>
-        /// <returns>step result</returns>
-        public StepStatus Step(long incarnation, IReadOnlySpanBatch stepMessages)
-        {
-            var request = stepRequestPool.Checkout();
-            request.Reset(incarnation, stepMessages);
-            stepQueue.EnqueueAndTryWork(request, false);
-            while (request.status == StepStatus.INCOMPLETE)
-                request.done.Wait();
-            var result = request.status;
-            stepRequestPool.Return(request);
-            return result;
-        }
-
-        /// <summary>
-        /// Truncate DARQ until the given lsn
-        /// </summary>
-        /// <param name="lsn">truncation point</param>
-        public void TruncateUntil(long lsn)
-        {
-            StateObject().log.TruncateUntil(lsn);
-        }
-
-        /// <summary>
-        /// Registers a new processor the submit steps to this DARQ.
-        /// </summary>
-        /// <returns>the unique incarnation number assigned to this processor</returns>
-        public long RegisterNewProcessor()
-        {
-            return RegisterNewProcessorAsync().GetAwaiter().GetResult();
-        }
-
-        public async Task<long> RegisterNewProcessorAsync()
-        {
-            var tcs = new TaskCompletionSource<long>();
-            var result = Interlocked.Increment(ref incarnation.value);
-            // TODO(Tianyu): This is not necessary and just an easy way to ensure there is no overlap of processing from two processor
-            await NextCommit();
-            return result;
-        }
-
-        /// <summary>
-        /// Scans the DARQ with an iterator 
-        /// </summary>
-        /// <returns></returns>
-        public DarqScanIterator StartScan() => new(StateObject().log, largestSteppedLsn.value, true);
     }
 }

@@ -121,7 +121,7 @@ namespace FASTER.server
             _backgroundTask?.Dispose();
             server.Dispose();
             terminationComplete.Wait();
-            darq.StateObject().Dispose();
+            darq.Dispose();
             refreshThread.Join();
         }
     }

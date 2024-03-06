@@ -112,9 +112,9 @@ public class Program
         builder.Services.AddSingleton<DarqBackgroundWorkerPool>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();
         
-        builder.Services.AddSingleton<DprWorker<DarqStateObject>>(sp => sp.GetService<Darq>());
-        builder.Services.AddSingleton<DprServerInterceptor<DarqStateObject, WorkflowOrchestratorService>>();
-        builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<DarqStateObject, WorkflowOrchestratorService>>(); });
+        builder.Services.AddSingleton<DprWorker>(sp => sp.GetService<Darq>());
+        builder.Services.AddSingleton<DprServerInterceptor<WorkflowOrchestratorService>>();
+        builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<WorkflowOrchestratorService>>(); });
         // builder.Services.AddGrpc();
 
         var app = builder.Build();

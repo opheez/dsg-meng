@@ -55,7 +55,7 @@ namespace FASTER.libdpr
         }
         
 
-        internal void UnsafeReset<TS>(DprWorker<TS> to) where TS : IStateObject
+        internal void UnsafeReset(DprWorker to)
         {
             version = to.Version();
             worldLine = to.WorldLine();

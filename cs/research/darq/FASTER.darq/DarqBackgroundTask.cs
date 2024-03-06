@@ -49,7 +49,7 @@ namespace FASTER.client
             iterator = darq.StartScan();
         }
 
-        public long ProcessingLag => darq.StateObject().log.TailAddress - processedUpTo;
+        public long ProcessingLag => darq.log.TailAddress - processedUpTo;
 
         public void Dispose()
         {
@@ -151,7 +151,7 @@ namespace FASTER.client
                     throw new NotImplementedException();
             }
 
-            if (completionTracker.GetTruncateHead() > darq.StateObject().log.BeginAddress)
+            if (completionTracker.GetTruncateHead() > darq.log.BeginAddress)
             {
                 Console.WriteLine($"Truncating log until {completionTracker.GetTruncateHead()}");
                 darq.StartLocalAction();
@@ -199,7 +199,7 @@ namespace FASTER.client
             terminationComplete = new ManualResetEventSlim();
 
             Reset();
-            Console.WriteLine($"Starting background send from address {darq.StateObject().log.BeginAddress}");
+            Console.WriteLine($"Starting background send from address {darq.log.BeginAddress}");
             workerPool.AddWork(ProcessBatch);
         }
 

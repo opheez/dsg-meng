@@ -46,9 +46,9 @@ namespace FASTER.libdpr
             return true;
         }
 
-        protected override void SendGraphReconstruction(DprWorkerId id, IStateObject stateObject)
+        protected override void SendGraphReconstruction(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider)
         {
-            var checkpoints = stateObject.GetUnprunedVersions();
+            var checkpoints = provider();
             var request = new ResendGraphRequest
             {
                 Id = id.guid

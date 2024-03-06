@@ -68,13 +68,13 @@ namespace FASTER.libdpr
 
         protected abstract bool Sync(ClusterState stateToUpdate, Dictionary<DprWorkerId, long> cutToUpdate);
 
-        protected abstract void SendGraphReconstruction(DprWorkerId id, IStateObject stateObject);
+        protected abstract void SendGraphReconstruction(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider);
 
         protected abstract void AddWorkerInternal(DprWorkerId id);
 
         public abstract void RemoveWorker(DprWorkerId id);
 
-        public void Refresh(DprWorkerId id, IStateObject stateObject)
+        public void Refresh(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider)
         {
             // Reset data structures
             backCut.Clear();
@@ -83,8 +83,8 @@ namespace FASTER.libdpr
 
             if (!Sync(backState, backCut))
             {
-                SendGraphReconstruction(id, stateObject);
-                Refresh(id, stateObject);
+                SendGraphReconstruction(id, provider);
+                Refresh(id, provider);
             }
 
             // Ok to not update the two atomically because cuts are resilient to cluster state changes anyway
@@ -103,16 +103,16 @@ namespace FASTER.libdpr
             backCut = Interlocked.Exchange(ref frontCut, backCut);
         }
 
-        public long AddWorker(DprWorkerId id, IStateObject stateObject)
+        public long AddWorker(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider)
         {
             // A blind resending of graph is necessary, in case the coordinator is undergoing recovery and pausing
             // processing of new workers until every worker has responded
-            SendGraphReconstruction(id, stateObject);
+            SendGraphReconstruction(id, provider);
 
             AddWorkerInternal(id);
 
             // Get cluster state afterwards to see if recovery is necessary
-            Refresh(id, stateObject);
+            Refresh(id, provider);
             return SafeVersion(id);
         }
     }

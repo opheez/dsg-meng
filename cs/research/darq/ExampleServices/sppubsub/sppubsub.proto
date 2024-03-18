@@ -1,0 +1,40 @@
+syntax = "proto3";
+option csharp_namespace = "protobuf";
+
+message EventData {
+  string messageId = 1;
+  bytes body = 2;
+}
+
+message EventDataBatch {
+  bytes dprHeader = 1;
+  repeated EventData events = 2;
+  string topicId = 3;
+}
+
+message Event {
+  bytes dprHeader = 1;
+  string messageId = 2;
+  bytes body = 3;
+  int64 timestamp = 4;
+  int64 offset = 5;
+  int64 nextOffset = 6;
+  int64 sequenceNum = 7;
+}
+
+message EnqueueEventsResponse {
+  bytes dprHeader = 1;
+  bool ok = 2;
+}
+
+message ReadEventsRequest {
+  bool speculative = 1;
+  string topicId = 2;
+  int64 startLsn = 3;
+}
+
+service SpPubSub {
+  rpc EnqueueEvents(EventDataBatch) returns (EnqueueEventsResponse);
+  
+  rpc ReadEventsFromTopic(ReadEventsRequest) returns (stream Event);
+}

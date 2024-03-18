@@ -278,6 +278,27 @@ namespace FASTER.libdpr
 
             return this;
         }
+        
+        public unsafe StepRequestBuilder AddSelfMessage(long partitionId, ReadOnlySpan<byte> message)
+        {
+            while (request.serializationBuffer.Length - request.size <
+                   sizeof(long) + message.Length + sizeof(DarqMessageType))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+                *(DarqMessageType*)head++ = DarqMessageType.IN;
+                *(long*)head = partitionId;
+                head += sizeof(long);
+                message.CopyTo(new Span<byte>(head, message.Length));
+                head += message.Length;
+                request.size = (int)(head - b);
+            }
+
+            return this;
+        }
 
         public unsafe StepRequestBuilder AddSelfMessage(ILogEnqueueEntry message)
         {
@@ -315,6 +336,27 @@ namespace FASTER.libdpr
             {
                 var head = b + request.size;
                 *(DarqMessageType*)head++ = DarqMessageType.RECOVERY;
+                message.CopyTo(new Span<byte>(head, message.Length));
+                head += message.Length;
+                request.size = (int)(head - b);
+            }
+
+            return this;
+        }
+        
+        public unsafe StepRequestBuilder AddRecoveryMessage(long partitionId, ReadOnlySpan<byte> message)
+        {
+            while (request.serializationBuffer.Length - request.size <
+                   sizeof(long) + message.Length + sizeof(DarqMessageType))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+                *(DarqMessageType*)head++ = DarqMessageType.RECOVERY;
+                *(long*)head = partitionId;
+                head += sizeof(long);
                 message.CopyTo(new Span<byte>(head, message.Length));
                 head += message.Length;
                 request.size = (int)(head - b);

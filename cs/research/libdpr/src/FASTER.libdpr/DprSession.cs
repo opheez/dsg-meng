@@ -24,8 +24,8 @@ namespace FASTER.libdpr
     /// </summary>
     public class DprSession
     {
-        private long version, worldLine;
-        private LightDependencySet deps;
+        internal long version, worldLine;
+        internal LightDependencySet deps;
         
         /// <summary>
         /// WorldLine of the session
@@ -45,6 +45,7 @@ namespace FASTER.libdpr
             worldLine = initialWorldLine;
             deps = new LightDependencySet();
         }
+        
 
         internal void UnsafeReset(long initialWorldLine = 0)
         {

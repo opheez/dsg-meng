@@ -50,9 +50,9 @@ namespace FASTER.darq
         }
     }
 
-    internal class LongValueAttachment : IStateObjectAttachment
+    public class LongValueAttachment : IStateObjectAttachment
     {
-        internal long value;
+        public long value;
 
         public int SerializedSize() => sizeof(long);
 

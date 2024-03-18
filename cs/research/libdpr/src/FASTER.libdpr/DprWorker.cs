@@ -20,7 +20,7 @@ namespace FASTER.libdpr
     public abstract class DprWorker : IDisposable
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
-        private readonly DprWorkerOptions options;
+        public readonly DprWorkerOptions options;
 
         private readonly ConcurrentDictionary<long, LightDependencySet> versions;
         protected readonly IVersionScheme versionScheme;
@@ -54,7 +54,7 @@ namespace FASTER.libdpr
             nextCommit = new TaskCompletionSource<long>();
             sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         }
-
+        
         public IDprFinder GetDprFinder() => options.DprFinder; 
 
         /// <summary></summary>
@@ -331,6 +331,20 @@ namespace FASTER.libdpr
             }
             return true;
         }
+        
+        public unsafe bool TrySynchronizeAndStartAction(DprSession session)
+        {
+            // Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
+            // TODO(Tianyu): optimize if necessary
+            var headerBytes = stackalloc byte[120];
+            var header = new Span<byte>(headerBytes, 120);
+            var len = session.TagMessage(header);
+            if (len < 0)
+                // TODO(Tianyu): handle case where we run out of space
+                throw new NotImplementedException();
+            return TryReceiveAndStartAction(header);
+        }
 
         public void StartLocalAction() => versionScheme.Enter();
 
@@ -364,11 +378,16 @@ namespace FASTER.libdpr
 
         public unsafe bool TryMergeAndStartAction(DprSession detachedSession)
         {
+            // Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
             var headerBytes = stackalloc byte[120];
             var header = new Span<byte>(headerBytes, 120);
-            // TODO(Tianyu): handle case where we run out of space
-            detachedSession.TagMessage(header);            
+            var len = detachedSession.TagMessage(header);
+            if (len < 0)
+                // TODO(Tianyu): handle case where we run out of space
+                throw new NotImplementedException();
             sessionPool.Return(detachedSession);
+            // TODO(Tianyu): optimize if necessary
             return TryReceiveAndStartAction(header);
         }
 

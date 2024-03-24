@@ -16,6 +16,8 @@ namespace FASTER.core
     internal abstract class HybridLogCheckpointOrchestrationTask : ISynchronizationTask
     {
         private long lastVersion;
+        protected Action onPersist;
+        
         /// <inheritdoc />
         public virtual void GlobalBeforeEnteringState<Key, Value>(SystemState next,
             FasterKV<Key, Value> faster)
@@ -44,6 +46,7 @@ namespace FASTER.core
                 case Phase.PERSISTENCE_CALLBACK:
                     CollectMetadata(next, faster);
                     faster.WriteHybridLogMetaInfo();
+                    onPersist?.Invoke();
                     faster.lastVersion = lastVersion;
                     break;
                 case Phase.REST:
@@ -138,6 +141,11 @@ namespace FASTER.core
     /// </summary>
     internal sealed class FoldOverCheckpointTask : HybridLogCheckpointOrchestrationTask
     {
+        internal FoldOverCheckpointTask(Action onPersist = null)
+        {
+            this.onPersist = onPersist;
+        }
+        
         /// <inheritdoc />
         public override void GlobalBeforeEnteringState<Key, Value>(SystemState next,
             FasterKV<Key, Value> faster)

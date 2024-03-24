@@ -387,6 +387,16 @@ namespace FASTER.core
             return result;
         }
 
+        
+        public Guid TakeDprStyleCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
+        {
+            CommitCookie = metadata.ToArray();
+            var backend = new FoldOverCheckpointTask(onPersist);
+            var success = StartStateMachine(new HybridLogCheckpointStateMachine(backend, version));
+            Debug.Assert(success);
+            return _hybridLogCheckpointToken;
+        }
+
         /// <summary>
         /// Take log-only checkpoint
         /// </summary>

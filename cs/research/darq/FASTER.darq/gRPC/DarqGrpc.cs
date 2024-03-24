@@ -82,7 +82,7 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
         terminationComplete = new CountdownEvent(2);
         stepRequestPool = new ThreadLocalObjectPool<StepRequest>(() => new StepRequest());
         enqueueRequestPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 15]);
-        backend.ConnectToCluster();
+        backend.ConnectToCluster(out _);
         backgroundTask.StopProcessing();
 
         refreshThread = new Thread(() =>

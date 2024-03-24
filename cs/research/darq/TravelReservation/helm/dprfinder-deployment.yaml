@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    service: dprfinder
+  name: dprfinder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: dprfinder
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        service: dprfinder
+    spec:
+      priorityClassName: high-priority
+      containers:
+        - command:
+            - # TODO: Fill in
+          image: tianyuli96/hotelreservation:latest
+          name: dprfinder
+          ports:
+            - containerPort: 15721
+          resources:
+            requests:
+              cpu: 2000m
+            limits:
+              cpu: 4000m
+      restartPolicy: Always

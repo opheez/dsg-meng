@@ -58,8 +58,8 @@ namespace FASTER.server
             _backgroundTask = new DarqBackgroundTask(darq, options.WorkerPool, session => new DarqProducerClient(options.ClusterInfo, session));
             terminationStart = new ManualResetEventSlim();
             terminationComplete = new CountdownEvent(2);
-            darq.ConnectToCluster();
-            responseQueue = new();
+            darq.ConnectToCluster(out _);
+            responseQueue = new ConcurrentQueue<ProducerResponseBuffer>();
             provider = new DarqProvider<TVersionScheme>(darq, responseQueue);
             server = new FasterServerTcp(options.Address, options.Port);
             // Check that our custom defined wire format is not clashing with anything implemented by FASTER

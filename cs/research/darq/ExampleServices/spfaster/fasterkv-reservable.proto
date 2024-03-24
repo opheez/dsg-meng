@@ -1,15 +1,8 @@
 syntax = "proto3";
 option csharp_namespace = "protobuf";
-
-message ReservableEntity {
-  int64 entityId = 1;
-  string metadata = 2;
-}
-
 message Offering {
   int64 offeringId = 1;
   int64 entityId = 2;
-  string description = 3;
   int32 price = 4;
   int32 remainingCount = 5;
 }
@@ -19,26 +12,16 @@ message Reservation {
   int64 offeringId = 2;
   int64 customerId = 3;
   int32 count = 4;
-  string description = 5;
 }
 
 message ReservationRequest {
   int64 reservationId = 1;
   int64 offeringId = 2;
-  int32 count = 3;
-  int64 customerId = 4;
-  string description = 5;
+  int64 customerId = 3;
+  int32 count = 4;
 }
 
 message ReservationResponse {
-  bool ok = 1;
-}
-
-message CancelRequest {
-  int64 reservationId = 1;
-}
-
-message CancelResponse {
   bool ok = 1;
 }
 
@@ -50,17 +33,8 @@ message AddOfferingResponse {
   bool ok = 1;
 }
 
-message AddEntityRequest {
-  ReservableEntity entityToAdd = 1;
-}
-
-message AddEntityResponse {
-  bool ok = 1;
-}
-
 service FasterKVReservationService {
   rpc MakeReservation(ReservationRequest) returns (ReservationResponse);
-  rpc CancelReservation(CancelRequest) returns (CancelResponse);
+  rpc CancelReservation(ReservationRequest) returns (ReservationResponse);
   rpc AddOffering(AddOfferingRequest) returns (AddOfferingResponse);
-  rpc AddEntity(AddEntityRequest) returns (AddEntityResponse);
 }

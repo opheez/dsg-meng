@@ -8,7 +8,7 @@ using Status = Grpc.Core.Status;
 
 namespace ExampleServices.splog;
 
-public class SpeculativeLog : DprWorker
+public class SpeculativeLog : StateObject
 {
     private FasterLogSettings settings;
     public FasterLog log;
@@ -64,7 +64,7 @@ public class SplogService : protobuf.SplogService.SplogServiceBase
     public SplogService(SpeculativeLog backend)
     {
         this.backend = backend;
-        backend.ConnectToCluster();
+        backend.ConnectToCluster(out _);
     }
 
     public override Task<SplogAppendResponse> Append(SplogAppendRequest request, ServerCallContext context)

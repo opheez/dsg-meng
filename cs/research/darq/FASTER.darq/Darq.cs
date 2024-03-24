@@ -74,7 +74,7 @@ namespace FASTER.darq
     /// <summary>
     /// DARQ data structure 
     /// </summary>
-    public class Darq : DprWorker, IDisposable
+    public class Darq : StateObject, IDisposable
     {
         internal DarqSettings settings;
         internal FasterLog log;

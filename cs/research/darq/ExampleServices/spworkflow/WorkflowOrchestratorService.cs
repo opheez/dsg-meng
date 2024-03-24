@@ -1,23 +1,20 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Reflection.Metadata;
-using System.Runtime.InteropServices.JavaScript;
-using Azure.Core;
 using darq;
 using FASTER.client;
 using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
-using FASTER.libdpr.gRPC;
-using Google.Protobuf;
 using Grpc.Core;
-using Grpc.Core.Interceptors;
-using Grpc.Net.Client;
 
 namespace SimpleWorkflowBench;
-public interface IWorkflowStateMachine : IDarqProcessor
+public interface IWorkflowStateMachine
 {
+    public void ProcessMessage(DarqMessage m);
+
+    public void OnRestart(IDarqProcessorClientCapabilities capabilities, StateObject stateObject);
+    
     Task<ExecuteWorkflowResult> GetResult(CancellationToken token);
 }
 
@@ -25,15 +22,15 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
 {
     private Darq backend;
     private readonly DarqBackgroundTask _backgroundTask;
-    private readonly DarqBackgroundWorkerPool workerPool;
     private readonly ManualResetEventSlim terminationStart, terminationComplete;
     private Thread refreshThread, processingThread;
     private ColocatedDarqProcessorClient<RwLatchVersionScheme> processorClient;
-    private Dictionary<int, Func<DprWorker, IWorkflowStateMachine>> workflowFactories;
+    private Dictionary<int, Func<StateObject, IWorkflowStateMachine>> workflowFactories;
 
     private ConcurrentDictionary<long, IWorkflowStateMachine> startedWorkflows;
     private IDarqProcessorClientCapabilities capabilities;
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
+    private CancellationTokenSource cancellationSource;
 
 
     public WorkflowOrchestratorService(Darq darq, DarqBackgroundWorkerPool workerPool)
@@ -43,11 +40,11 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         _backgroundTask = new DarqBackgroundTask(backend, workerPool, null);
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new ManualResetEventSlim();
-        this.workerPool = workerPool;
-        backend.ConnectToCluster();
+        backend.ConnectToCluster(out _);
 
-        _backgroundTask.StopProcessing();
+        _backgroundTask.BeginProcessing();
 
+        // TODO(Tianyu): Consider moving these onto the background worker pool as well
         refreshThread = new Thread(() =>
         {
             while (!terminationStart.IsSet)
@@ -62,8 +59,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         // TODO(Tianyu): Hacky
         // spin until we are sure that we have started 
         while (capabilities == null)
-        {
-        }
+            Thread.Yield();
     }
 
     public Darq GetBackend() => backend;
@@ -83,7 +79,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         processingThread.Join();
     }
 
-    public void BindWorkflowHandler(int classId, Func<DprWorker, IWorkflowStateMachine> factory)
+    public void BindWorkflowHandler(int classId, Func<StateObject, IWorkflowStateMachine> factory)
     {
         workflowFactories[classId] = factory;
     }
@@ -92,7 +88,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         ServerCallContext context)
     {
         var workflowHandler = workflowFactories[request.WorkflowClassId](backend);
-        workflowHandler.OnRestart(capabilities);
+        workflowHandler.OnRestart(capabilities, backend);
         var actualHandler = startedWorkflows.GetOrAdd(request.WorkflowId, workflowHandler);
         if (actualHandler == workflowHandler)
         {
@@ -120,9 +116,13 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         while (true)
         {
             var s = backend.DetachFromWorker();
-            // TODO(Tianyu): Fix later
-            var result = await workflow.GetResult(default);
-            if (backend.TryMergeAndStartAction(s)) return result;
+            try
+            {
+                var result = await workflow.GetResult(cancellationSource.Token);
+                if (backend.TryMergeAndStartAction(s)) return result;
+            }
+            catch (TaskCanceledException) {}
+
             // Otherwise, there has been a rollback, should retry with a new handle, if any
             while (!startedWorkflows.TryGetValue(workflowId, out workflow))
                 await Task.Yield();
@@ -131,31 +131,26 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
 
     public bool ProcessMessage(DarqMessage m)
     {
-        var partitionId = BitConverter.ToInt64(m.GetMessageBody());
-        if (partitionId < 0)
+        var workflowId = BitConverter.ToInt64(m.GetMessageBody());
+        if (workflowId < 0)
         {
             Debug.Assert(m.GetMessageType() == DarqMessageType.RECOVERY);
             var classId = BitConverter.ToInt32(m.GetMessageBody()[sizeof(long)..]);
             var workflow = workflowFactories[classId](backend);
-            workflow.OnRestart(capabilities);
-            var ok = startedWorkflows.TryAdd(-partitionId, workflow);
+            workflow.OnRestart(capabilities, backend);
+            var ok = startedWorkflows.TryAdd(-workflowId, workflow);
             Debug.Assert(ok);
             return true;
         }
-        return startedWorkflows[partitionId].ProcessMessage(m);
+        startedWorkflows[workflowId].ProcessMessage(m);
+        return true;
     }
 
     public void OnRestart(IDarqProcessorClientCapabilities capabilities)
     {
-        if (startedWorkflows != null)
-        {
-            foreach (var handle in startedWorkflows.Values)
-            {
-                // TODO(Tianyu): Cancel all current waits
-            }
-        }
-
+        cancellationSource?.Cancel();
         startedWorkflows = new ConcurrentDictionary<long, IWorkflowStateMachine>();
+        cancellationSource = new CancellationTokenSource();
         this.capabilities = capabilities;
     }
 }

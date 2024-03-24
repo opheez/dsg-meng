@@ -8,7 +8,7 @@ using protobuf;
 namespace ExampleServices;
 
 // Writes nothing by itself but can persist arbitrary (small) things through metadata and IStateObjectAttachments
-public class SpeculativeMetadataAzureBlob : DprWorker
+public class SpeculativeMetadataAzureBlob : StateObject
 {
     private BlobContainerClient client;
     private string baseName;
@@ -123,7 +123,7 @@ public class SpPubSubProcessorClient
     public async Task StartProcessingAsync(EventHandler handler, Action<long> onRollback = null, bool speculative = true, CancellationToken token = default)
     {
         terminationStart = new ManualResetEventSlim();
-        storage.ConnectToCluster();
+        storage.ConnectToCluster(out _);
         
         Task.Run(async () =>
         {

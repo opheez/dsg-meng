@@ -8,15 +8,15 @@ namespace FASTER.libdpr.gRPC
 {
     public class DprServerInterceptor<TService> : Interceptor
     {
-        private DprWorker dprWorker;
+        private StateObject _stateObject;
         private ThreadLocalObjectPool<byte[]> serializationArrayPool;
 
         // For now, we require that the gRPC integration only works with RwLatchVersionScheme, which supports protected
         // blocks that start and end on different threads
         // TService is a parameter for DI to only create interceptors after the service is up 
-        public DprServerInterceptor(DprWorker dprWorker, TService service)
+        public DprServerInterceptor(StateObject stateObject, TService service)
         {
-            this.dprWorker = dprWorker;
+            this._stateObject = stateObject;
             serializationArrayPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 10]);
         }
 
@@ -28,7 +28,7 @@ namespace FASTER.libdpr.gRPC
             if (header != null)
             {
                 // Speculative code path
-                if (!dprWorker.TryReceiveAndStartAction(header))
+                if (!_stateObject.TryReceiveAndStartAction(header))
                     // Use an error to signal to caller that this call cannot proceed
                     // TODO(Tianyu): add more descriptive exception information
                     throw new RpcException(Status.DefaultCancelled);
@@ -36,7 +36,7 @@ namespace FASTER.libdpr.gRPC
             }
 
             // Non speculative code path
-            dprWorker.StartLocalAction();
+            _stateObject.StartLocalAction();
             return await HandleNonSpeculativeCall(request, context, continuation);
         }
 
@@ -46,9 +46,9 @@ namespace FASTER.libdpr.gRPC
         {
             // Proceed with request
             var response = await continuation.Invoke(request, context);
-            dprWorker.EndAction();
+            _stateObject.EndAction();
             // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
-            await dprWorker.NextCommit();
+            await _stateObject.NextCommit();
             return response;
         }
 
@@ -59,7 +59,7 @@ namespace FASTER.libdpr.gRPC
             // Proceed with request
             var response = await continuation.Invoke(request, context);
             var buf = serializationArrayPool.Checkout();
-            dprWorker.ProduceTagAndEndAction(buf);
+            _stateObject.ProduceTagAndEndAction(buf);
             context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
             serializationArrayPool.Return(buf);
             return response;

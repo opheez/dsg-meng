@@ -1,0 +1,12 @@
+connString: foo
+numOrchestrators: 2  
+
+services:
+  - num: 1
+    port: 15721
+  - num: 2
+    port: 15722
+  - num: 3
+    port: 15723
+
+    

@@ -17,7 +17,7 @@ namespace FASTER.libdpr
     /// StateObject implementation.
     /// </summary>
     /// <typeparam name="TStateObject"> type of state object</typeparam>
-    public abstract class DprWorker : IDisposable
+    public abstract class StateObject : IDisposable
     {
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         public readonly DprWorkerOptions options;
@@ -43,7 +43,7 @@ namespace FASTER.libdpr
         /// <param name="stateObject"> underlying state object </param>
         /// <param name="options"> DPR worker options </param>
         // TODO(Tianyu): Put some design work into the different operating modes of applications written this way -- speculative/pessimistic/no guarantees
-        public DprWorker(IVersionScheme versionScheme, DprWorkerOptions options)
+        public StateObject(IVersionScheme versionScheme, DprWorkerOptions options)
         {
             this.options = options;
             this.versionScheme = versionScheme;
@@ -193,7 +193,7 @@ namespace FASTER.libdpr
         /// and the worker will automatically load the correct checkpointed state for recovery. Must be invoked exactly
         /// once before any other operations. 
         /// </summary>
-        public void ConnectToCluster()
+        public void ConnectToCluster(out bool restored)
         {
             long versionToRecover = 0;
             if (options.DprFinder != null)
@@ -211,7 +211,8 @@ namespace FASTER.libdpr
             }
 
             // This worker is recovering from some failure and we need to load said checkpoint
-            if (versionToRecover != 0)
+            restored = versionToRecover != 0;
+            if (restored)
                 BeginRestore(options.DprFinder?.SystemWorldLine() ?? 1, versionToRecover).GetAwaiter().GetResult();
             else
             {

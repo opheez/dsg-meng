@@ -1,9 +1,10 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
-using System.Text;
+using Azure.Storage.Blobs;
 using CommandLine;
-using Consul;
 using darq;
 using ExampleServices.spfaster;
 using FASTER.core;
@@ -11,8 +12,8 @@ using FASTER.darq;
 using FASTER.devices;
 using FASTER.libdpr;
 using FASTER.libdpr.gRPC;
+using Google.Protobuf;
 using Grpc.Net.Client;
-using MathNet.Numerics.Distributions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -27,11 +28,11 @@ public class Options
     
     [Option('w', "workload-trace", Required = false,
         HelpText = "Workload trace file to use")]
-    public string Window { get; set; }
+    public string WorkloadTrace { get; set; }
     
-    [Option('n', "name", Required = false,
-        HelpText = "name of the service to launch, if launching a worker")]
-    public string WorkerName { get; set; }
+    [Option('n', "name", Required = true,
+        HelpText = "identifier of the service to launch")]
+    public int WorkerName { get; set; }
 }
 
 public class Program
@@ -56,113 +57,98 @@ public class Program
                 await LaunchDprFinder(options);
                 break;
             case "generate":
-                await LaunchDprFinder(options);
+                new WorkloadGenerator()
+                    .SetNumClients(1)
+                    .SetNumServices(3)
+                    .SetNumWorkflowsPerSecond(50)
+                    .SetNumSeconds(60)
+                    .SetNumOfferings(1000)
+                    .SetBaseFileName(options.WorkloadTrace)
+                    .GenerateWorkloadTrace(new Random());
                 break;
             default:
                 throw new NotImplementedException();
         }
     }
-    
 
-    private void GenerateWorkloadTrace(string fileName)
-    {
-        const int numClients = 1, numServices = 3, numWorkflowsPerSecond = 50, numSeconds = 60, numOfferings = 1000;
-        var random = new Random();
-        
-        // Generate database
-        // Over provision a to ensure we don't all abort
-        const int numOfferingsRequired = (int)(numClients * numWorkflowsPerSecond * numSeconds * 1.2 / numOfferings);
-        for (var i = 0; i < numServices; i++) 
-        {
-            using var writer = new StreamWriter($"{fileName}-service-{i}.csv");
-            for (var j = 0; j < numOfferings; j++)
-            {
-                var builder = new StringBuilder();
-                // offering id
-                builder.Append(j);
-                builder.Append(',');
-                // entityId id
-                builder.Append(random.NextInt64());
-                builder.Append(',');
-                // price
-                builder.Append(random.Next(100, 300));
-                builder.Append(',');
-                // num reservable
-                // TODO(Tianyu): Randomize a bit?
-                builder.Append(numOfferingsRequired);
-                writer.WriteLine(builder.ToString());
-            }
-        }
-        
-        // Generate workload
-        var poisson = new Poisson(numWorkflowsPerSecond);
-        for (var i = 0; i < numClients; i++)
-        {
-            List<long> requestTimestamps = new();
-            for (var second = 0; second < numSeconds; second++)
-            {
-                var numRequests = poisson.Sample();
-                for (var request = 0; request < numRequests; request++)
-                    requestTimestamps.Add(1000* second + random.Next(1000));
-            }
-            requestTimestamps.Sort();
-            var uniqueIds = new Dictionary<long, byte>();
-            using var writer = new StreamWriter($"{fileName}-client-{i}.csv");
-            foreach (var timestamp in requestTimestamps)
-            {
-                var builder = new StringBuilder();
-                // Issue time
-                builder.Append(timestamp);
-                builder.Append(',');
-                // Workflow Id -- must ensure uniqueness
-                long id;
-                do
-                {
-                    id = random.NextInt64() % numClients + i;
-                } while (!uniqueIds.TryAdd(id, 0));
-                builder.Append(id);
-                for (var j = 0; j < numServices; j++)
-                {                
-                    builder.Append(',');
-                    // Reservation Id -- must ensure uniqueness
-                    do
-                    {
-                        id = random.NextInt64() % numClients + i;
-                    } while (!uniqueIds.TryAdd(id, 0));
-                    builder.Append(id);
-                    builder.Append(',');
-                    // offeringId
-                    builder.Append(random.NextInt64(numOfferings));
-                    builder.Append(',');
-                    // customerId
-                    builder.Append(random.NextInt64());
-                    builder.Append(',');
-                    // count 
-                    // TODO(Tianyu): More than 1?
-                    builder.Append(1);
-                }
-                writer.WriteLine(builder.ToString());
-            }
-        }
-    }
-    
 
     private static async Task LaunchBenchmarkClient(Options options)
     {
 
-        // for (var i = 0; i < options.NumWorkflows; i++)
-        // {
-            // await semaphore.WaitAsync();
-            // Get a channel per invocation so load-balancing can do its thing
-            var channel = GrpcChannel.ForAddress("orchestrator:15721");
-            // No speculation from external client perspective
-            var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
-            Task.Run(() => client.ExecuteWorkflowAsync(new ExecuteWorkflowRequest
+        var timedRequests = new List<(long, ExecuteWorkflowRequest)>();
+        unsafe
+        {
+            foreach (var line in File.ReadLines(options.WorkloadTrace))
             {
-                WorkflowId = 0,
-                WorkflowClassId = 0,
-                Input = null
-            }));
+                var args = line.Split(',');
+                Debug.Assert(args.Length == 6);
+                var timestamp = long.Parse(args[0]);
+                var buf = stackalloc long[4];
+                buf[0] = long.Parse(args[2]);
+                buf[1] = long.Parse(args[3]);
+                buf[2] = long.Parse(args[4]);
+                buf[3] = long.Parse(args[5]);
+
+                var request = new ExecuteWorkflowRequest
+                {
+                    WorkflowId = long.Parse(args[1]),
+                    WorkflowClassId = 0,
+                    Input = ByteString.CopyFrom(new Span<byte>(buf, 32))
+                };
+                timedRequests.Add(ValueTuple.Create(timestamp, request));
+            }
+        }
+
+        // Keep a few channels around and reuse them 
+        var channelPool = new List<GrpcChannel>();
+        for (var i = 0; i < 8; i++)
+            // k8 load-balancing will ensure that we get a spread of different orchestrators behind these channels
+            channelPool.Add(GrpcChannel.ForAddress("orchestrator:15721"));
+
+        var measurements = new ConcurrentBag<long>();
+        var stopwatch = Stopwatch.StartNew();
+        for (var i = 0; i < timedRequests.Count; i++)
+        {
+            while (stopwatch.ElapsedMilliseconds <= timedRequests[i].Item1)
+                await Task.Yield();
+            var channel = channelPool[i % channelPool.Count];
+            var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
+            Task.Run(async () =>
+            {
+                var startTime = stopwatch.ElapsedMilliseconds;
+                await client.ExecuteWorkflowAsync(new ExecuteWorkflowRequest
+                {
+                    WorkflowId = 0,
+                    WorkflowClassId = 0,
+                    Input = null
+                });
+                var endTime = stopwatch.ElapsedMilliseconds;
+                measurements.Add(endTime - startTime);
+            });
+        }
+
+        while (measurements.Count != timedRequests.Count)
+            await Task.Delay(5);
+        await WriteResults(options, measurements);
+    }
+
+    private static async Task WriteResults(Options options, ConcurrentBag<long> measurements)
+    {
+        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
+        var blobServiceClient = new BlobServiceClient(connString);
+        var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
+        
+        await blobContainerClient.CreateIfNotExistsAsync();
+        var blobClient = blobContainerClient.GetBlobClient($"client{options.WorkerName}-result.txt");
+        
+        using var memoryStream = new MemoryStream();
+        await using var streamWriter = new StreamWriter(memoryStream);
+        foreach (var line in measurements)
+            streamWriter.WriteLine(line);
+        await streamWriter.FlushAsync();
+        
+        memoryStream.Position = 0;
+        await blobClient.UploadAsync(memoryStream, overwrite: true);
     }
 
     public static Task LaunchOrchestratorService(Options options)
@@ -177,19 +163,18 @@ public class Program
         {
             numWorkers = 2
         });
-        
+        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
         builder.Services.AddSingleton(new DarqSettings
         {
+            MyDpr = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("dprfinder:15721")),
-            LogDevice = new ManagedLocalStorageDevice("./data.log", deleteOnClose:true),
+            LogDevice = new AzureStorageDevice(connString, "orchestrators", options.WorkerName.ToString(), "darq"),
             PageSize = 1L << 22,
             MemorySize = 1L << 28,
             SegmentSize = 1L << 30,
-            CheckpointPeriodMilli = 10,
+            CheckpointPeriodMilli = 5,
             RefreshPeriodMilli = 5,
             FastCommitMode = true,
-            DeleteOnClose = true,
-            CleanStart = true
         });
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
         builder.Services.AddSingleton<Darq>();
@@ -234,11 +219,6 @@ public class Program
 
     public static Task LaunchReservationService(Options options)
     {
-        var client = new ConsulClient(configuration =>
-        {
-            // Set the address of the Consul agent
-            configuration.Address = new Uri("http://localhost:8500");
-        });
         
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.ConfigureKestrel(serverOptions =>
@@ -246,42 +226,27 @@ public class Program
             serverOptions.Listen(IPAddress.Any, 15722,
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-        // TODO(Tianyu): configure
-        builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
+        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
+        using var faster = new FasterKV<Key, Value>(1 << 20, new LogSettings
         {
-            IndexSize = 0,
-            ConcurrencyControlMode = ConcurrencyControlMode.None,
-            LogDevice = null,
-            ObjectLogDevice = null,
-            PageSize = 0,
-            SegmentSize = 0,
-            MemorySize = 0,
-            MutableFraction = 0,
-            ReadCopyOptions = default,
-            PreallocateLog = false,
-            KeySerializer = null,
-            ValueSerializer = null,
-            EqualityComparer = null,
-            KeyLength = null,
-            ValueLength = null,
-            ReadCacheEnabled = false,
-            ReadCachePageSize = 0,
-            ReadCacheMemorySize = 0,
-            ReadCacheSecondChanceFraction = 0,
-            CheckpointManager = null,
-            CheckpointDir = null,
-            RemoveOutdatedCheckpoints = false,
-            TryRecoverLatest = false,
-            ThrottleCheckpointFlushDelayMs = 0,
-            CheckpointVersionSwitchBarrier = false,
+            LogDevice = new AzureStorageDevice(connString, "services", options.WorkerName.ToString(), "log"),
+            PageSizeBits = 25,
+            SegmentSizeBits = 30,
+            MemorySizeBits = 28
+        }, new CheckpointSettings
+        {
+            CheckpointManager = new DeviceLogCommitCheckpointManager(
+                new AzureStorageNamedDeviceFactory(connString),
+                new DefaultCheckpointNamingScheme($"services/{options.WorkerName}/checkpoints/"))
         });
-        // TODO(Tianyu): Configure
+        builder.Services.AddSingleton(faster);
+        
         builder.Services.AddSingleton(new DprWorkerOptions
         {
-            Me = default,
-            DprFinder = null,
-            CheckpointPeriodMilli = 0,
-            RefreshPeriodMilli = 0
+            Me = new DprWorkerId(options.WorkerName),
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("dprfinder:15721")),
+            CheckpointPeriodMilli = 10,
+            RefreshPeriodMilli = 5
         });
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
         builder.Services.AddSingleton<FasterKvReservationStateObject>();

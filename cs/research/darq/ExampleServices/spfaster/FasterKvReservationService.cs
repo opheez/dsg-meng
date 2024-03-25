@@ -95,16 +95,13 @@ public class FasterKvReservationStateObject : StateObject
     private Guid indexCheckpointToken = default;
     private ConcurrentDictionary<long, Guid> tokenMappings = new();
 
-    public FasterKvReservationStateObject(FasterKVSettings<Key, Value> settings,
+    public FasterKvReservationStateObject(FasterKV<Key, Value> kv,
         IVersionScheme versionScheme, DprWorkerOptions options) : base(versionScheme, options)
     {
-        kv = new FasterKV<Key, Value>(settings);
+        this.kv = kv;
     }
-
-    public override void Dispose()
-    {
-        kv.Dispose();
-    }
+    
+    public override void Dispose() {}
 
     public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
     {

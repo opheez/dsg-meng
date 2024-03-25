@@ -14,8 +14,6 @@ orchestrator-port: 15721
 orchestrators:
   - num: 3
   - num: 4
-    
+
 clients:
   -num: 0
-
-    

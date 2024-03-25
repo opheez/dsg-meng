@@ -8,6 +8,6 @@ spec:
   ports:
     - name: "15721"
       port: 15721
-      targetPort: 5000
+      targetPort: {{ .Values.orchestrator-port }}
   selector:
     service: orchestrator

@@ -36,13 +36,13 @@
       <None Update="helm\reservation-services.tpl">
         <DependentUpon>templates</DependentUpon>
       </None>
-      <None Update="helm\workflow-deployment.yaml">
+      <None Update="helm\workflow-deployment.tpl">
         <DependentUpon>templates</DependentUpon>
       </None>
-      <None Update="helm\workflow-service.yaml">
+      <None Update="helm\workflow-service.tpl">
         <DependentUpon>templates</DependentUpon>
       </None>
-      <None Update="helm\env-config.yaml">
+      <None Update="helm\env-config.tpl">
         <DependentUpon>templates</DependentUpon>
       </None>
       <None Update="helm\dprfinder-deployment.yaml">

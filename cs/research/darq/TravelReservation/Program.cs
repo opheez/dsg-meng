@@ -30,7 +30,7 @@ public class Options
         HelpText = "Workload trace file to use")]
     public string WorkloadTrace { get; set; }
     
-    [Option('n', "name", Required = true,
+    [Option('n', "name", Required = false,
         HelpText = "identifier of the service to launch")]
     public int WorkerName { get; set; }
 }
@@ -50,7 +50,7 @@ public class Program
             case "orchestrator":
                 await LaunchOrchestratorService(options);
                 break;
-            case "worker":
+            case "service":
                 await LaunchReservationService(options);
                 break;
             case "dprfinder":

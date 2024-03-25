@@ -1,26 +1,19 @@
+{{- range .Values.clients }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  labels:
-    service: dprfinder
-  name: dprfinder
+  name: client{{ .num }}
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      service: dprfinder
   strategy: {}
   template:
-    metadata:
-      labels:
-        service: dprfinder
     spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t dprfinder"
+            - "TravelReservation/TravelReservation -t client -w "workloads/{{ .Values.workload }}-client-{{ .num }}" -n {{ .num }}"
           image: tianyuli96/faster:latest
-          name: dprfinder
+          name: service{{ .num }}
           ports:
             - containerPort: 15721
           resources:
@@ -28,4 +21,10 @@ spec:
               cpu: 2000m
             limits:
               cpu: 4000m
+          envFrom:
+            - configMapRef:
+                name: env-config
       restartPolicy: Always
+status: {}
+---
+{{- end }}

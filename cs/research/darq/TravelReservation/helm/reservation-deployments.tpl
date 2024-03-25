@@ -19,11 +19,11 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - #TODO: fill
-          image: tianyuli96/hotelreservation:latest
+            - "TravelReservation/TravelReservation -t service -w "workloads/{{ .Values.workload }}-service-{{ .num }}.csv" -n {{ .num }}"
+          image: tianyuli96/faster:latest
           name: service{{ .num }}
           ports:
-            - containerPort: {{ .port }}
+            - containerPort: 15721
           resources:
             requests:
               cpu: 2000m

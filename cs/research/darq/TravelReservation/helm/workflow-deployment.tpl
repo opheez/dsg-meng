@@ -1,11 +1,12 @@
+{{- range .Values.orchestrators }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
     service: orchestrator
-  name: orchestrator
+  name: orchestrator{{ .num }}
 spec:
-  replicas: {{ .Values.numOrchestrators }}
+  replicas: 1
   selector:
     matchLabels:
       service: orchestrator
@@ -18,14 +19,16 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - # TODO: Fill in
+            - "TravelReservation/TravelReservation -t orchestrator -n {{ .num }}"
           image: tianyuli96/hotelreservation:latest
-          name: orchestrator
+          name: orchestrator{{ .num }}
           ports:
-            - containerPort: 5000
+            - containerPort: {{ .Values.orchestrator-port }}
           resources:
             requests:
               cpu: 2000m
             limits:
               cpu: 4000m
       restartPolicy: Always
+---
+{{- end }}

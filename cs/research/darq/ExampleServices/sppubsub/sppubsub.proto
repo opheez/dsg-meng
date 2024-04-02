@@ -1,40 +1,70 @@
 syntax = "proto3";
-option csharp_namespace = "protobuf";
+option csharp_namespace = "pubsub";
 
-message EventData {
-  string messageId = 1;
-  bytes body = 2;
+message RegisterProcessorRequest {
+  int32 topicId = 1;
+}
+
+message RegisterProcessorResult {
+  int64 incarnationId = 1;
 }
 
 message EventDataBatch {
-  bytes dprHeader = 1;
-  repeated EventData events = 2;
-  string topicId = 3;
+  int32 topicId = 2;
+  repeated bytes events = 3;
 }
 
 message Event {
   bytes dprHeader = 1;
-  string messageId = 2;
-  bytes body = 3;
-  int64 timestamp = 4;
-  int64 offset = 5;
-  int64 nextOffset = 6;
-  int64 sequenceNum = 7;
+  bytes data = 2;
+  int64 timestamp = 3;
+  int64 offset = 4;
+  int64 nextOffset = 5;
 }
 
-message EnqueueEventsResponse {
+message StepRequest {
+  bytes dprHeader = 1;
+  int64 incarnationId = 2;
+  int32 topicId = 3;
+  repeated int64 consumedMessageOffsets = 4;
+  repeated EventDataBatch outMessages = 5;
+  repeated bytes recoveryMessages = 6;
+}
+
+enum DarqStepStatus {
+  SUCCESS = 0;
+  INVALID = 1;
+  REINCARNATED = 2;
+}
+
+message StepResult {
+  bytes dprHeader = 1;
+  DarqStepStatus status = 2;
+}
+
+message EnqueueRequest {
+  bytes dprHeader = 1;
+  int64 producerId = 2;
+  int64 sequenceNum = 3;
+  EventDataBatch batch = 4;
+}
+
+message EnqueueResult {
   bytes dprHeader = 1;
   bool ok = 2;
 }
 
 message ReadEventsRequest {
   bool speculative = 1;
-  string topicId = 2;
-  int64 startLsn = 3;
+  int32 topicId = 2;
 }
 
 service SpPubSub {
-  rpc EnqueueEvents(EventDataBatch) returns (EnqueueEventsResponse);
+  rpc EnqueueEvents(EnqueueRequest) returns (EnqueueResult);
   
   rpc ReadEventsFromTopic(ReadEventsRequest) returns (stream Event);
+
+  rpc RegisterProcessor(RegisterProcessorRequest) returns (RegisterProcessorResult);
+
+  rpc Step(StepRequest) returns (StepResult);
 }

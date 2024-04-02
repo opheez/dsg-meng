@@ -117,7 +117,7 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
         lock (this)
         {
             currentIncarnationId = result;
-            currentIterator = backend.StartScan();
+            currentIterator = backend.StartScan(true);
         }
         return new RegisterProcessorResult
         {

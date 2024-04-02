@@ -173,6 +173,11 @@ namespace FASTER.darq
             incompleteMessages.TryAdd(addr, 0);
         }
         
+        private void EnqueueCallback<T>(T entry, long addr) where T : ILogEnqueueEntry
+        {
+            incompleteMessages.TryAdd(addr, 0);
+        }
+        
 
         /// <summary>
         /// Enqueue given entries into DARQ, optionally deduplicated using the supplied producer ID and sequence number. 
@@ -203,6 +208,16 @@ namespace FASTER.darq
                 return false;
 
             log.Enqueue(entries, EnqueueCallbackBatch);
+            return true;
+        }
+        
+        public bool Enqueue<T>(IEnumerable<T> entries, long producerId, long sequenceNum) where T : ILogEnqueueEntry
+        {
+            // Check that we are not executing duplicates and update dvc accordingly
+            if (producerId != -1 && !dvc.Process(producerId, sequenceNum))
+                return false;
+            foreach (var e in entries)
+                log.Enqueue(e, EnqueueCallback);
             return true;
         }
         
@@ -315,7 +330,7 @@ namespace FASTER.darq
         /// Scans the DARQ with an iterator 
         /// </summary>
         /// <returns></returns>
-        public DarqScanIterator StartScan() => new(log, largestSteppedLsn.value, true);
+        public DarqScanIterator StartScan(bool speculative) => new(log, largestSteppedLsn.value, speculative);
 
         public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
         {

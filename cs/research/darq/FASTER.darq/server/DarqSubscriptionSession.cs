@@ -99,7 +99,7 @@ namespace FASTER.server
         {
             pushThread = new Thread(async () =>
             {
-                using var it = dprServer.StartScan();
+                using var it = dprServer.StartScan(true);
                 while (!terminationStart.IsSet)
                 {
                     ResetSendBuffer();

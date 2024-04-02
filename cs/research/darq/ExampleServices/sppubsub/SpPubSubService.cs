@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text;
 using Consul;
-using ExampleServices.splog;
 using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
@@ -10,35 +8,55 @@ using FASTER.libdpr;
 using Google.Protobuf;
 using Grpc.Core;
 using Newtonsoft.Json.Linq;
-using protobuf;
+using pubsub;
+using DarqMessageType = FASTER.libdpr.DarqMessageType;
+using DarqStepStatus = pubsub.DarqStepStatus;
+using Event = pubsub.Event;
+using RegisterProcessorRequest = pubsub.RegisterProcessorRequest;
+using RegisterProcessorResult = pubsub.RegisterProcessorResult;
 using Status = Grpc.Core.Status;
+using StepRequest = pubsub.StepRequest;
 
 namespace ExampleServices;
 
-public struct SpPubSubTopic
+internal struct EventDataAdapter : ILogEnqueueEntry
 {
-    public SpeculativeLog worker;
-    public LongValueAttachment seqNumCounter;
+    internal ByteString data;
+    public int SerializedLength => sizeof(DarqMessageType) + sizeof(long) + data.Length;
+
+    public unsafe void SerializeTo(Span<byte> dest)
+    {
+        fixed (byte* h = dest)
+        {
+            var head = h;
+            *(DarqMessageType*)head = DarqMessageType.IN;
+            head += sizeof(DarqMessageType);
+            *(long*)head = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+            head += sizeof(long);
+            data.Span.CopyTo(new Span<byte>(head, data.Length));
+        }
+    }
 }
 
 public class SpPubSubService : SpPubSub.SpPubSubBase
 {
-    private ConcurrentDictionary<string, SpPubSubTopic> topics;
-    private ThreadLocalObjectPool<byte[]> serializationBufferPool;
+    private ConcurrentDictionary<int, Darq> topics;
     private string hostId;
     private ConsulClient consul;
-    private Func<string, DprWorkerId, SpeculativeLog> factory;
+    private Func<int, DprWorkerId, Darq> factory;
+    private ThreadLocalObjectPool<FASTER.libdpr.StepRequest> stepRequestPool;
 
-    public SpPubSubService(ConsulClient consul, Func<string, DprWorkerId, SpeculativeLog> factory, string hostId)
+
+    public SpPubSubService(ConsulClient consul, Func<int, DprWorkerId, Darq> factory, string hostId)
     {
         this.consul = consul;
         this.factory = factory;
-        serializationBufferPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 20]);
-        topics = new ConcurrentDictionary<string, SpPubSubTopic>();
+        topics = new ConcurrentDictionary<int, Darq>();
         this.hostId = hostId;
-    }
+        stepRequestPool = new ThreadLocalObjectPool<FASTER.libdpr.StepRequest>(() => new FASTER.libdpr.StepRequest());
 
-    private async Task<SpPubSubTopic> GetOrCreateTopic(string topicId)
+    }
+    private async Task<Darq> GetOrCreateTopic(int topicId)
     {
         if (topics.TryGetValue(topicId, out var topic)) return topic;
         // Otherwise, check if topic has been created in manager
@@ -55,153 +73,193 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         {
             if (topics.TryGetValue(topicId, out topic)) return topic;
             var dprWorkerId = new DprWorkerId((long)metadataEntry["dprWorkerId"]!);
-            var result = new SpPubSubTopic
-            {
-                worker = factory(topicId, dprWorkerId),
-                seqNumCounter = new LongValueAttachment()
-            };
+            var result = factory(topicId, dprWorkerId);
             topics[topicId] = result;
             return result;
         }
     }
 
-    public override async Task<EnqueueEventsResponse> EnqueueEvents(EventDataBatch request, ServerCallContext context)
+    public override async Task<EnqueueResult> EnqueueEvents(EnqueueRequest request, ServerCallContext context)
     {
-        var topic = await GetOrCreateTopic(request.TopicId);
+        var topic = await GetOrCreateTopic(request.Batch.TopicId);
         if (request.DprHeader != null)
         {
             // Speculative code path
-            if (!topic.worker.TryReceiveAndStartAction(request.DprHeader.Span))
+            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span))
                 // Use an error to signal to caller that this call cannot proceed
                 // TODO(Tianyu): add more descriptive exception information
                 throw new RpcException(Status.DefaultCancelled);
-            var result = EnqueueEvents(topic, request);
-            var buf = serializationBufferPool.Checkout();
-            topic.worker.ProduceTagAndEndAction(buf);
-            context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
-            serializationBufferPool.Return(buf);
+            var result = new EnqueueResult
+            {
+                Ok = topic.Enqueue(request.Batch.Events.Select(e => new EventDataAdapter { data = e }),
+                    request.ProducerId, request.SequenceNum)
+            };
+            unsafe
+            {
+                var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
+                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+                result.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+            }
+
             return result;
         }
         else
         {
-            topic.worker.StartLocalAction();
-            var result = EnqueueEvents(topic, request);
-            topic.worker.EndAction();
+            topic.StartLocalAction();
+            var result = new EnqueueResult
+            {
+                Ok = topic.Enqueue(request.Batch.Events.Select(e => new EventDataAdapter { data = e }),
+                    request.ProducerId, request.SequenceNum)
+            };
+            topic.EndAction();
             // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
-            await topic.worker.NextCommit();
+            await topic.NextCommit();
             return result;
         }
     }
 
-    private unsafe long SerializeEvent(long seqNum, EventData e, byte[] buffer)
+    private unsafe bool TryReadOneEntry(Darq topic, long worldLine, DarqScanIterator scanner, out Event ev)
     {
-        fixed (byte* h = buffer)
+        ev = default;
+        var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
+        try
         {
-            var head = h;
-            *(long*)head = seqNum;
-            head += sizeof(long);
-            *(long*)head = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-            head += sizeof(long);
-            *(int*)head = e.MessageId.Length;
-            head += sizeof(int);
-            Encoding.UTF8.GetBytes(e.MessageId, new Span<byte>(head, (int)(buffer.Length - (head - h))));
-            head += e.MessageId.Length;
-            e.Body.Span.CopyTo(new Span<byte>(head, (int)(buffer.Length - (head - h))));
-            head += e.Body.Span.Length;
-            return head - h;
+            topic.StartLocalAction();
+            if (topic.WorldLine() != worldLine)
+                throw new DprSessionRolledBackException(topic.WorldLine());
+
+            if (!scanner.UnsafeGetNext(out var b, out var length, out var offset, out var nextOffset, out var type))
+                return false;
+
+            if (type is not (DarqMessageType.IN or DarqMessageType.RECOVERY))
+            {
+                scanner.UnsafeRelease();
+                return false;
+            }
+
+            ev = new Event
+            {
+                Data = ByteString.CopyFrom(new Span<byte>(b + sizeof(long), length - sizeof(long))),
+                Timestamp = *(long*)b,
+                Offset = offset,
+                NextOffset = nextOffset
+            };
+            scanner.UnsafeRelease();
+            return true;
+        }
+        finally
+        {
+            topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+            if (ev != default)
+                ev.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
         }
     }
-
-    private EnqueueEventsResponse EnqueueEvents(SpPubSubTopic topic, EventDataBatch request)
-    {
-        var serializationBuffer = serializationBufferPool.Checkout();
-        topic.seqNumCounter.value++;
-
-        foreach (var e in request.Events)
-        {
-            var length = SerializeEvent(topic.seqNumCounter.value++, e, serializationBuffer);
-            topic.worker.log.Enqueue(new Span<byte>(serializationBuffer, 0, (int)length));
-        }
-
-        serializationBufferPool.Return(serializationBuffer);
-        return new EnqueueEventsResponse
-        {
-            Ok = true
-        };
-    }
-
-    public override async Task ReadEventsFromTopic(ReadEventsRequest request,
-        IServerStreamWriter<protobuf.Event> responseStream, ServerCallContext context)
+    
+    public override async Task ReadEventsFromTopic(ReadEventsRequest request, IServerStreamWriter<Event> responseStream,
+        ServerCallContext context)
     {
         var topic = await GetOrCreateTopic(request.TopicId);
-        if (request.Speculative)
+        var worldLine = topic.WorldLine();
+        var scanner = topic.StartScan(request.Speculative);
+        
+        while (!context.CancellationToken.IsCancellationRequested)
         {
-            var scanner = topic.worker.log.Scan(request.StartLsn, long.MaxValue, recover: false, scanUncommitted: true);
-            while (!context.CancellationToken.IsCancellationRequested)
+
+            if (TryReadOneEntry(topic, worldLine, scanner, out var ev))
+                // TODO(Tianyu): write
             {
-                topic.worker.StartLocalAction();
-                var result = await ReadEventFromTopic(topic, scanner, context.CancellationToken);
-                var buf = serializationBufferPool.Checkout();
-                var size = topic.worker.ProduceTagAndEndAction(buf);
-                result.DprHeader =  ByteString.CopyFrom(new Span<byte>(buf, 0, size));
-                serializationBufferPool.Return(buf);
-                // TODO(Tianyu): unnecessary await?
-                await responseStream.WriteAsync(result);
+                if (!request.Speculative)
+                {
+                    await topic.NextCommit();
+                }
+                // TODO(Tianyu): Should not await?
+                await responseStream.WriteAsync(ev);
             }
-        }
-        else
-        {
-            var scanner = topic.worker.log.Scan(request.StartLsn, long.MaxValue, recover: false, scanUncommitted: false);
-            while (!context.CancellationToken.IsCancellationRequested)
+            else
             {
-                topic.worker.StartLocalAction();
-                var result = await ReadEventFromTopic(topic, scanner, context.CancellationToken);
-                // TODO(Tianyu): Still need to wait for DPR commit before exposing
-                topic.worker.EndAction();
-                // TODO(Tianyu): unnecessary await?
-                await responseStream.WriteAsync(result);
+                await scanner.WaitAsync(context.CancellationToken);
             }
         }
     }
     
-    private unsafe bool TryReadOneEntry(FasterLogScanIterator iterator, protobuf.Event response)
+    public override async Task<RegisterProcessorResult> RegisterProcessor(RegisterProcessorRequest request,
+        ServerCallContext context)
     {
-        // TODO(Tianyu): Cache in memory to save serialization for hot entries?
-        if (!iterator.UnsafeGetNext(out var entry, out var entryLength, out var offset, out var nextAddress))
-            return false;
-        response.Offset = offset;
-        response.NextOffset = nextAddress;
-
-        var head = entry;
-
-        response.SequenceNum = *(long*)head;
-        head += sizeof(long);
-
-        response.Timestamp = *(long*)head;
-        head += sizeof(long);
-
-
-        var messageIdLength = *(int*)head;
-        head += sizeof(int);
-        response.MessageId = Encoding.UTF8.GetString(new Span<byte>(head, messageIdLength));
-        head += messageIdLength;
-
-        response.Body = ByteString.CopyFrom(new ReadOnlySpan<byte>(head, (int)(entryLength - (head - entry))));
-        iterator.UnsafeRelease();
-        return true;
+        var topic = await GetOrCreateTopic(request.TopicId);
+        var result = await topic.RegisterNewProcessorAsync();
+        return new RegisterProcessorResult
+        {
+            IncarnationId = result
+        };
     }
 
-    private async Task<protobuf.Event> ReadEventFromTopic(SpPubSubTopic topic, FasterLogScanIterator scanner, CancellationToken token)
+    public override async Task<StepResult> Step(StepRequest request, ServerCallContext context)
     {
-        var responseObject = new protobuf.Event();
-        if (TryReadOneEntry(scanner, responseObject)) return responseObject;
-        var nextEntry = scanner.WaitAsync(token).AsTask();
-        var session = topic.worker.DetachFromWorker();
-        await nextEntry;
-        if (!topic.worker.TryMergeAndStartAction(session))
-            throw new RpcException(Status.DefaultCancelled);
-        var read = TryReadOneEntry(scanner, responseObject);
-        Debug.Assert(read);
-        return responseObject;
+        var topic = await GetOrCreateTopic(request.TopicId);
+        var requestObject = stepRequestPool.Checkout();
+        var requestBuilder = new StepRequestBuilder(requestObject);
+        foreach (var consumed in request.ConsumedMessageOffsets)
+            requestBuilder.MarkMessageConsumed(consumed);
+        foreach (var self in request.RecoveryMessages)
+            requestBuilder.AddRecoveryMessage(self.Span);
+        foreach (var outBatch in request.OutMessages)
+        {
+            foreach (var message in outBatch.Events)
+            {
+                if (outBatch.TopicId == request.TopicId)
+                    requestBuilder.AddSelfMessage(message.Span);
+                else
+                    requestBuilder.AddOutMessage(new DarqId(outBatch.TopicId), message.Span);
+            }
+        }
+        if (request.DprHeader != null)
+        {
+            // Speculative code path
+            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span))
+                // Use an error to signal to caller that this call cannot proceed
+                // TODO(Tianyu): add more descriptive exception information
+                throw new RpcException(Status.DefaultCancelled);
+            var status = topic.Step(request.IncarnationId, requestBuilder.FinishStep());
+            var result = new StepResult
+            {
+                Status = status switch
+                {
+                    // Should never happen
+                    StepStatus.INCOMPLETE => throw new NotImplementedException(),
+                    StepStatus.SUCCESS => DarqStepStatus.Success,
+                    StepStatus.INVALID => DarqStepStatus.Invalid,
+                    StepStatus.REINCARNATED => DarqStepStatus.Reincarnated,
+                    _ => throw new ArgumentOutOfRangeException()
+                }
+            };
+            unsafe
+            {
+                var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
+                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+                result.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+            }
+
+            return result;
+        }
+        else
+        {
+            topic.StartLocalAction();
+            var status = topic.Step(request.IncarnationId, requestBuilder.FinishStep());
+            var result = new StepResult
+            {
+                Status = status switch
+                {
+                    // Should never happen
+                    StepStatus.INCOMPLETE => throw new NotImplementedException(),
+                    StepStatus.SUCCESS => DarqStepStatus.Success,
+                    StepStatus.INVALID => DarqStepStatus.Invalid,
+                    StepStatus.REINCARNATED => DarqStepStatus.Reincarnated,
+                    _ => throw new ArgumentOutOfRangeException()
+                }
+            };
+            topic.EndAction();
+            await topic.NextCommit();
+            return result;
+        }
     }
 }

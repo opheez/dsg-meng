@@ -10,7 +10,6 @@ service DarqGrpcService {
 }
 
 message RegisterProcessorRequest {
-  
 }
 
 message RegisterProcessorResult {

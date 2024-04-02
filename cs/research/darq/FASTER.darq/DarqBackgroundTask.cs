@@ -46,7 +46,7 @@ namespace FASTER.client
             worldLine = darq.WorldLine();
             currentProducerClient = producerFactory?.Invoke(new DprSession());
             completionTracker = new DarqCompletionTracker();
-            iterator = darq.StartScan();
+            iterator = darq.StartScan(true);
         }
 
         public long ProcessingLag => darq.log.TailAddress - processedUpTo;

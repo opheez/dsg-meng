@@ -24,7 +24,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     private readonly DarqBackgroundTask _backgroundTask;
     private readonly ManualResetEventSlim terminationStart, terminationComplete;
     private Thread refreshThread, processingThread;
-    private ColocatedDarqProcessorClient<RwLatchVersionScheme> processorClient;
+    private ColocatedDarqProcessorClient processorClient;
     private Dictionary<int, Func<StateObject, IWorkflowStateMachine>> workflowFactories;
 
     private ConcurrentDictionary<long, IWorkflowStateMachine> startedWorkflows;
@@ -53,7 +53,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         });
         refreshThread.Start();
 
-        processorClient = new ColocatedDarqProcessorClient<RwLatchVersionScheme>(backend);
+        processorClient = new ColocatedDarqProcessorClient(backend);
         processingThread = new Thread(() => { processorClient.StartProcessing(this); });
         processingThread.Start();
         // TODO(Tianyu): Hacky

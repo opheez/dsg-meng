@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using FASTER.common;
-using FASTER.core;
 using FASTER.libdpr;
 
 namespace FASTER.darq
@@ -9,8 +8,7 @@ namespace FASTER.darq
     /// <summary>
     /// A DarqConsumer that runs in the same process as a DARQ instance
     /// </summary>
-    public class ColocatedDarqProcessorClient<TVersionScheme> : IDarqProcessorClient
-        where TVersionScheme : IVersionScheme
+    public class ColocatedDarqProcessorClient : IDarqProcessorClient
     {
         private Darq darq;
         private SimpleObjectPool<DarqMessage> messagePool;
@@ -36,10 +34,10 @@ namespace FASTER.darq
 
         private class Capabilities : IDarqProcessorClientCapabilities
         {
-            private readonly ColocatedDarqProcessorClient<TVersionScheme> parent;
+            private readonly ColocatedDarqProcessorClient parent;
             internal readonly long worldLine;
 
-            public Capabilities(ColocatedDarqProcessorClient<TVersionScheme> parent, long worldLine)
+            public Capabilities(ColocatedDarqProcessorClient parent, long worldLine)
             {
                 this.parent = parent;
                 this.worldLine = worldLine;
@@ -144,7 +142,7 @@ namespace FASTER.darq
         {
             capabilities = new Capabilities(this, darq.WorldLine());
             processor.OnRestart(capabilities);
-            iterator = darq.StartScan();
+            iterator = darq.StartScan(true);
         }
 
         /// <inheritdoc/>

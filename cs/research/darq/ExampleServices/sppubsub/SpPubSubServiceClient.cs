@@ -10,23 +10,25 @@ using Grpc.Net.Client;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using protobuf;
+using pubsub;
+using StepRequest = pubsub.StepRequest;
 
 namespace ExampleServices;
 
 public class SpPubSubServiceClient
 {
     private ConsulClient consul;
-    private Dictionary<string, GrpcChannel> openConnections;
+    private Dictionary<int, GrpcChannel> openConnections;
     private ThreadLocalObjectPool<byte[]> serializationBufferPool;
 
     public SpPubSubServiceClient(ConsulClient consul)
     {
         this.consul = consul;
-        openConnections = new Dictionary<string, GrpcChannel>();
+        openConnections = new Dictionary<int, GrpcChannel>();
         serializationBufferPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 20]);
     }
 
-    private async Task<GrpcChannel> GetOrCreateConnection(string topicId)
+    private async Task<GrpcChannel> GetOrCreateConnection(int topicId)
     {
         if (openConnections.TryGetValue(topicId, out var result)) return result;
         var queryResult = await consul.KV.Get("topic-" + topicId);
@@ -34,10 +36,10 @@ public class SpPubSubServiceClient
             throw new NotImplementedException("Topic does not exist");
 
         var metadataEntry = JObject.Parse(Encoding.UTF8.GetString(queryResult.Response.Value));
-        return openConnections[topicId] = GrpcChannel.ForAddress((string)metadataEntry["hostAddress"]);
+        return openConnections[topicId] = GrpcChannel.ForAddress((string) metadataEntry["hostAddress"]);
     }
 
-    public async Task<bool> CreateTopic(string topicId, string hostId, string hostAddress, DprWorkerId id)
+    public async Task<bool> CreateTopic(int topicId, string hostId, string hostAddress, DprWorkerId id)
     {
         var jsonEntry = JsonConvert.SerializeObject(new
             { hostId = hostId, hostAddress = hostAddress, dprWorkerId = id.guid });
@@ -47,18 +49,35 @@ public class SpPubSubServiceClient
         })).Response;
     }
 
-    public async Task<EnqueueEventsResponse> EnqueueEventsAsync(EventDataBatch batch, DprSession session = null)
+    public async Task<EnqueueResult> EnqueueEventsAsync(EnqueueRequest request, DprSession session = null)
     {
-        var channel = await GetOrCreateConnection(batch.TopicId);
+        var channel = await GetOrCreateConnection(request.Batch.TopicId);
         if (session != null)
         {
             var buf = serializationBufferPool.Checkout();
             var size = session.TagMessage(buf);
-            batch.DprHeader = ByteString.CopyFrom(new Span<byte>(buf, 0, size));
+            request.DprHeader = ByteString.CopyFrom(new Span<byte>(buf, 0, size));
         }
 
         var client = new SpPubSub.SpPubSubClient(channel);
-        var result = await client.EnqueueEventsAsync(batch);
+        var result = await client.EnqueueEventsAsync(request);
+        if (session == null || session.Receive(result.DprHeader.Span))
+            return result;
+        throw new TaskCanceledException();
+    }
+    
+    public async Task<StepResult> StepAsync(StepRequest request, DprSession session = null)
+    {
+        var channel = await GetOrCreateConnection(request.TopicId);
+        if (session != null)
+        {
+            var buf = serializationBufferPool.Checkout();
+            var size = session.TagMessage(buf);
+            request.DprHeader = ByteString.CopyFrom(new Span<byte>(buf, 0, size));
+        }
+
+        var client = new SpPubSub.SpPubSubClient(channel);
+        var result = await client.StepAsync(request);
         if (session == null || session.Receive(result.DprHeader.Span))
             return result;
         throw new TaskCanceledException();
@@ -110,7 +129,7 @@ public class SpPubSubServiceClient
             var hasNext = await inner.MoveNext(cancellationToken);
             if (!hasNext) return false;
             
-            var batch = inner.Current as EventDataBatch;
+            var batch = inner.Current as pubsub.Event;
             Debug.Assert(batch != null);
             if (!session.Receive(batch.DprHeader.Span))
                 throw new TaskCanceledException();
@@ -118,7 +137,7 @@ public class SpPubSubServiceClient
         }
     }
 
-    public AsyncServerStreamingCall<protobuf.Event> ReadEventsFromTopic(ReadEventsRequest request,
+    public AsyncServerStreamingCall<pubsub.Event> ReadEventsFromTopic(ReadEventsRequest request,
         DprSession session = null, DateTime? deadline = null, CancellationToken cancellationToken = default)
     {
         var channel = GetOrCreateConnection(request.TopicId).GetAwaiter().GetResult();

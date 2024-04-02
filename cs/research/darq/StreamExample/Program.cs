@@ -31,40 +31,40 @@ namespace SimpleStream
         private static void RunDarqWithProcessor(DarqId me, HardCodedClusterInfo clusterInfo,
             IDarqProcessor processor, bool remoteProcessor = false)
         {
-            var logDevice = new LocalStorageDevice($"D:\\w{me.guid}\\data.log", deleteOnClose: true);
-            var darqServer = new DarqServer<EpochProtectedVersionScheme>(new DarqServerOptions
-            {
-                Port = 15721 + (int)me.guid,
-                Address = "127.0.0.1",
-                ClusterInfo = clusterInfo,
-                DarqSettings = new DarqSettings
-                {
-                    DprFinder = default,
-                    Me = me,
-                    LogDevice = logDevice,
-                    PageSize = 1L << 22,
-                    MemorySize = 1L << 23,
-                    SegmentSize = 1L << 30,
-                    LogCommitManager = default,
-                    LogCommitDir = default,
-                    LogChecksum = LogChecksumType.None,
-                    MutableFraction = default,
-                    FastCommitMode = true,
-                    DeleteOnClose = true,
-                    CheckpointPeriodMilli = 5,
-                    RefreshPeriodMilli = 5
-                },
-            }, new EpochProtectedVersionScheme(new LightEpoch()));
-            darqServer.Start();
-            IDarqProcessorClient processorClient;
-            if (remoteProcessor)
-                processorClient = new DarqProcessorClient("127.0.0.1", 15721 + (int)me.guid);
-            else
-                processorClient = new ColocatedDarqProcessorClient<EpochProtectedVersionScheme>(darqServer.GetDarq());
-            
-            processorClient.StartProcessingAsync(processor).GetAwaiter().GetResult();
-            
-            darqServer.Dispose();
+            // var logDevice = new LocalStorageDevice($"D:\\w{me.guid}\\data.log", deleteOnClose: true);
+            // var darqServer = new DarqServer<EpochProtectedVersionScheme>(new DarqServerOptions
+            // {
+            //     Port = 15721 + (int)me.guid,
+            //     Address = "127.0.0.1",
+            //     ClusterInfo = clusterInfo,
+            //     DarqSettings = new DarqSettings
+            //     {
+            //         DprFinder = default,
+            //         Me = me,
+            //         LogDevice = logDevice,
+            //         PageSize = 1L << 22,
+            //         MemorySize = 1L << 23,
+            //         SegmentSize = 1L << 30,
+            //         LogCommitManager = default,
+            //         LogCommitDir = default,
+            //         LogChecksum = LogChecksumType.None,
+            //         MutableFraction = default,
+            //         FastCommitMode = true,
+            //         DeleteOnClose = true,
+            //         CheckpointPeriodMilli = 5,
+            //         RefreshPeriodMilli = 5
+            //     },
+            // }, new EpochProtectedVersionScheme(new LightEpoch()));
+            // darqServer.Start();
+            // IDarqProcessorClient processorClient;
+            // if (remoteProcessor)
+            //     processorClient = new DarqProcessorClient("127.0.0.1", 15721 + (int)me.guid);
+            // else
+            //     processorClient = new ColocatedDarqProcessorClient<EpochProtectedVersionScheme>(darqServer.GetDarq());
+            //
+            // processorClient.StartProcessingAsync(processor).GetAwaiter().GetResult();
+            //
+            // darqServer.Dispose();
         }
 
         public static void Main(string[] args)

@@ -3,18 +3,33 @@ using pubsub;
 
 namespace ExampleServices;
 
-
 public interface SpPubSubEventHandler
-{ 
+{
     Task HandleAsync(Event ev, CancellationToken token);
 
-    void OnRestart(IDarqProcessorClientCapabilities capabilities);
+    void OnRestart(PubsubCapabilities capabilities);
+}
+
+public class PubsubCapabilities
+{
+    internal SpPubSubServiceClient client;
+    internal DprSession session;
+    internal long incarnationId;
+    internal int topicId;
+
+    public Task<DarqStepStatus> Step(pubsub.StepRequest request)
+    {
+        request.IncarnationId = incarnationId;
+        request.TopicId = topicId;
+        return client.StepAsync(request, session);
+    }
 }
 
 public class SpPubSubProcessorClient
 {
     private int topicId;
     private SpPubSubServiceClient client;
+    private long incarnationId;
     private ManualResetEventSlim terminationStart, terminationComplete;
 
     public SpPubSubProcessorClient(int topicId, SpPubSubServiceClient client)
@@ -22,34 +37,44 @@ public class SpPubSubProcessorClient
         this.topicId = topicId;
         this.client = client;
     }
-    
-    public async Task StartProcessingAsync(SpPubSubEventHandler handler, bool speculative = true, CancellationToken token = default)
+
+    public async Task StartProcessingAsync(SpPubSubEventHandler handler, bool speculative = true,
+        CancellationToken token = default)
     {
         terminationStart = new ManualResetEventSlim();
-            while (!terminationStart.IsSet && !token.IsCancellationRequested)
+        incarnationId = await client.RegisterProcessor(topicId);
+        while (!terminationStart.IsSet && !token.IsCancellationRequested)
+        {
+            var session = speculative ? new DprSession() : null;
+            handler.OnRestart(new PubsubCapabilities
             {
-                var session = speculative ? new DprSession() : null;
-                var stream = client.ReadEventsFromTopic(new ReadEventsRequest
-                {
-                    Speculative = speculative,
-                    TopicId = topicId
-                }, session, cancellationToken: token);
-                try
-                {
-                    while (!terminationStart.IsSet && await stream.ResponseStream.MoveNext(token))
-                        await handler.HandleAsync(stream.ResponseStream.Current, token);
-                }
-                catch (DprSessionRolledBackException e)
-                {
-                    // Just continue and restart the stream from where it's supposed to
-                    continue;
-                }
-                catch (TaskCanceledException e)
-                {
-                    break;
-                }
+                client = client,
+                session = session,
+                incarnationId = incarnationId,
+                topicId = topicId
+            });
+            var stream = client.ReadEventsFromTopic(new ReadEventsRequest
+            {
+                Speculative = speculative,
+                TopicId = topicId
+            }, session, cancellationToken: token);
+            try
+            {
+                while (!terminationStart.IsSet && await stream.ResponseStream.MoveNext(token))
+                    await handler.HandleAsync(stream.ResponseStream.Current, token);
             }
-            terminationComplete?.Set();
+            catch (DprSessionRolledBackException e)
+            {
+                // Just continue and restart the stream from where it's supposed to
+                continue;
+            }
+            catch (TaskCanceledException e)
+            {
+                break;
+            }
+        }
+
+        terminationComplete?.Set();
     }
 
     public async Task StopProcessingAsync()
@@ -59,5 +84,4 @@ public class SpPubSubProcessorClient
         while (!terminationComplete.IsSet)
             await Task.Delay(5);
     }
-    
 }

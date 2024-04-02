@@ -9,7 +9,6 @@ using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using protobuf;
 using pubsub;
 using StepRequest = pubsub.StepRequest;
 
@@ -65,8 +64,19 @@ public class SpPubSubServiceClient
             return result;
         throw new TaskCanceledException();
     }
+
+    public async Task<long> RegisterProcessor(int topicId)
+    {
+        var channel = await GetOrCreateConnection(topicId);
+        var client = new SpPubSub.SpPubSubClient(channel);
+        var result = await client.RegisterProcessorAsync(new RegisterProcessorRequest
+        {
+            TopicId = topicId
+        });
+        return result.IncarnationId;
+    }
     
-    public async Task<StepResult> StepAsync(StepRequest request, DprSession session = null)
+    public async Task<DarqStepStatus> StepAsync(StepRequest request, DprSession session = null)
     {
         var channel = await GetOrCreateConnection(request.TopicId);
         if (session != null)
@@ -79,7 +89,7 @@ public class SpPubSubServiceClient
         var client = new SpPubSub.SpPubSubClient(channel);
         var result = await client.StepAsync(request);
         if (session == null || session.Receive(result.DprHeader.Span))
-            return result;
+            return result.Status;
         throw new TaskCanceledException();
     }
 

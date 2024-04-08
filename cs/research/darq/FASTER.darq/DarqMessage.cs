@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Unicode;
 using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
@@ -253,6 +255,30 @@ namespace FASTER.libdpr
 
             return this;
         }
+        
+        public unsafe StepRequestBuilder AddOutMessage(DarqId recipient, string message)
+        {
+            while (request.serializationBuffer.Length - request.size <
+                   message.Length + sizeof(DarqMessageType) + sizeof(DarqId) + sizeof(int))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+
+                *(DarqMessageType*) head++ = DarqMessageType.OUT;
+                *(DarqId*) head = recipient;
+                head += sizeof(DarqId);
+
+                *(int*)head = message.Length;
+                head += sizeof(int);
+                Encoding.UTF8.GetBytes(message, new Span<byte>(head, message.Length));
+                request.size = (int) (head - b);
+            }
+
+            return this;
+        }
 
         /// <summary>
         /// Add an out message to this step.
@@ -319,6 +345,30 @@ namespace FASTER.libdpr
 
             return this;
         }
+        
+        public unsafe StepRequestBuilder AddSelfMessage(string message)
+        {
+            while (request.serializationBuffer.Length - request.size <
+                   message.Length + sizeof(DarqMessageType) + sizeof(int))
+                request.Grow();
+
+            request.offsets.Add(request.size);
+            fixed (byte* b = request.serializationBuffer)
+            {
+                var head = b + request.size;
+
+                *(DarqMessageType*) head++ = DarqMessageType.IN;
+                head += sizeof(DarqId);
+
+                *(int*)head = message.Length;
+                head += sizeof(int);
+                Encoding.UTF8.GetBytes(message, new Span<byte>(head, message.Length));
+                request.size = (int) (head - b);
+            }
+
+            return this;
+        }
+
         
         /// <summary>
         /// Add a self message to this step.

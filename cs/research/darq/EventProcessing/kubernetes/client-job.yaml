@@ -1,8 +1,7 @@
-{{- range .Values.clients }}
 apiVersion: apps/v1
-kind: Deployment
+kind: Job
 metadata:
-  name: client{{ .num }}
+  name: client
 spec:
   replicas: 1
   strategy: {}
@@ -11,9 +10,9 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t client -w "workloads/{{ .Values.workload }}-client-{{ .num }}" -n {{ .num }}"
+            - TravelReservation/TravelReservation -t client -w "workloads/"
           image: tianyuli96/faster:latest
-          name: service{{ .num }}
+          name: client
           ports:
             - containerPort: 15721
           resources:
@@ -24,7 +23,4 @@ spec:
           envFrom:
             - configMapRef:
                 name: env-config
-      restartPolicy: Always
-status: {}
----
-{{- end }}
+      restartPolicy: Never

@@ -51,6 +51,9 @@
       <None Update="helm\dprfinder-service.yaml">
         <DependentUpon>templates</DependentUpon>
       </None>
+      <None Update="helm\client-jobs.tpl">
+        <DependentUpon>templates</DependentUpon>
+      </None>
     </ItemGroup>
 
 </Project>

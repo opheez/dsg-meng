@@ -5,7 +5,7 @@ namespace ExampleServices;
 
 public interface SpPubSubEventHandler
 {
-    Task HandleAsync(Event ev, CancellationToken token);
+    ValueTask HandleAsync(Event ev, CancellationToken token);
 
     void OnRestart(PubsubCapabilities capabilities);
 }

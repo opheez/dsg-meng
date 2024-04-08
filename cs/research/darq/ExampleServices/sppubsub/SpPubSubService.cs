@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Text;
 using Consul;
+using darq;
+using darq.client;
+using FASTER.client;
 using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
@@ -21,8 +24,8 @@ namespace ExampleServices;
 
 internal struct EventDataAdapter : ILogEnqueueEntry
 {
-    internal ByteString data;
-    public int SerializedLength => sizeof(DarqMessageType) + sizeof(long) + data.Length;
+    internal string data;
+    public int SerializedLength => sizeof(DarqMessageType) + sizeof(long) + sizeof(int) + data.Length;
 
     public unsafe void SerializeTo(Span<byte> dest)
     {
@@ -33,32 +36,79 @@ internal struct EventDataAdapter : ILogEnqueueEntry
             head += sizeof(DarqMessageType);
             *(long*)head = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             head += sizeof(long);
-            data.Span.CopyTo(new Span<byte>(head, data.Length));
+            *(int*)head = data.Length;
+            head += sizeof(int);
+            Encoding.UTF8.GetBytes(data, new Span<byte>(head, data.Length));
         }
     }
 }
 
+public class PubsubDarqProducer : IDarqProducer
+{
+    private SpPubSubServiceClient client;
+    private DprSession session;
+
+    public PubsubDarqProducer(DprSession session, ConsulClient consul)
+    {
+        client = new SpPubSubServiceClient(consul);
+        this.session = session;
+    }
+    
+    public void Dispose()
+    {
+    }
+
+    public void EnqueueMessageWithCallback(DarqId darqId, ReadOnlySpan<byte> message, Action<bool> callback, long producerId, long lsn)
+    {
+        var enqueueRequest = new EnqueueRequest
+        {
+            ProducerId = producerId,
+            SequenceNum = lsn,
+            TopicId = (int) darqId.guid
+        };
+        enqueueRequest.Events.Add(Encoding.UTF8.GetString(message));
+        Task.Run(async () =>
+        {
+            await client.EnqueueEventsAsync(enqueueRequest, session);
+            callback(true);
+        });
+    }
+
+    public void ForceFlush()
+    {
+        throw new NotImplementedException();
+    }
+}
+
+public class SpPubSubServiceSettings
+{
+    public ConsulClientConfiguration consulConfig;
+    public Func<int, DprWorkerId, Darq> factory;
+    public string hostId;
+    public DarqBackgroundWorkerPool workerPool;
+}
+
 public class SpPubSubService : SpPubSub.SpPubSubBase
 {
-    private ConcurrentDictionary<int, Darq> topics;
+    private ConcurrentDictionary<int, (Darq, DarqBackgroundTask)> topics;
     private string hostId;
+    private SpPubSubServiceSettings settings;
     private ConsulClient consul;
     private Func<int, DprWorkerId, Darq> factory;
     private ThreadLocalObjectPool<FASTER.libdpr.StepRequest> stepRequestPool;
+    private DarqBackgroundWorkerPool workerPool;
 
-
-    public SpPubSubService(ConsulClient consul, Func<int, DprWorkerId, Darq> factory, string hostId)
+    public SpPubSubService(SpPubSubServiceSettings settings)
     {
-        this.consul = consul;
-        this.factory = factory;
-        topics = new ConcurrentDictionary<int, Darq>();
-        this.hostId = hostId;
+        this.settings = settings;
+        topics = new ConcurrentDictionary<int, (Darq, DarqBackgroundTask)>();
         stepRequestPool = new ThreadLocalObjectPool<FASTER.libdpr.StepRequest>(() => new FASTER.libdpr.StepRequest());
-
+        consul = new ConsulClient(settings.consulConfig);
     }
+
     private async Task<Darq> GetOrCreateTopic(int topicId)
     {
-        if (topics.TryGetValue(topicId, out var topic)) return topic;
+        if (topics.TryGetValue(topicId, out var entry)) return entry.Item1;
         // Otherwise, check if topic has been created in manager
         var queryResult = await consul.KV.Get("topic-" + topicId);
         if (queryResult.Response == null)
@@ -71,17 +121,20 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
 
         lock (this)
         {
-            if (topics.TryGetValue(topicId, out topic)) return topic;
+            if (topics.TryGetValue(topicId, out entry)) return entry.Item1;
             var dprWorkerId = new DprWorkerId((long)metadataEntry["dprWorkerId"]!);
             var result = factory(topicId, dprWorkerId);
-            topics[topicId] = result;
+            var backgroundTask =
+                new DarqBackgroundTask(result, workerPool, session => new PubsubDarqProducer(session, new ConsulClient(settings.consulConfig)));
+            backgroundTask.BeginProcessing();
+            topics[topicId] = (result, backgroundTask);
             return result;
         }
     }
 
     public override async Task<EnqueueResult> EnqueueEvents(EnqueueRequest request, ServerCallContext context)
     {
-        var topic = await GetOrCreateTopic(request.Batch.TopicId);
+        var topic = await GetOrCreateTopic(request.TopicId);
         if (request.DprHeader != null)
         {
             // Speculative code path
@@ -91,7 +144,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                 throw new RpcException(Status.DefaultCancelled);
             var result = new EnqueueResult
             {
-                Ok = topic.Enqueue(request.Batch.Events.Select(e => new EventDataAdapter { data = e }),
+                Ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
                     request.ProducerId, request.SequenceNum)
             };
             unsafe
@@ -108,7 +161,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             topic.StartLocalAction();
             var result = new EnqueueResult
             {
-                Ok = topic.Enqueue(request.Batch.Events.Select(e => new EventDataAdapter { data = e }),
+                Ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
                     request.ProducerId, request.SequenceNum)
             };
             topic.EndAction();
@@ -139,7 +192,13 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
 
             ev = new Event
             {
-                Data = ByteString.CopyFrom(new Span<byte>(b + sizeof(long), length - sizeof(long))),
+                Type = type switch
+                {
+                    DarqMessageType.IN => pubsub.DarqMessageType.In,
+                    DarqMessageType.RECOVERY => pubsub.DarqMessageType.Recovery,
+                    _ => throw new ArgumentOutOfRangeException()
+                },
+                Data = Encoding.UTF8.GetString(b + sizeof(long) + sizeof(int), *(int*)(b + sizeof(long))),
                 Timestamp = *(long*)b,
                 Offset = offset,
                 NextOffset = nextOffset
@@ -154,17 +213,16 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                 ev.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
         }
     }
-    
+
     public override async Task ReadEventsFromTopic(ReadEventsRequest request, IServerStreamWriter<Event> responseStream,
         ServerCallContext context)
     {
         var topic = await GetOrCreateTopic(request.TopicId);
         var worldLine = topic.WorldLine();
         var scanner = topic.StartScan(request.Speculative);
-        
+
         while (!context.CancellationToken.IsCancellationRequested)
         {
-
             if (TryReadOneEntry(topic, worldLine, scanner, out var ev))
                 // TODO(Tianyu): write
             {
@@ -172,6 +230,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                 {
                     await topic.NextCommit();
                 }
+
                 // TODO(Tianyu): Should not await?
                 await responseStream.WriteAsync(ev);
             }
@@ -181,7 +240,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             }
         }
     }
-    
+
     public override async Task<RegisterProcessorResult> RegisterProcessor(RegisterProcessorRequest request,
         ServerCallContext context)
     {
@@ -204,14 +263,12 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             requestBuilder.AddRecoveryMessage(self.Span);
         foreach (var outBatch in request.OutMessages)
         {
-            foreach (var message in outBatch.Events)
-            {
-                if (outBatch.TopicId == request.TopicId)
-                    requestBuilder.AddSelfMessage(message.Span);
-                else
-                    requestBuilder.AddOutMessage(new DarqId(outBatch.TopicId), message.Span);
-            }
+            if (outBatch.TopicId == request.TopicId)
+                requestBuilder.AddSelfMessage(outBatch.Event);
+            else
+                requestBuilder.AddOutMessage(new DarqId(outBatch.TopicId), outBatch.Event);
         }
+
         if (request.DprHeader != null)
         {
             // Speculative code path

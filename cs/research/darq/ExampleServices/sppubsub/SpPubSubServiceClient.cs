@@ -50,7 +50,7 @@ public class SpPubSubServiceClient
 
     public async Task<EnqueueResult> EnqueueEventsAsync(EnqueueRequest request, DprSession session = null)
     {
-        var channel = await GetOrCreateConnection(request.Batch.TopicId);
+        var channel = await GetOrCreateConnection(request.TopicId);
         if (session != null)
         {
             var buf = serializationBufferPool.Checkout();

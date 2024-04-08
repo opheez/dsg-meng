@@ -1,34 +1,31 @@
-{{- range .Values.orchestrators }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    service: orchestrator
-  name: orchestrator{{ .num }}
+    service: pubsub2
+  name: pubsub2
 spec:
   replicas: 1
   selector:
     matchLabels:
-      service: orchestrator
+      service: pubsub2
   strategy: {}
   template:
     metadata:
       labels:
-        service: orchestrator
+        service: pubsub2
     spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t orchestrator -n {{ .num }}"
+            - EventProcessing/EventProcessing -t worker -n 1
           image: tianyuli96/faster:latest
-          name: orchestrator{{ .num }}
+          name: pubsub2
           ports:
-            - containerPort: {{ .Values.orchestrator-port }}
+            - containerPort: 15721
           resources:
             requests:
               cpu: 2000m
             limits:
               cpu: 4000m
       restartPolicy: Always
----
-{{- end }}

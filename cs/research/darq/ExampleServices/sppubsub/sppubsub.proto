@@ -9,17 +9,23 @@ message RegisterProcessorResult {
   int64 incarnationId = 1;
 }
 
-message EventDataBatch {
-  int32 topicId = 2;
-  repeated bytes events = 3;
+enum DarqMessageType {
+  IN = 0;
+  RECOVERY = 1;
+}
+
+message OutMessage {
+  int32 topicId = 1;
+  string event = 2;
 }
 
 message Event {
   bytes dprHeader = 1;
-  bytes data = 2;
-  int64 timestamp = 3;
-  int64 offset = 4;
-  int64 nextOffset = 5;
+  DarqMessageType type = 2;
+  string data = 3;
+  int64 timestamp = 4;
+  int64 offset = 5;
+  int64 nextOffset = 6;
 }
 
 message StepRequest {
@@ -27,7 +33,7 @@ message StepRequest {
   int64 incarnationId = 2;
   int32 topicId = 3;
   repeated int64 consumedMessageOffsets = 4;
-  repeated EventDataBatch outMessages = 5;
+  repeated OutMessage outMessages = 5;
   repeated bytes recoveryMessages = 6;
 }
 
@@ -46,7 +52,8 @@ message EnqueueRequest {
   bytes dprHeader = 1;
   int64 producerId = 2;
   int64 sequenceNum = 3;
-  EventDataBatch batch = 4;
+  int32 topicId = 4;
+  repeated string events = 5;
 }
 
 message EnqueueResult {

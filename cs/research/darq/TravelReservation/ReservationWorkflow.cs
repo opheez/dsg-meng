@@ -158,7 +158,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         {
             var serviceId = toExecute[index].Item1;
             var channel = connections.GetOrAdd(serviceId,
-                k => GrpcChannel.ForAddress($"service{serviceId}:15721"));
+                k => GrpcChannel.ForAddress($"http://service{serviceId}.dse.svc.cluster.local:15721"));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
                     channel.Intercept(new DprClientInterceptor(session)));
@@ -200,7 +200,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         {
             var serviceId = toExecute[index].Item1;
             var channel = connections.GetOrAdd(serviceId,
-                k => GrpcChannel.ForAddress($"service{serviceId}:15721"));
+                k => GrpcChannel.ForAddress($"http://service{serviceId}.dse.svc.cluster.local:15721"));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
                     channel.Intercept(new DprClientInterceptor(session)));

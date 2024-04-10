@@ -70,8 +70,7 @@ public class Program
                 throw new NotImplementedException();
         }
     }
-
-
+    
     private static async Task LaunchBenchmarkClient(Options options)
     {
 
@@ -103,7 +102,7 @@ public class Program
         var channelPool = new List<GrpcChannel>();
         for (var i = 0; i < 8; i++)
             // k8 load-balancing will ensure that we get a spread of different orchestrators behind these channels
-            channelPool.Add(GrpcChannel.ForAddress("orchestrator:15721"));
+            channelPool.Add(GrpcChannel.ForAddress("http://orchestrator.dse.svc.cluster.local:15721"));
 
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
@@ -167,7 +166,7 @@ public class Program
         builder.Services.AddSingleton(new DarqSettings
         {
             MyDpr = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("dprfinder:15721")),
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721")),
             LogDevice = new AzureStorageDevice(connString, "orchestrators", options.WorkerName.ToString(), "darq"),
             PageSize = 1L << 22,
             MemorySize = 1L << 28,
@@ -244,7 +243,7 @@ public class Program
         builder.Services.AddSingleton(new DprWorkerOptions
         {
             Me = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("dprfinder:15721")),
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721")),
             CheckpointPeriodMilli = 10,
             RefreshPeriodMilli = 5
         });

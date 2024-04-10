@@ -42,7 +42,7 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        switch (options.Type)
+        switch (options.Type.Trim())
         {
             case "client":
                 await LaunchBenchmarkClient(options);

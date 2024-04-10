@@ -18,7 +18,10 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "EventProcessing/EventProcessing -t filter"
+            - "EventProcessing/EventProcessing"
+          args:
+            - "-t"
+            - "filter"
           image: tianyuli96/faster:latest
           name: filter-service
           ports:

@@ -18,7 +18,10 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "EventProcessing/EventProcessing -t detection"
+            - "EventProcessing/EventProcessing"
+          args:
+            - "-t"
+            - "detection"
           image: tianyuli96/faster:latest
           name: detection-service
           ports:

@@ -21,8 +21,10 @@ spec:
         - command:
             - "TravelReservation/TravelReservation"
           args: 
-            - "-t orchestrator"
-            - "-n {{ .num }}"
+            - "-t"
+            - "orchestrator"
+            - "-n"
+            - "{{ .num }}"
           image: tianyuli96/faster:latest
           name: "orchestrator{{ .num }}"
           ports:
@@ -32,6 +34,9 @@ spec:
               cpu: 2000m
             limits:
               cpu: 4000m
+          envFrom:
+            - configMapRef:
+                name: env-config
       restartPolicy: Always
 ---
 {{- end }}

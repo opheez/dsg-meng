@@ -11,9 +11,12 @@ spec:
         - command:
             - "TravelReservation/TravelReservation"
           args:
-            - "-t client"
-            - "-w workloads/{{ $.Values.workload }}-client-{{ .num }}"
-            - "-n {{ .num }}"
+            - "-t"
+            - "client"
+            - "-w"
+            - "workloads/{{ $.Values.workload }}-client-{{ .num }}.csv"
+            - "-n"
+            - "{{ .num }}"
           image: tianyuli96/faster:latest
           name: "service{{ .num }}"
           ports:

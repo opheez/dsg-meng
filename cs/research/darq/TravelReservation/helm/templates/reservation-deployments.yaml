@@ -19,8 +19,9 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t service"
+            - "TravelReservation/TravelReservation"
           args:
+            - "-t service "
             - "-w workloads/{{ $.Values.workload }}-service-{{ .num }}.csv"
             - "-n {{ .num }}"
           image: tianyuli96/faster:latest

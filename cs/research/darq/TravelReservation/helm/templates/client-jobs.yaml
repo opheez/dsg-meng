@@ -1,20 +1,19 @@
 {{- range .Values.clients }}
-apiVersion: apps/v1
+apiVersion: batch/v1
 kind: Job
 metadata:
   name: client{{ .num }}
 spec:
-  replicas: 1
-  strategy: { }
   template:
     spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t client"
+            - "TravelReservation/TravelReservation"
           args:
+            - "-t client"
             - "-w workloads/{{ $.Values.workload }}-client-{{ .num }}"
-            - "-n {{ .num }}" ]
+            - "-n {{ .num }}"
           image: tianyuli96/faster:latest
           name: "service{{ .num }}"
           ports:
@@ -28,6 +27,5 @@ spec:
             - configMapRef:
                 name: env-config
       restartPolicy: Never
-status: { }
 ---
 {{- end }}

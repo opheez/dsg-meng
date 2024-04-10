@@ -19,8 +19,9 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t orchestrator"
+            - "TravelReservation/TravelReservation"
           args: 
+            - "-t orchestrator"
             - "-n {{ .num }}"
           image: tianyuli96/faster:latest
           name: "orchestrator{{ .num }}"

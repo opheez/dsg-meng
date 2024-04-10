@@ -16,4 +16,4 @@ orchestrators:
   - num: 4
 
 clients:
-  -num: 0
+  - num: 0

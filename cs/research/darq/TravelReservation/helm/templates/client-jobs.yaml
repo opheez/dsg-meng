@@ -13,7 +13,7 @@ spec:
         - command:
             - "TravelReservation/TravelReservation -t client"
           args:
-            - "-w workloads/{{ .Values.workload }}-client-{{ .num }}"
+            - "-w workloads/{{ $.Values.workload }}-client-{{ .num }}"
             - "-n {{ .num }}" ]
           image: tianyuli96/faster:latest
           name: "service{{ .num }}"

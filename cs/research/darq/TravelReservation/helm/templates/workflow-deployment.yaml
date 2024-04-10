@@ -25,7 +25,7 @@ spec:
           image: tianyuli96/faster:latest
           name: "orchestrator{{ .num }}"
           ports:
-            - containerPort: {{ .Values.orchestrator_port }}
+            - containerPort: {{ $.Values.orchestrator_port }}
           resources:
             requests:
               cpu: 2000m

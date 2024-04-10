@@ -19,7 +19,10 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t service -w "workloads/{{ .Values.workload }}-service-{{ .num }}.csv" -n {{ .num }}"
+            - "TravelReservation/TravelReservation -t service"
+          args:
+            - "-w workloads/{{ .Values.workload }}-service-{{ .num }}.csv"
+            - "-n {{ .num }}"
           image: tianyuli96/faster:latest
           name: service{{ .num }}
           ports:
@@ -33,6 +36,5 @@ spec:
             - configMapRef:
                 name: env-config
       restartPolicy: Always
-status: {}
 ---
 {{- end }}

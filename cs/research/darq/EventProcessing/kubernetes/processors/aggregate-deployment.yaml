@@ -18,7 +18,7 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - EventProcessing/EventProcessing -t aggregate
+            - "EventProcessing/EventProcessing -t aggregate"
           image: tianyuli96/faster:latest
           name: aggregate-service
           ports:

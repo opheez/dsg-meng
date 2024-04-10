@@ -5,15 +5,18 @@ metadata:
   name: client{{ .num }}
 spec:
   replicas: 1
-  strategy: {}
+  strategy: { }
   template:
     spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t client -w "workloads/{{ .Values.workload }}-client-{{ .num }}" -n {{ .num }}"
+            - "TravelReservation/TravelReservation -t client"
+          args:
+            - "-w workloads/{{ .Values.workload }}-client-{{ .num }}"
+            - "-n {{ .num }}" ]
           image: tianyuli96/faster:latest
-          name: service{{ .num }}
+          name: "service{{ .num }}"
           ports:
             - containerPort: 15721
           resources:
@@ -25,6 +28,6 @@ spec:
             - configMapRef:
                 name: env-config
       restartPolicy: Never
-status: {}
+status: { }
 ---
 {{- end }}

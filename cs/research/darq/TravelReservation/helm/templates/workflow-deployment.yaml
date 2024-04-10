@@ -3,27 +3,29 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    service: orchestrator
-  name: orchestrator{{ .num }}
+    service: "orchestrator"
+  name: "orchestrator{{ .num }}"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      service: orchestrator
+      service: "orchestrator"
   strategy: {}
   template:
     metadata:
       labels:
-        service: orchestrator
+        service: "orchestrator"
     spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation -t orchestrator -n {{ .num }}"
+            - "TravelReservation/TravelReservation -t orchestrator"
+          args: 
+            - "-n {{ .num }}"
           image: tianyuli96/faster:latest
-          name: orchestrator{{ .num }}
+          name: "orchestrator{{ .num }}"
           ports:
-            - containerPort: {{ .Values.orchestrator-port }}
+            - containerPort: {{ .Values.orchestrator_port }}
           resources:
             requests:
               cpu: 2000m

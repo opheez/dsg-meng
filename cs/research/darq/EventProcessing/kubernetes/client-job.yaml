@@ -10,7 +10,7 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - TravelReservation/TravelReservation -t client -w "workloads/"
+            - "TravelReservation/TravelReservation -t client -w 'workloads/'"
           image: tianyuli96/faster:latest
           name: client
           ports:

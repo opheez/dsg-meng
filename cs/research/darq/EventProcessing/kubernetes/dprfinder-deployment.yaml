@@ -18,7 +18,7 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - EventProcessing/EventProcessing -t dprfinder
+            - "EventProcessing/EventProcessing -t dprfinder"
           image: tianyuli96/faster:latest
           name: dprfinder
           ports:

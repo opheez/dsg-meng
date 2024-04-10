@@ -18,7 +18,7 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - EventProcessing/EventProcessing -t worker -n 1
+            - "EventProcessing/EventProcessing -t worker -n 1"
           image: tianyuli96/faster:latest
           name: pubsub2
           ports:

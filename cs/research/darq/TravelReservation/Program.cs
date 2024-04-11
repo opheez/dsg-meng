@@ -46,15 +46,19 @@ public class Program
         switch (options.Type.Trim())
         {
             case "client":
+                Console.WriteLine("Starting client");
                 await LaunchBenchmarkClient(options);
                 break;
             case "orchestrator":
+                Console.WriteLine("Starting orchestrator");
                 await LaunchOrchestratorService(options);
                 break;
             case "service":
+                Console.WriteLine("Starting reservation service");
                 await LaunchReservationService(options);
                 break;
             case "dprfinder":
+                Console.WriteLine("Starting DPR finder");
                 await LaunchDprFinder(options);
                 break;
             case "generate":
@@ -74,24 +78,23 @@ public class Program
     
     private static async Task LaunchBenchmarkClient(Options options)
     {
+        Console.WriteLine("Parsing workload file...");
         var timedRequests = new List<(long, ExecuteWorkflowRequest)>();
-        unsafe
+        foreach (var line in File.ReadLines(options.WorkloadTrace))
         {
-            foreach (var line in File.ReadLines(options.WorkloadTrace))
-            {
-                var args = line.Split(',');
-                var timestamp = long.Parse(args[0]);
+            var args = line.Split(',');
+            var timestamp = long.Parse(args[0]);
 
-                var request = new ExecuteWorkflowRequest
-                {
-                    WorkflowId = long.Parse(args[1]),
-                    WorkflowClassId = 0,
-                    Input = ByteString.CopyFrom(line, Encoding.UTF8)
-                };
-                timedRequests.Add(ValueTuple.Create(timestamp, request));
-            }
+            var request = new ExecuteWorkflowRequest
+            {
+                WorkflowId = long.Parse(args[1]),
+                WorkflowClassId = 0,
+                Input = ByteString.CopyFrom(line, Encoding.UTF8)
+            };
+            timedRequests.Add(ValueTuple.Create(timestamp, request));
         }
 
+        Console.WriteLine("Creating gRPC connections...");
         // Keep a few channels around and reuse them 
         var channelPool = new List<GrpcChannel>();
         for (var i = 0; i < 8; i++)
@@ -100,22 +103,18 @@ public class Program
 
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
+        Console.WriteLine("Issuing workload...");
         for (var i = 0; i < timedRequests.Count; i++)
         {
-            while (stopwatch.ElapsedMilliseconds <= timedRequests[i].Item1)
+            var request = timedRequests[i];
+            while (stopwatch.ElapsedMilliseconds <= request.Item1)
                 await Task.Yield();
             var channel = channelPool[i % channelPool.Count];
             var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
             Task.Run(async () =>
             {
                 var startTime = stopwatch.ElapsedMilliseconds;
-                // TODO(Tianyu): Actually fill out
-                await client.ExecuteWorkflowAsync(new ExecuteWorkflowRequest
-                {
-                    WorkflowId = 0,
-                    WorkflowClassId = 0,
-                    Input = null
-                });
+                await client.ExecuteWorkflowAsync(request.Item2);
                 var endTime = stopwatch.ElapsedMilliseconds;
                 measurements.Add(endTime - startTime);
             });

@@ -251,18 +251,18 @@ public interface IVersionScheme
     /// to make progress, protection must be later relinquished on the same thread using Leave() or Refresh()
     /// </summary>
     /// <returns> the state of the VersionScheme as of protection, which extends until the end of protection </returns>
-    VersionSchemeState Enter();
+    VersionSchemeState Enter(LightEpoch.EpochContext context = null);
 
     /// <summary>
     /// Refreshes protection --- equivalent to dropping and immediately reacquiring protection, but more performant.
     /// </summary>
     /// <returns> the state of the VersionScheme as of protection, which extends until the end of protection</returns>
-    VersionSchemeState Refresh();
+    VersionSchemeState Refresh(LightEpoch.EpochContext context = null);
 
     /// <summary>
     /// Drop protection of the current thread
     /// </summary>
-    public void Leave();
+    public void Leave(LightEpoch.EpochContext context = null);
 
     /// <summary>
     /// Signals to EPVS that a new step is available in the state machine. This is useful when the state machine
@@ -325,11 +325,11 @@ public abstract class VersionSchemeBase : IVersionScheme
 
     public VersionSchemeState CurrentState() => state;
 
-    public abstract VersionSchemeState Enter();
+    public abstract VersionSchemeState Enter(LightEpoch.EpochContext context = null);
 
-    public abstract VersionSchemeState Refresh();
+    public abstract VersionSchemeState Refresh(LightEpoch.EpochContext context = null);
 
-    public abstract void Leave();
+    public abstract void Leave(LightEpoch.EpochContext context = null);
 
     public void SignalStepAvailable()
     {

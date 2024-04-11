@@ -97,6 +97,8 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
     private Func<int, DprWorkerId, Darq> factory;
     private ThreadLocalObjectPool<FASTER.libdpr.StepRequest> stepRequestPool;
     private DarqBackgroundWorkerPool workerPool;
+    private int requestId;
+
 
     public SpPubSubService(SpPubSubServiceSettings settings)
     {
@@ -104,6 +106,9 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         topics = new ConcurrentDictionary<int, (Darq, DarqBackgroundTask)>();
         stepRequestPool = new ThreadLocalObjectPool<FASTER.libdpr.StepRequest>(() => new FASTER.libdpr.StepRequest());
         consul = new ConsulClient(settings.consulConfig);
+        factory = settings.factory;
+        hostId = settings.hostId;
+        workerPool = settings.workerPool;
     }
 
     private async Task<Darq> GetOrCreateTopic(int topicId)
@@ -134,11 +139,16 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
 
     public override async Task<EnqueueResult> EnqueueEvents(EnqueueRequest request, ServerCallContext context)
     {
+        // Get a id that is almost guaranteed to be unique for the runtime of the RPC for use in epoch as context
+        var epochContext = new LightEpoch.EpochContext
+        {
+            customId = Interlocked.Increment(ref requestId)
+        };
         var topic = await GetOrCreateTopic(request.TopicId);
         if (request.DprHeader != null)
         {
             // Speculative code path
-            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span))
+            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span, epochContext))
                 // Use an error to signal to caller that this call cannot proceed
                 // TODO(Tianyu): add more descriptive exception information
                 throw new RpcException(Status.DefaultCancelled);
@@ -150,7 +160,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             unsafe
             {
                 var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
-                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize), epochContext);
                 result.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
             }
 
@@ -158,26 +168,26 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         }
         else
         {
-            topic.StartLocalAction();
+            topic.StartLocalAction(epochContext);
             var result = new EnqueueResult
             {
                 Ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
                     request.ProducerId, request.SequenceNum)
             };
-            topic.EndAction();
+            topic.EndAction(epochContext);
             // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
             await topic.NextCommit();
             return result;
         }
     }
 
-    private unsafe bool TryReadOneEntry(Darq topic, long worldLine, DarqScanIterator scanner, out Event ev)
+    private unsafe bool TryReadOneEntry(Darq topic, long worldLine, DarqScanIterator scanner, LightEpoch.EpochContext context, out Event ev)
     {
         ev = default;
         var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
         try
         {
-            topic.StartLocalAction();
+            topic.StartLocalAction(context);
             if (topic.WorldLine() != worldLine)
                 throw new DprSessionRolledBackException(topic.WorldLine());
 
@@ -208,7 +218,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         }
         finally
         {
-            topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+            topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize), context);
             if (ev != default)
                 ev.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
         }
@@ -220,10 +230,17 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         var topic = await GetOrCreateTopic(request.TopicId);
         var worldLine = topic.WorldLine();
         var scanner = topic.StartScan(request.Speculative);
+        
+        // TODO(Tianyu): We could burn through ints if these are long-running and wrap around, which can be a problem
+        // Get a id that is almost guaranteed to be unique for the runtime of the RPC for use in epoch as context
+        var epochContext = new LightEpoch.EpochContext
+        {
+            customId = Interlocked.Increment(ref requestId)
+        };
 
         while (!context.CancellationToken.IsCancellationRequested)
         {
-            if (TryReadOneEntry(topic, worldLine, scanner, out var ev))
+            if (TryReadOneEntry(topic, worldLine, scanner, epochContext, out var ev))
                 // TODO(Tianyu): write
             {
                 if (!request.Speculative)
@@ -255,6 +272,11 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
     public override async Task<StepResult> Step(StepRequest request, ServerCallContext context)
     {
         var topic = await GetOrCreateTopic(request.TopicId);
+        // Get a id that is almost guaranteed to be unique for the runtime of the RPC for use in epoch as context
+        var epochContext = new LightEpoch.EpochContext
+        {
+            customId = Interlocked.Increment(ref requestId)
+        };
         var requestObject = stepRequestPool.Checkout();
         var requestBuilder = new StepRequestBuilder(requestObject);
         foreach (var consumed in request.ConsumedMessageOffsets)
@@ -272,7 +294,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         if (request.DprHeader != null)
         {
             // Speculative code path
-            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span))
+            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span, epochContext))
                 // Use an error to signal to caller that this call cannot proceed
                 // TODO(Tianyu): add more descriptive exception information
                 throw new RpcException(Status.DefaultCancelled);
@@ -292,7 +314,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             unsafe
             {
                 var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
-                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize), epochContext);
                 result.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
             }
 
@@ -300,7 +322,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         }
         else
         {
-            topic.StartLocalAction();
+            topic.StartLocalAction(epochContext);
             var status = topic.Step(request.IncarnationId, requestBuilder.FinishStep());
             var result = new StepResult
             {
@@ -314,7 +336,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                     _ => throw new ArgumentOutOfRangeException()
                 }
             };
-            topic.EndAction();
+            topic.EndAction(epochContext);
             await topic.NextCommit();
             return result;
         }

@@ -88,7 +88,7 @@ public class RwLatchVersionScheme : VersionSchemeBase
         
     }
 
-    public override VersionSchemeState Enter()
+    public override VersionSchemeState Enter(LightEpoch.EpochContext context = null)
     {
         TryStepStateMachine();
         rwLatch.EnterReadLock();
@@ -106,13 +106,13 @@ public class RwLatchVersionScheme : VersionSchemeBase
         return result;
     }
 
-    public override VersionSchemeState Refresh()
+    public override VersionSchemeState Refresh(LightEpoch.EpochContext context = null)
     {
         Leave();
         return Enter();
     }
 
-    public override void Leave()
+    public override void Leave(LightEpoch.EpochContext context = null)
     {
         rwLatch.ExitReadLock();
     }

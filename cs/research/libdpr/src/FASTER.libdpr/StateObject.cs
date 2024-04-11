@@ -277,7 +277,7 @@ namespace FASTER.libdpr
                 PruneVersion(i);
         }
 
-        public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes)
+        public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -295,16 +295,16 @@ namespace FASTER.libdpr
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
-            versionScheme.Enter();
+            versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
             // so client operation is not lost in a rollback that the client has already observed.
             while (header.WorldLine > worldLine)
             {
-                versionScheme.Leave();
+                versionScheme.Leave(context);
                 // TODO(Tianyu): Should provide version that does not rollback on the spot?
                 BeginRestore(header.WorldLine, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
                 Thread.Yield();
-                versionScheme.Enter();
+                versionScheme.Enter(context);
             }
 
             // If the worker world-line is newer, the request must be dropped. 
@@ -333,7 +333,7 @@ namespace FASTER.libdpr
             return true;
         }
         
-        public unsafe bool TrySynchronizeAndStartAction(DprSession session)
+        public unsafe bool TrySynchronizeAndStartAction(DprSession session, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -344,14 +344,14 @@ namespace FASTER.libdpr
             if (len < 0)
                 // TODO(Tianyu): handle case where we run out of space
                 throw new NotImplementedException();
-            return TryReceiveAndStartAction(header);
+            return TryReceiveAndStartAction(header, context);
         }
 
-        public void StartLocalAction() => versionScheme.Enter();
+        public void StartLocalAction(LightEpoch.EpochContext context = null) => versionScheme.Enter(context);
 
-        public void EndAction() => versionScheme.Leave();
+        public void EndAction(LightEpoch.EpochContext context = null) => versionScheme.Leave(context);
 
-        public int ProduceTagAndEndAction(Span<byte> outputHeaderBytes)
+        public int ProduceTagAndEndAction(Span<byte> outputHeaderBytes, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -366,18 +366,19 @@ namespace FASTER.libdpr
             outputHeader.WorldLine = worldLine;
             outputHeader.Version = versionScheme.CurrentState().Version;
             outputHeader.NumClientDeps = 0;
-            EndAction();
+            EndAction(context);
             return DprMessageHeader.FixedLenSize;
         }
 
-        public DprSession DetachFromWorker()
+        public DprSession DetachFromWorker(LightEpoch.EpochContext context = null)
         {
             var session = sessionPool.Checkout();
             session.UnsafeReset(this);
+            EndAction(context);
             return session;
         }
 
-        public unsafe bool TryMergeAndStartAction(DprSession detachedSession)
+        public unsafe bool TryMergeAndStartAction(DprSession detachedSession, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -389,7 +390,7 @@ namespace FASTER.libdpr
                 throw new NotImplementedException();
             sessionPool.Return(detachedSession);
             // TODO(Tianyu): optimize if necessary
-            return TryReceiveAndStartAction(header);
+            return TryReceiveAndStartAction(header, context);
         }
 
         /// <summary>

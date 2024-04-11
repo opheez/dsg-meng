@@ -34,9 +34,9 @@ namespace FASTER.core
         /// to make progress, protection must be later relinquished on the same thread using Leave() or Refresh()
         /// </summary>
         /// <returns> the state of the EPVS as of protection, which extends until the end of protection </returns>
-        public override VersionSchemeState Enter()
+        public override VersionSchemeState Enter(LightEpoch.EpochContext context = null)
         {
-            epoch.Resume();
+            epoch.Resume(context);
             TryStepStateMachine();
 
             VersionSchemeState result;
@@ -44,9 +44,9 @@ namespace FASTER.core
             {
                 result = state;
                 if (!result.IsIntermediate()) break;
-                epoch.Suspend();
+                epoch.Suspend(context);
                 Thread.Yield();
-                epoch.Resume();
+                epoch.Resume(context);
             }
 
             return result;
@@ -56,9 +56,9 @@ namespace FASTER.core
         /// Refreshes protection --- equivalent to dropping and immediately reacquiring protection, but more performant.
         /// </summary>
         /// <returns> the state of the EPVS as of protection, which extends until the end of protection</returns>
-        public override VersionSchemeState Refresh()
+        public override VersionSchemeState Refresh(LightEpoch.EpochContext context = null)
         {
-            epoch.ProtectAndDrain();
+            epoch.ProtectAndDrain(context);
             VersionSchemeState result = default;
             TryStepStateMachine();
 
@@ -66,9 +66,9 @@ namespace FASTER.core
             {
                 result = state;
                 if (!result.IsIntermediate()) break;
-                epoch.Suspend();
+                epoch.Suspend(context);
                 Thread.Yield();
-                epoch.Resume();
+                epoch.Resume(context);
             }
             return result;
         }
@@ -76,9 +76,9 @@ namespace FASTER.core
         /// <summary>
         /// Drop protection of the current thread
         /// </summary>
-        public override void Leave()
+        public override void Leave(LightEpoch.EpochContext context = null)
         {
-            epoch.Suspend();
+            epoch.Suspend(context);
         }
         
         // Atomic transition from expectedState -> nextState

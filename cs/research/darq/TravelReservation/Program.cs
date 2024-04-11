@@ -3,6 +3,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Text;
 using Azure.Storage.Blobs;
 using CommandLine;
 using darq;
@@ -73,26 +74,19 @@ public class Program
     
     private static async Task LaunchBenchmarkClient(Options options)
     {
-
         var timedRequests = new List<(long, ExecuteWorkflowRequest)>();
         unsafe
         {
             foreach (var line in File.ReadLines(options.WorkloadTrace))
             {
                 var args = line.Split(',');
-                Debug.Assert(args.Length == 6);
                 var timestamp = long.Parse(args[0]);
-                var buf = stackalloc long[4];
-                buf[0] = long.Parse(args[2]);
-                buf[1] = long.Parse(args[3]);
-                buf[2] = long.Parse(args[4]);
-                buf[3] = long.Parse(args[5]);
 
                 var request = new ExecuteWorkflowRequest
                 {
                     WorkflowId = long.Parse(args[1]),
                     WorkflowClassId = 0,
-                    Input = ByteString.CopyFrom(new Span<byte>(buf, 32))
+                    Input = ByteString.CopyFrom(line, Encoding.UTF8)
                 };
                 timedRequests.Add(ValueTuple.Create(timestamp, request));
             }
@@ -115,6 +109,7 @@ public class Program
             Task.Run(async () =>
             {
                 var startTime = stopwatch.ElapsedMilliseconds;
+                // TODO(Tianyu): Actually fill out
                 await client.ExecuteWorkflowAsync(new ExecuteWorkflowRequest
                 {
                     WorkflowId = 0,
@@ -175,6 +170,9 @@ public class Program
             RefreshPeriodMilli = 5,
             FastCommitMode = true,
         });
+        var workflowFactories = new Dictionary<int, WorkflowOrchestratorService.WorkflowFactory>();
+        workflowFactories.Add(0, (so, input) => new ReservationWorkflowStateMachine(so, input));
+        builder.Services.AddSingleton(workflowFactories);
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
         builder.Services.AddSingleton<Darq>();
         builder.Services.AddSingleton<DarqBackgroundWorkerPool>();

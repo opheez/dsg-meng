@@ -1,4 +1,4 @@
-connString: foo
+conn_string: foo
 workload: workload-small
 
 services:
@@ -9,7 +9,7 @@ services:
   - num: 2
     port: 15721
 
-orchestrator-port: 15721
+orchestrator_port: 15721
 
 orchestrators:
   - num: 3

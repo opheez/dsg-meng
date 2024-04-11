@@ -1,4 +1,4 @@
-connString: foo
+conn_string: foo
 workload: workload-small
 
 services:

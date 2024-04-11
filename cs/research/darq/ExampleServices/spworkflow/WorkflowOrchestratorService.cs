@@ -6,17 +6,19 @@ using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
+using Google.Protobuf;
 using Grpc.Core;
 
 namespace SimpleWorkflowBench;
 public interface IWorkflowStateMachine
 {
     public void ProcessMessage(DarqMessage m);
-
+    
     public void OnRestart(IDarqProcessorClientCapabilities capabilities, StateObject stateObject);
     
     Task<ExecuteWorkflowResult> GetResult(CancellationToken token);
 }
+
 
 public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestratorBase, IDarqProcessor, IDisposable
 {
@@ -25,18 +27,19 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     private readonly ManualResetEventSlim terminationStart, terminationComplete;
     private Thread refreshThread, processingThread;
     private ColocatedDarqProcessorClient processorClient;
-    private Dictionary<int, Func<StateObject, IWorkflowStateMachine>> workflowFactories;
+    private Dictionary<int, WorkflowFactory> workflowFactories;
 
     private ConcurrentDictionary<long, IWorkflowStateMachine> startedWorkflows;
     private IDarqProcessorClientCapabilities capabilities;
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
     private CancellationTokenSource cancellationSource;
 
-
-    public WorkflowOrchestratorService(Darq darq, DarqBackgroundWorkerPool workerPool)
+    public delegate IWorkflowStateMachine WorkflowFactory(StateObject obj, ReadOnlySpan<byte> input);
+    
+    public WorkflowOrchestratorService(Darq darq, DarqBackgroundWorkerPool workerPool, Dictionary<int, WorkflowFactory> workflowFactories)
     {
         backend = darq;
-        // no need to supply a cluster because we don't use inter-DARQ messaging in this use case
+        // no need to supply a cluster/messaging utils because we don't use inter-DARQ messaging in this use case
         _backgroundTask = new DarqBackgroundTask(backend, workerPool, null);
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new ManualResetEventSlim();
@@ -56,6 +59,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         processorClient = new ColocatedDarqProcessorClient(backend);
         processingThread = new Thread(() => { processorClient.StartProcessing(this); });
         processingThread.Start();
+        this.workflowFactories = workflowFactories;
         // TODO(Tianyu): Hacky
         // spin until we are sure that we have started 
         while (capabilities == null)
@@ -79,15 +83,10 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         processingThread.Join();
     }
 
-    public void BindWorkflowHandler(int classId, Func<StateObject, IWorkflowStateMachine> factory)
-    {
-        workflowFactories[classId] = factory;
-    }
-
     public override async Task<ExecuteWorkflowResult> ExecuteWorkflow(ExecuteWorkflowRequest request,
         ServerCallContext context)
     {
-        var workflowHandler = workflowFactories[request.WorkflowClassId](backend);
+        var workflowHandler = workflowFactories[request.WorkflowClassId](backend, request.Input.Span);
         workflowHandler.OnRestart(capabilities, backend);
         var actualHandler = startedWorkflows.GetOrAdd(request.WorkflowId, workflowHandler);
         if (actualHandler == workflowHandler)
@@ -95,14 +94,9 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
             // This handle was created by this thread, which gives us the ability to go ahead and start the workflow
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
-            unsafe
-            {
-                var workflowClassId = request.WorkflowClassId;
-                requestBuilder.AddRecoveryMessage(-request.WorkflowId,
-                    new ReadOnlySpan<byte>(&workflowClassId, sizeof(int)));
-            }
-
-            requestBuilder.AddSelfMessage(request.WorkflowId, request.Input.Span);
+            requestBuilder.AddRecoveryMessage(-request.WorkflowId, request.ToByteArray());
+            // Start the workflow by giving it an initial message
+            requestBuilder.AddSelfMessage(request.WorkflowId, Span<byte>.Empty);
             await capabilities.Step(requestBuilder.FinishStep());
             Console.WriteLine($"Workflow {request.WorkflowId} started");
             stepRequestPool.Return(stepRequest);
@@ -135,8 +129,8 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
         if (workflowId < 0)
         {
             Debug.Assert(m.GetMessageType() == DarqMessageType.RECOVERY);
-            var classId = BitConverter.ToInt32(m.GetMessageBody()[sizeof(long)..]);
-            var workflow = workflowFactories[classId](backend);
+            var request = ExecuteWorkflowRequest.Parser.ParseFrom(m.GetMessageBody());
+            var workflow = workflowFactories[request.WorkflowClassId](backend, request.Input.Span);
             workflow.OnRestart(capabilities, backend);
             var ok = startedWorkflows.TryAdd(-workflowId, workflow);
             Debug.Assert(ok);

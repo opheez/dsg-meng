@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
+using System.Text.Unicode;
 using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
@@ -71,14 +73,31 @@ internal struct ActivityDarqEntry : ILogEnqueueEntry
 
 public class ReservationWorkflowStateMachine : IWorkflowStateMachine
 {
-    private long workflowId = -1;
-    private List<(int, ReservationRequest)> toExecute;
+    private long workflowId;
+    private List<ReservationRequest> toExecute = new();
     private TaskCompletionSource<bool> tcs = new();
     private IDarqProcessorClientCapabilities capabilities;
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
     private StateObject backend;
-    
-    private ConcurrentDictionary<int, GrpcChannel> connections = new();
+    private static ConcurrentDictionary<int, GrpcChannel> connections = new();
+
+    public ReservationWorkflowStateMachine(StateObject backend, ReadOnlySpan<byte> input)
+    {
+        this.backend = backend;
+        var messageString = Encoding.UTF8.GetString(input);
+        var split = messageString.Split(',');
+        workflowId = long.Parse(split[1]);
+        for (var i = 2; i < split.Length; i += 4)
+        {
+            toExecute.Add(new ReservationRequest
+            {
+                ReservationId = long.Parse(split[i]),
+                OfferingId = long.Parse(split[i + 1]),
+                CustomerId = long.Parse(split[i + 2]),
+                Count = int.Parse(split[i + 3])
+            });
+        }
+    }
     
     public async Task<ExecuteWorkflowResult> GetResult(CancellationToken token)
     {
@@ -89,23 +108,15 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             Result = ByteString.Empty,
         };
     }
-    
+
     public void ProcessMessage(DarqMessage m)
     {
         backend.StartLocalAction();
-        if (workflowId == -1 && m.GetMessageType() == DarqMessageType.IN)
+        if (m.GetMessageBody().Length == sizeof(long))
         {
-            // This is the first message and it's the input that parameterizes the workflow
-            workflowId = BitConverter.ToInt64(m.GetMessageBody());
-            // TODO(Tianyu): read and create the workflow from the rest
-            
+            // Then this is the initial message, bootstrap the state machine and begin execution
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
-            requestBuilder.AddRecoveryMessage(new WorkflowDefinitionDarqEntry
-            {
-                workflowId = workflowId,
-                input = ByteString.CopyFrom(m.GetMessageBody()[sizeof(long)..])
-            });
 
             requestBuilder.AddSelfMessage(new ActivityDarqEntry
             {
@@ -120,14 +131,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             m.Dispose();
             stepRequestPool.Return(stepRequest);
         }
-        if (m.GetMessageType() == DarqMessageType.RECOVERY)
-        {
-            // We only send ourselves one type of recovery message that encodes a workflow definition
-            workflowId = BitConverter.ToInt64(m.GetMessageBody());
-            // TODO(Tianyu): read and create the workflow from the rest
-            // This handle was created by this thread, which gives us the ability to go ahead and start the workflow
-            m.Dispose();
-        }
+
         Debug.Assert(m.GetMessageType() == DarqMessageType.IN);
         var lsn = m.GetLsn();
         var type = (ReservationWorkflowMessageTypes) m.GetMessageBody()[sizeof(long)];
@@ -156,13 +160,12 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         var session = backend.DetachFromWorker();
         Task.Run(async () =>
         {
-            var serviceId = toExecute[index].Item1;
-            var channel = connections.GetOrAdd(serviceId,
-                k => GrpcChannel.ForAddress($"http://service{serviceId}.dse.svc.cluster.local:15721"));
+            var channel = connections.GetOrAdd(index,
+                k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
                     channel.Intercept(new DprClientInterceptor(session)));
-            var result = await client.MakeReservationAsync(toExecute[index].Item2);
+            var result = await client.MakeReservationAsync(toExecute[index]);
             if (!backend.TryMergeAndStartAction(session)) return;                
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
@@ -181,7 +184,6 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         });
     }
     
-    
     private void CancelReservation(long lsn, int index)
     {
         if (index == -1)
@@ -198,13 +200,12 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         var session = backend.DetachFromWorker();
         Task.Run(async () =>
         {
-            var serviceId = toExecute[index].Item1;
-            var channel = connections.GetOrAdd(serviceId,
-                k => GrpcChannel.ForAddress($"http://service{serviceId}.dse.svc.cluster.local:15721"));
+            var channel = connections.GetOrAdd(index,
+                k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
                     channel.Intercept(new DprClientInterceptor(session)));
-            var result = await client.CancelReservationAsync(toExecute[index].Item2);
+            var result = await client.CancelReservationAsync(toExecute[index]);
             if (!backend.TryMergeAndStartAction(session)) return;                
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);

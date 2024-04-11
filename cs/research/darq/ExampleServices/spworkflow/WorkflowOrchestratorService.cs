@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 using darq;
 using FASTER.client;
 using FASTER.common;
@@ -10,15 +11,15 @@ using Google.Protobuf;
 using Grpc.Core;
 
 namespace SimpleWorkflowBench;
+
 public interface IWorkflowStateMachine
 {
     public void ProcessMessage(DarqMessage m);
-    
+
     public void OnRestart(IDarqProcessorClientCapabilities capabilities, StateObject stateObject);
-    
+
     Task<ExecuteWorkflowResult> GetResult(CancellationToken token);
 }
-
 
 public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestratorBase, IDarqProcessor, IDisposable
 {
@@ -35,8 +36,9 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     private CancellationTokenSource cancellationSource;
 
     public delegate IWorkflowStateMachine WorkflowFactory(StateObject obj, ReadOnlySpan<byte> input);
-    
-    public WorkflowOrchestratorService(Darq darq, DarqBackgroundWorkerPool workerPool, Dictionary<int, WorkflowFactory> workflowFactories)
+
+    public WorkflowOrchestratorService(Darq darq, DarqBackgroundWorkerPool workerPool,
+        Dictionary<int, WorkflowFactory> workflowFactories)
     {
         backend = darq;
         // no need to supply a cluster/messaging utils because we don't use inter-DARQ messaging in this use case
@@ -86,6 +88,8 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     public override async Task<ExecuteWorkflowResult> ExecuteWorkflow(ExecuteWorkflowRequest request,
         ServerCallContext context)
     {
+        Console.WriteLine(
+            $"Received execute workflow request, id of {request.WorkflowId}, class id of {request.WorkflowClassId}, request string of {Encoding.UTF8.GetString(request.Input.Span)}");
         var workflowHandler = workflowFactories[request.WorkflowClassId](backend, request.Input.Span);
         workflowHandler.OnRestart(capabilities, backend);
         var actualHandler = startedWorkflows.GetOrAdd(request.WorkflowId, workflowHandler);
@@ -115,7 +119,9 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
                 var result = await workflow.GetResult(cancellationSource.Token);
                 if (backend.TryMergeAndStartAction(s)) return result;
             }
-            catch (TaskCanceledException) {}
+            catch (TaskCanceledException)
+            {
+            }
 
             // Otherwise, there has been a rollback, should retry with a new handle, if any
             while (!startedWorkflows.TryGetValue(workflowId, out workflow))
@@ -136,6 +142,7 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
             Debug.Assert(ok);
             return true;
         }
+
         startedWorkflows[workflowId].ProcessMessage(m);
         return true;
     }

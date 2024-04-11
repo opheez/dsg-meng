@@ -19,6 +19,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using SimpleWorkflowBench;
 
 public class Options
@@ -99,11 +100,12 @@ public class Program
         var channelPool = new List<GrpcChannel>();
         for (var i = 0; i < 8; i++)
             // k8 load-balancing will ensure that we get a spread of different orchestrators behind these channels
+            // channelPool.Add(GrpcChannel.ForAddress("http://orchestrator.dse.svc.cluster.local:15721"));
             channelPool.Add(GrpcChannel.ForAddress("http://orchestrator.dse.svc.cluster.local:15721"));
-
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
-        Console.WriteLine("Issuing workload...");
+        Console.WriteLine("Creating gRPC connections...");
+
         for (var i = 0; i < timedRequests.Count; i++)
         {
             var request = timedRequests[i];
@@ -147,6 +149,7 @@ public class Program
     public static Task LaunchOrchestratorService(Options options)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, 15721,
@@ -192,6 +195,7 @@ public class Program
     public static Task LaunchDprFinder(Options options)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, 15720,
@@ -215,8 +219,8 @@ public class Program
 
     public static Task LaunchReservationService(Options options)
     {
-        
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, 15722,

@@ -105,14 +105,22 @@ namespace FASTER.libdpr
 
         private unsafe long ReadFromDevice(IDevice device, out byte[] buf)
         {
+            buf = null;
             var header = new MetadataHeader();
             var completed = new ManualResetEventSlim();
-            device.ReadAsync(0, 0, (IntPtr) header.bytes, (uint) sizeof(MetadataHeader),
-                (e, n, o) => completed.Set(), null);
-            completed.Wait();
-
-            buf = new byte[header.size];
-            if (header.size == 0) return -1;
+            try
+            {
+                device.ReadAsync(0, 0, (IntPtr)header.bytes, (uint)sizeof(MetadataHeader),
+                    (e, n, o) => completed.Set(), null);
+                completed.Wait();
+                if (header.size == 0) return -1;
+                
+                buf = new byte[header.size];
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
 
             completed = new ManualResetEventSlim();
             fixed (byte* b = &buf[0])

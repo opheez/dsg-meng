@@ -6,14 +6,14 @@ namespace FASTER.core;
 
 public class NonThreadBasedReaderWriterLatch
 {
-    private long readerCount = 0;
-    private int writerPending = 0;
+    private volatile int readerCount = 0;
+    private volatile int writerPending = 0;
 
     public void EnterReadLock()
     {
         while (true)
         {
-            while (writerPending != 0) {}
+            while (writerPending != 0) Thread.Yield();
             Interlocked.Increment(ref readerCount);
             if (writerPending == 0) return;
             Interlocked.Decrement(ref readerCount);
@@ -22,13 +22,14 @@ public class NonThreadBasedReaderWriterLatch
 
     public void ExitReadLock()
     {
-        Interlocked.Decrement(ref readerCount);
+        var ret = Interlocked.Decrement(ref readerCount);
+        Debug.Assert(ret >= 0);
     }
 
     public void EnterWriteLock()
     {
-        while (Interlocked.CompareExchange(ref writerPending, 1, 0) != 0) {}
-        while (readerCount != 0) {}
+        while (Interlocked.CompareExchange(ref writerPending, 1, 0) != 0) Thread.Yield();
+        while (readerCount != 0) Thread.Yield();
     }
 
     public void ExitWriteLock()
@@ -85,7 +86,6 @@ public class RwLatchVersionScheme : VersionSchemeBase
         Debug.Assert(success);
         TryStepStateMachine(machineLocal);
         rwLatch.ExitWriteLock();
-        
     }
 
     public override VersionSchemeState Enter(LightEpoch.EpochContext context = null)

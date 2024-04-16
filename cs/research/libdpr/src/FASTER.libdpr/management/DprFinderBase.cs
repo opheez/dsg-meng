@@ -105,6 +105,7 @@ namespace FASTER.libdpr
 
         public long AddWorker(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider)
         {
+            RefreshStateless();
             // A blind resending of graph is necessary, in case the coordinator is undergoing recovery and pausing
             // processing of new workers until every worker has responded
             SendGraphReconstruction(id, provider);

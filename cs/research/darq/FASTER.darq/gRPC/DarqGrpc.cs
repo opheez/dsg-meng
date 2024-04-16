@@ -60,10 +60,11 @@ public class DarqGrpcProducerWrapper : IDarqProducer
     }
 }
 
+// TODO(Tianyu): Fix later to be a background service for correct initialization
 public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposable
 {
     private Darq backend;
-    private readonly DarqBackgroundTask backgroundTask;
+    private readonly CancellationTokenSource cts;
     private readonly ManualResetEventSlim terminationStart;
     private readonly CountdownEvent terminationComplete;
     private Thread refreshThread;
@@ -74,17 +75,16 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
     private long currentIncarnationId;
     private DarqScanIterator currentIterator;
 
-    public DarqGrpcServiceImpl(Darq darq, DarqBackgroundWorkerPool workerPool, Dictionary<DarqId, GrpcChannel> clusterMap)
+    public DarqGrpcServiceImpl(Darq darq)
     {
         backend = darq;
-        backgroundTask = new DarqBackgroundTask(backend, workerPool, session => new DarqGrpcProducerWrapper(clusterMap, session));
         terminationStart = new ManualResetEventSlim();
         terminationComplete = new CountdownEvent(2);
         stepRequestPool = new ThreadLocalObjectPool<StepRequest>(() => new StepRequest());
         enqueueRequestPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 15]);
         backend.ConnectToCluster(out _);
-        backgroundTask.StopProcessing();
-
+        cts = new CancellationTokenSource();
+        
         refreshThread = new Thread(() =>
         {
             while (!terminationStart.IsSet)
@@ -99,9 +99,8 @@ public class DarqGrpcServiceImpl : DarqGrpcService.DarqGrpcServiceBase, IDisposa
         terminationStart.Set();
         // TODO(Tianyu): this shutdown process is unsafe and may leave things unsent/unprocessed in the queue
         backend.ForceCheckpoint();
+        cts.Cancel();
         Thread.Sleep(2000);
-        backgroundTask.StopProcessing();
-        backgroundTask?.Dispose();
         terminationComplete.Wait();
         backend.Dispose();
         refreshThread.Join();

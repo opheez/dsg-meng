@@ -65,8 +65,6 @@ namespace FASTER.darq
         /// </summary>
         public IDprFinder DprFinder = null;
         
-        public DarqBackgroundWorkerPool workerPool = null;
-        
         public DarqId Me = new(0);
 
         public DprWorkerId MyDpr = DprWorkerId.INVALID;
@@ -79,6 +77,7 @@ namespace FASTER.darq
         /// Device used for underlying log
         /// </summary>
         public IDevice LogDevice;
+        
 
         /// <summary>
         /// Size of a page in the underlying log, in bytes. Must be a power of 2.

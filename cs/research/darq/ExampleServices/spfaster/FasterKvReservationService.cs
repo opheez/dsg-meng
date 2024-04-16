@@ -4,10 +4,11 @@ using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
 using Grpc.Core;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using protobuf;
-using Status = FASTER.core.Status;
 
-namespace ExampleServices.spfaster;
+namespace dse.services;
 
 public enum TableId : byte
 {
@@ -84,7 +85,7 @@ public struct Value
     }
 }
 
-public struct FasterKvReservationStartFile
+public class FasterKvReservationStartFile
 {
     public string file;
 }
@@ -100,14 +101,20 @@ public class FasterKvReservationStateObject : StateObject
     {
         this.kv = kv;
     }
-    
-    public override void Dispose() {}
+
+    public override void Dispose()
+    {
+    }
 
     public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
     {
         // TODO(Tianyu): Do something about index checkpoints
-        var token = kv.TakeDprStyleCheckpoint(version, metadata, onPersist);
+        Guid token;
+        // If return is false, this means the previous checkpoint is still running and we should not advance more
+        while (!kv.TryTakeDprStyleCheckpoint(version, metadata, onPersist, out token))
+            Thread.Yield();
         tokenMappings[version] = token;
+        Task.Run(() => kv.CompleteCheckpointAsync());
     }
 
     private Guid FindHybridLogCheckpoint(long version)
@@ -229,30 +236,29 @@ public class ReserveFunctions : FunctionsBase<Key, Value, int, bool, Empty>
     }
 }
 
-public class FasterKvReservationService : FasterKVReservationService.FasterKVReservationServiceBase
+public class FasterKvReservationBackgroundService : BackgroundService
 {
     private FasterKvReservationStateObject backend;
-
     private ThreadLocalObjectPool<ClientSession<Key, Value, int, bool, Empty, IFunctions<Key, Value, int, bool, Empty>>>
         sessions;
+    private ILogger<FasterKvReservationBackgroundService> logger;
+    private FasterKvReservationStartFile file;
 
-    public FasterKvReservationService(FasterKvReservationStateObject backend, FasterKvReservationStartFile file)
+    public FasterKvReservationBackgroundService(FasterKvReservationStateObject backend,
+        FasterKvReservationStartFile file, ILogger<FasterKvReservationBackgroundService> logger)
     {
         this.backend = backend;
+        this.file = file;
+        this.logger = logger;
         sessions =
             new ThreadLocalObjectPool<
                 ClientSession<Key, Value, int, bool, Empty, IFunctions<Key, Value, int, bool, Empty>>>(() =>
                 this.backend.kv.NewSession(new ReserveFunctions()));
-        backend.ConnectToCluster(out var restored);
-        if (!restored && !file.file.Equals(""))
-            LoadFromFile(file.file);
-        
     }
 
-
-    private void LoadFromFile(string file)
+    private void LoadFromFile(string filename)
     {
-        using var reader = new StreamReader(file);       
+        using var reader = new StreamReader(filename);
         var s = sessions.Checkout();
         for (var line = reader.ReadLine(); line != null; line = reader.ReadLine())
         {
@@ -261,17 +267,28 @@ public class FasterKvReservationService : FasterKVReservationService.FasterKVRes
             var entityId = long.Parse(parts[1]);
             var price = int.Parse(parts[2]);
             var count = int.Parse(parts[3]);
-            
+
             var key = new Key(TableId.OFFERINGS, offeringId);
             var val = Value.CreateOffering(offeringId, entityId, price, count);
             var status = s.Upsert(ref key, ref val);
             // Not planning on running into larger-than-mem or other complex situations
-            if (!status.IsCompletedSuccessfully) throw new NotImplementedException();        
+            if (!status.IsCompletedSuccessfully) throw new NotImplementedException();
         }
         sessions.Return(s);
+        backend.ForceCheckpoint();
     }
-    
-    public override Task<ReservationResponse> MakeReservation(ReservationRequest request, ServerCallContext context)
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        logger.LogInformation("Faster service is starting...");
+        backend.ConnectToCluster(out var restored);
+        if (!restored && !file.file.Equals(""))
+            LoadFromFile(file.file);
+        await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+        logger.LogInformation("Faster service is stopping...");
+    }
+
+    public Task<ReservationResponse> MakeReservation(ReservationRequest request)
     {
         var s = sessions.Checkout();
         try
@@ -319,7 +336,7 @@ public class FasterKvReservationService : FasterKVReservationService.FasterKVRes
         }
     }
 
-    public override Task<ReservationResponse> CancelReservation(ReservationRequest request, ServerCallContext context)
+    public Task<ReservationResponse> CancelReservation(ReservationRequest request)
     {
         var s = sessions.Checkout();
         try
@@ -336,17 +353,16 @@ public class FasterKvReservationService : FasterKVReservationService.FasterKVRes
                     Ok = false
                 });
             }
-            
-                // Add updates back to count
-                reservationCount = -reservationCount;
-                var success = false;
-                status = s.RMW(ref offeringKey, ref reservationCount, ref success);
-                if (!status.IsCompletedSuccessfully) throw new NotImplementedException();
-                return Task.FromResult(new ReservationResponse
-                {
-                    Ok = true
-                });
 
+            // Add updates back to count
+            reservationCount = -reservationCount;
+            var success = false;
+            status = s.RMW(ref offeringKey, ref reservationCount, ref success);
+            if (!status.IsCompletedSuccessfully) throw new NotImplementedException();
+            return Task.FromResult(new ReservationResponse
+            {
+                Ok = true
+            });
         }
         finally
         {
@@ -354,7 +370,7 @@ public class FasterKvReservationService : FasterKVReservationService.FasterKVRes
         }
     }
 
-    public override Task<AddOfferingResponse> AddOffering(AddOfferingRequest request, ServerCallContext context)
+    public Task<AddOfferingResponse> AddOffering(AddOfferingRequest request)
     {
         var s = sessions.Checkout();
         try
@@ -379,5 +395,30 @@ public class FasterKvReservationService : FasterKVReservationService.FasterKVRes
         {
             sessions.Return(s);
         }
+    }
+}
+
+public class FasterKvReservationService : FasterKVReservationService.FasterKVReservationServiceBase
+{
+    private FasterKvReservationBackgroundService faster;
+    
+    public FasterKvReservationService(FasterKvReservationBackgroundService faster)
+    {
+        this.faster = faster;
+    }
+    
+    public override Task<ReservationResponse> MakeReservation(ReservationRequest request, ServerCallContext context)
+    {
+        return faster.MakeReservation(request);
+    }
+
+    public override Task<ReservationResponse> CancelReservation(ReservationRequest request, ServerCallContext context)
+    {
+        return faster.CancelReservation(request);
+    }
+
+    public override Task<AddOfferingResponse> AddOffering(AddOfferingRequest request, ServerCallContext context)
+    {
+        return faster.AddOffering(request);
     }
 }

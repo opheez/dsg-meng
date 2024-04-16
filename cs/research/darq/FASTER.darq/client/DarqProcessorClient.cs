@@ -476,7 +476,6 @@ namespace FASTER.client
     {
         private string address;
         private int port;
-        private ManualResetEventSlim terminationStart, terminationComplete;
 
         private long incarnation;
         private DprSession session;
@@ -494,43 +493,26 @@ namespace FASTER.client
             this.maxOutstandingSteps = maxOutstandingSteps;
             this.maxReadBuffer = maxReadBuffer;
         }
-
-        /// <inheritdoc/>
-        public void StartProcessing<T>(T processor) where T : IDarqProcessor
-        {
-            StartProcessingAsync(processor).GetAwaiter().GetResult();
-        }
         
-        public unsafe ValueTask<StepStatus> Step(StepRequest request)
+        
+        public ValueTask<StepStatus> Step(StepRequest request)
         {
             return new ValueTask<StepStatus>(writeClient.Step(request, incarnation, false));
         }
 
-        public DprSession StartUsingDprSessionExternally()
-        {
-            return session;
-        }
+        public DprSession GetSession() => session;
 
-        public void StopUsingDprSessionExternally()
-        {
-        }
 
         /// <inheritdoc/>
-        public async Task StartProcessingAsync<T>(T processor) where T : IDarqProcessor
+        public async Task StartProcessingAsync<T>(T processor, CancellationToken token) where T : IDarqProcessor
         {
-            var terminationToken = new ManualResetEventSlim();
-            if (Interlocked.CompareExchange(ref terminationStart, terminationToken, null) != null)
-                // already started
-                return;
-            terminationComplete = new ManualResetEventSlim();
-
             readClient = new DarqProcessorReadClient(session, address, port, maxReadBuffer);
             writeClient = new DarqProcessorWriteClient(session, address, port, maxOutstandingSteps);
             incarnation = writeClient.RegisterProcessor();
             readClient.StartReceivePush();
             processor.OnRestart(this);
 
-            while (!terminationStart.IsSet)
+            while (!token.IsCancellationRequested)
             {
                 if (!readClient.pendingMessages.IsEmpty())
                 {
@@ -555,7 +537,6 @@ namespace FASTER.client
                             {
                                 // TODO(Tianyu): Need to worry about clean shutdown?
                                 writeClient.Flush();
-                                terminationComplete.Set();
                                 return;
                             }
                             break;
@@ -566,29 +547,8 @@ namespace FASTER.client
                 writeClient.Flush();
                 // Otherwise, just continue looping
             }
-
-            terminationComplete.Set();
         }
-
-        /// <inheritdoc/>
-        public void StopProcessing()
-        {
-            StopProcessingAsync().GetAwaiter().GetResult();
-        }
-
-        /// <inheritdoc/>
-        public async Task StopProcessingAsync()
-        {
-            var t = terminationStart;
-            var c = terminationComplete;
-            if (t == null) return;
-            t.Set();
-            while (!c.IsSet)
-                await Task.Delay(10);
-            terminationStart = null;
-
-        }
-
+        
         public void Dispose()
         {
             readClient.Dispose();

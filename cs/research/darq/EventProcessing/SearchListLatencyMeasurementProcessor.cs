@@ -1,4 +1,4 @@
-using ExampleServices;
+using dse.services;
 using pubsub;
 
 namespace EventProcessing;

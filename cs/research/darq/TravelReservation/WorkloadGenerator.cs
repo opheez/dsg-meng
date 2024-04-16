@@ -1,7 +1,7 @@
 using System.Text;
 using MathNet.Numerics.Distributions;
 
-namespace SimpleWorkflowBench;
+namespace TravelReservation;
 
 public class WorkloadGenerator
 {

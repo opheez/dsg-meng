@@ -17,7 +17,7 @@ namespace FASTER.libdpr
             NewWorldLine = newWorldLine;
         }
     }
-    
+
     /// <summary>
     /// A DprSession is a DPR entity that cannot commit/restore state, but communicates with other DPR entities and may
     /// convey DPR dependencies (e.g., a client session).
@@ -26,14 +26,14 @@ namespace FASTER.libdpr
     {
         internal long version, worldLine;
         internal LightDependencySet deps;
-        
+
         /// <summary>
         /// WorldLine of the session
         /// </summary>
         public long WorldLine => worldLine >= 0 ? worldLine : -worldLine;
-        
+
         public bool RolledBack => worldLine < 0;
-        
+
         /// <summary>
         /// Create a DPR session working on the supplied worldLine (or 1 by default, in a cluster that has never failed)
         /// </summary>
@@ -45,7 +45,7 @@ namespace FASTER.libdpr
             worldLine = initialWorldLine;
             deps = new LightDependencySet();
         }
-        
+
 
         internal void UnsafeReset(long initialWorldLine = 0)
         {
@@ -54,7 +54,7 @@ namespace FASTER.libdpr
             worldLine = initialWorldLine;
             deps.UnsafeClear();
         }
-        
+
 
         internal void UnsafeReset(StateObject to)
         {
@@ -74,7 +74,7 @@ namespace FASTER.libdpr
         {
             if (RolledBack)
                 throw new DprSessionRolledBackException(WorldLine);
-            
+
             fixed (byte* b = headerBytes)
             {
                 var bend = b + headerBytes.Length;
@@ -98,13 +98,13 @@ namespace FASTER.libdpr
                     if (copyHead < bend - sizeof(WorkerVersion))
                         Unsafe.AsRef<WorkerVersion>(copyHead) = wv;
                     copyHead += sizeof(WorkerVersion);
-                }               
-                
+                }
+
                 // Invert depends on whether or not we fit
-                return (int) (copyHead <= bend ? copyHead - b : b - copyHead);
+                return (int)(copyHead <= bend ? copyHead - b : b - copyHead);
             }
         }
-        
+
         /// <summary>
         /// Receive a message with the given header in this session. 
         /// </summary>
@@ -116,13 +116,13 @@ namespace FASTER.libdpr
         {
             if (RolledBack)
                 throw new DprSessionRolledBackException(WorldLine);
-            
+
             fixed (byte* h = dprMessage)
             {
                 ref var responseHeader = ref Unsafe.AsRef<DprMessageHeader>(h);
                 if (worldLine == 0)
                     Interlocked.CompareExchange(ref worldLine, responseHeader.WorldLine, 0);
-                
+
                 var wl = worldLine;
                 if (responseHeader.WorldLine > wl)
                 {
@@ -134,7 +134,7 @@ namespace FASTER.libdpr
                     return false;
 
                 Debug.Assert(responseHeader.WorldLine == worldLine);
-                
+
                 // Add largest worker-version as dependency for future ops
                 if (!responseHeader.SrcWorkerId.Equals(DprWorkerId.INVALID))
                     deps.Update(responseHeader.SrcWorkerId, responseHeader.Version);
@@ -156,6 +156,18 @@ namespace FASTER.libdpr
                 core.Utility.MonotonicUpdate(ref this.version, responseHeader.Version, out _);
             }
 
+            return true;
+        }
+
+        public bool SynchronizeWith(StateObject so)
+        {
+            var version = so.Version();
+            var wl = so.WorldLine();
+            if (worldLine == 0)
+                Interlocked.CompareExchange(ref worldLine, wl, 0);
+            if (worldLine < wl) throw new DprSessionRolledBackException(wl);
+            if (worldLine > wl) return false;
+            deps.Update(so.Me(), version);
             return true;
         }
 

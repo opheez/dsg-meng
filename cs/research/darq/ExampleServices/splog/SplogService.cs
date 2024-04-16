@@ -3,10 +3,12 @@ using FASTER.core;
 using FASTER.libdpr;
 using Google.Protobuf;
 using Grpc.Core;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using protobuf;
 using Status = Grpc.Core.Status;
 
-namespace ExampleServices.splog;
+namespace dse.services.splog;
 
 public class SpeculativeLog : StateObject
 {
@@ -56,18 +58,26 @@ public class SpeculativeLog : StateObject
     }
 }
 
-
-public class SplogService : protobuf.SplogService.SplogServiceBase
+public class SplogBackgroundService : BackgroundService
 {
     private SpeculativeLog backend;
+    private ILogger<SplogBackgroundService> logger;
 
-    public SplogService(SpeculativeLog backend)
+    public SplogBackgroundService(SpeculativeLog backend, ILogger<SplogBackgroundService> logger)
     {
         this.backend = backend;
+        this.logger = logger;
+    }
+    
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        logger.LogInformation("Splog is starting...");
         backend.ConnectToCluster(out _);
+        await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+        logger.LogInformation("Splog is shutting down");
     }
 
-    public override Task<SplogAppendResponse> Append(SplogAppendRequest request, ServerCallContext context)
+    public Task<SplogAppendResponse> Append(SplogAppendRequest request)
     {
         var lsn = backend.log.Enqueue(request.Entry.Span);
         return Task.FromResult(new SplogAppendResponse
@@ -95,14 +105,14 @@ public class SplogService : protobuf.SplogService.SplogServiceBase
         var currentTime = timer.ElapsedMilliseconds;
         if (currentTime > timeoutMilli) return false;
         var nextEntry = iterator.WaitAsync().AsTask();
-        var session = backend.DetachFromWorker();
+        var session = backend.DetachFromWorkerAndPauseAction();
         var result =  await Task.WhenAny(nextEntry, Task.Delay((int)(timeoutMilli - currentTime)));
         if (!backend.TryMergeAndStartAction(session))
             throw new RpcException(Status.DefaultCancelled);
         return result == nextEntry;
     }
 
-    public override async Task<SplogScanResponse> Scan(SplogScanRequest request, ServerCallContext context)
+    public async Task<SplogScanResponse> Scan(SplogScanRequest request)
     {
         var responseObject = new SplogScanResponse();
         var scanner = backend.log.Scan(request.StartLsn, request.EndLsn, recover: false, scanUncommitted: true);
@@ -116,12 +126,38 @@ public class SplogService : protobuf.SplogService.SplogServiceBase
         return responseObject;
     }
 
-    public override Task<SplogTruncateResponse> Truncate(SplogTruncateRequest request, ServerCallContext context)
+    public Task<SplogTruncateResponse> Truncate(SplogTruncateRequest request)
     {
         backend.log.TruncateUntil(request.NewStartLsn);
         return Task.FromResult(new SplogTruncateResponse
         {
             Ok = true
         });
+    }
+}
+
+public class SplogService : protobuf.SplogService.SplogServiceBase
+{
+    private SplogBackgroundService backend;
+
+    public SplogService(SplogBackgroundService backend)
+    {
+        this.backend = backend;
+    }
+
+    public override Task<SplogAppendResponse> Append(SplogAppendRequest request, ServerCallContext context)
+    {
+        return backend.Append(request);
+    }
+    
+
+    public override Task<SplogScanResponse> Scan(SplogScanRequest request, ServerCallContext context)
+    {
+        return backend.Scan(request);
+    }
+
+    public override Task<SplogTruncateResponse> Truncate(SplogTruncateRequest request, ServerCallContext context)
+    {
+        return backend.Truncate(request);
     }
 }

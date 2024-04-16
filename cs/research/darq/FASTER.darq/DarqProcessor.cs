@@ -13,6 +13,8 @@ namespace FASTER.libdpr
         /// <param name="request"> step request </param>
         /// <returns> status of the step </returns>
         ValueTask<StepStatus> Step(StepRequest request);
+
+        DprSession GetSession();
     }
     
     
@@ -39,12 +41,6 @@ namespace FASTER.libdpr
     
     public interface IDarqProcessorClient
     {
-        public void StartProcessing<T>(T processor) where T : IDarqProcessor;
-
-        public Task StartProcessingAsync<T>(T processor) where T : IDarqProcessor;
-
-        public void StopProcessing();
-
-        public Task StopProcessingAsync();
+        public Task StartProcessingAsync<T>(T processor, CancellationToken token) where T : IDarqProcessor;
     }
 }

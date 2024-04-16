@@ -20,8 +20,6 @@ namespace FASTER.server
         public string Address = "127.0.0.1";
         
         public IDarqClusterInfo ClusterInfo;
-
-        public DarqBackgroundWorkerPool WorkerPool;
         
         public DarqSettings DarqSettings;
     }

@@ -36,6 +36,90 @@ namespace FASTER.libdpr
         private byte[] metadataBuffer = new byte[1 << 15];
 
         private SimpleObjectPool<DprSession> sessionPool;
+        private bool connected;
+
+        private class CheckpointStateMachine : VersionSchemeStateMachine
+        {
+            private const byte IN_PROG = 1;
+            private bool checkpointComplete = false;
+            private StateObject so;
+
+            public CheckpointStateMachine(StateObject so, long targetVersion = -1) : base(targetVersion)
+            {
+                this.so = so;
+            }
+
+            public override bool GetNextStep(VersionSchemeState currentState, out VersionSchemeState nextState)
+            {
+                switch (currentState.Phase)
+                {
+                    case VersionSchemeState.REST:
+                        nextState = VersionSchemeState.Make(IN_PROG, actualToVersion);
+                        return true;
+                    case IN_PROG:
+                        nextState = VersionSchemeState.Make(VersionSchemeState.REST, actualToVersion);
+                        return checkpointComplete;
+                    default:
+                        throw new NotImplementedException();
+                }
+            }
+
+            public override void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
+            {
+                if (fromState.Phase == VersionSchemeState.REST)
+                {
+                    // Prepare checkpoint metadata
+                    int length;
+                    var deps = so.ComputeCheckpointMetadata(fromState.Version);
+                    Debug.Assert(so.MetadataSize(deps) < so.metadataBuffer.Length);
+                    unsafe
+                    {
+                        fixed (byte* dst = so.metadataBuffer)
+                        {
+                            var head = dst;
+                            var end = dst + so.metadataBuffer.Length;
+                            deps.CopyTo(new Span<byte>(head, (int)(end - head)));
+                            head += deps.Length;
+
+                            *(int*)head = so.attachments.Count;
+                            head += sizeof(int);
+
+                            foreach (var attachment in so.attachments)
+                            {
+                                var size = attachment.SerializedSize();
+                                *(int*)head = size;
+                                head += sizeof(int);
+                                attachment.SerializeTo(new Span<byte>(head, (int)(end - head)));
+                                head += size;
+                            }
+
+                            length = (int)(head - dst);
+                        }
+                    }
+
+                    // Perform checkpoint with a callback to report persistence and clean-up leftover tracking state
+                    so.PerformCheckpoint(fromState.Version, new Span<byte>(so.metadataBuffer, 0, length), () =>
+                    {
+                        so.versions.TryRemove(fromState.Version, out var deps);
+                        var workerVersion = new WorkerVersion(so.options.Me, fromState.Version);
+                        so.options.DprFinder?.ReportNewPersistentVersion(so.worldLine, workerVersion, deps);
+                        so.dependencySetPool.Return(deps);
+                        checkpointComplete = true;
+                        so.versionScheme.SignalStepAvailable();
+                    });
+
+                    // Prepare new version before any operations can occur in it
+                    var newDeps = so.dependencySetPool.Checkout();
+                    if (fromState.Version != 0) newDeps.Update(so.options.Me, fromState.Version);
+                    var success = so.versions.TryAdd(toState.Version, newDeps);
+                    Debug.Assert(success);
+                }
+            }
+
+            public override void AfterEnteringState(VersionSchemeState state)
+            {
+            }
+        }
 
         /// <summary>
         /// Creates a new DprServer.
@@ -47,15 +131,15 @@ namespace FASTER.libdpr
         {
             this.options = options;
             this.versionScheme = versionScheme;
-            
+
             versions = new ConcurrentDictionary<long, LightDependencySet>();
             dependencySetPool = new SimpleObjectPool<LightDependencySet>(() => new LightDependencySet());
             depSerializationArray = new byte[2 * LightDependencySet.MaxClusterSize * sizeof(long)];
             nextCommit = new TaskCompletionSource<long>();
             sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         }
-        
-        public IDprFinder GetDprFinder() => options.DprFinder; 
+
+        public IDprFinder GetDprFinder() => options.DprFinder;
 
         /// <summary></summary>
         /// <returns> A task that completes when the next commit is recoverable</returns>
@@ -82,6 +166,8 @@ namespace FASTER.libdpr
         /// <summary></summary>
         /// <returns> Version of current DprWorker </returns>
         public long Version() => versionScheme.CurrentState().Version;
+
+        public bool ConnectedToCluster() => connected;
 
         private Task BeginRestore(long newWorldLine, long version)
         {
@@ -128,7 +214,7 @@ namespace FASTER.libdpr
             return tcs.Task;
         }
 
-        private int MetadataSize(ReadOnlySpan<byte> deps)
+        internal int MetadataSize(ReadOnlySpan<byte> deps)
         {
             var result = deps.Length + sizeof(int);
             foreach (var attachment in attachments)
@@ -136,55 +222,9 @@ namespace FASTER.libdpr
             return result;
         }
 
-        private bool BeginCheckpoint(long targetVersion = -1)
+        private bool BeginCheckpoint(long targetVersion = -1, bool spin = false)
         {
-            return versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
-            {
-                // Prepare checkpoint metadata
-                int length;
-                var deps = ComputeCheckpointMetadata(vOld);
-                Debug.Assert(MetadataSize(deps) < metadataBuffer.Length);
-                unsafe
-                {
-                    fixed (byte* dst = metadataBuffer)
-                    {
-                        var head = dst;
-                        var end = dst + metadataBuffer.Length;
-                        deps.CopyTo(new Span<byte>(head, (int)(end - head)));
-                        head += deps.Length;
-
-                        *(int*)head = attachments.Count;
-                        head += sizeof(int);
-
-                        foreach (var attachment in attachments)
-                        {
-                            var size = attachment.SerializedSize();
-                            *(int*)head = size;
-                            head += sizeof(int);
-                            attachment.SerializeTo(new Span<byte>(head, (int)(end - head)));
-                            head += size;
-                        }
-
-                        length = (int)(head - dst);
-                    }
-                }
-
-                // Perform checkpoint with a callback to report persistence and clean-up leftover tracking state
-                PerformCheckpoint(vOld, new Span<byte>(metadataBuffer, 0, length), () =>
-                {
-                    versions.TryRemove(vOld, out var deps);
-                    var workerVersion = new WorkerVersion(options.Me, vOld);
-                    options.DprFinder?.ReportNewPersistentVersion(worldLine, workerVersion, deps);
-                    dependencySetPool.Return(deps);
-                });
-
-                // Prepare new version before any operations can occur in it
-                var newDeps = dependencySetPool.Checkout();
-                if (vOld != 0) newDeps.Update(options.Me, vOld);
-                var success = versions.TryAdd(vNew, newDeps);
-                Debug.Assert(success);
-
-            }, targetVersion) == StateMachineExecutionStatus.OK;
+            return versionScheme.ExecuteStateMachine(new CheckpointStateMachine(this, targetVersion), spin);
         }
 
         /// <summary>
@@ -195,6 +235,8 @@ namespace FASTER.libdpr
         /// </summary>
         public void ConnectToCluster(out bool restored)
         {
+            if (connected)
+                throw new InvalidOperationException("Cannot connect to a cluster twice");
             long versionToRecover = 0;
             if (options.DprFinder != null)
             {
@@ -222,9 +264,10 @@ namespace FASTER.libdpr
             }
 
             options.DprFinder?.Refresh(options.Me, GetUnprunedVersions);
+            connected = true;
         }
 
-        private ReadOnlySpan<byte> ComputeCheckpointMetadata(long version)
+        internal ReadOnlySpan<byte> ComputeCheckpointMetadata(long version)
         {
             var deps = versions[version];
             var size = SerializationUtil.SerializeCheckpointMetadata(depSerializationArray,
@@ -274,14 +317,14 @@ namespace FASTER.libdpr
             }
 
             for (var i = lastCommitted; i < newCommitted; i++)
-                PruneVersion(i);
+                if (i != 0) PruneVersion(i);
         }
 
         public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
-            
+
             ref var header =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
 
@@ -309,7 +352,10 @@ namespace FASTER.libdpr
 
             // If the worker world-line is newer, the request must be dropped. 
             if (header.WorldLine != 0 && header.WorldLine < worldLine)
+            {
+                versionScheme.Leave();
                 return false;
+            }
 
             // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
             // could get processed at a future version instead due to thread timing. However, this is not a correctness
@@ -330,6 +376,7 @@ namespace FASTER.libdpr
                     }
                 }
             }
+
             return true;
         }
         
@@ -355,7 +402,7 @@ namespace FASTER.libdpr
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
-            
+
             if (outputHeaderBytes.Length < DprMessageHeader.FixedLenSize)
                 return -DprMessageHeader.FixedLenSize;
 
@@ -370,10 +417,17 @@ namespace FASTER.libdpr
             return DprMessageHeader.FixedLenSize;
         }
 
-        public DprSession DetachFromWorker(LightEpoch.EpochContext context = null)
+        public DprSession DetachFromWorker()
         {
             var session = sessionPool.Checkout();
             session.UnsafeReset(this);
+            return session;
+        }
+
+
+        public DprSession DetachFromWorkerAndPauseAction(LightEpoch.EpochContext context = null)
+        {
+            var session = DetachFromWorker();
             EndAction(context);
             return session;
         }
@@ -393,15 +447,20 @@ namespace FASTER.libdpr
             return TryReceiveAndStartAction(header, context);
         }
 
+        public bool IsCompatible(DprSession detachedSession)
+        {
+            return detachedSession.WorldLine == worldLine;
+        }
+
         /// <summary>
         ///     Force the execution of a checkpoint ahead of the schedule specified at creation time.
         ///     Resets the checkpoint schedule to happen checkpoint_milli after this invocation.
         /// </summary>
         /// <param name="targetVersion"> the version to jump to after the checkpoint, or -1 for the immediate next version</param>
-        public void ForceCheckpoint(long targetVersion = -1)
-        {
-            if (BeginCheckpoint(targetVersion))
-                core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
+        public void ForceCheckpoint(long targetVersion = -1, bool spin = false)
+        { 
+            core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
+            BeginCheckpoint(targetVersion, spin);
         }
 
         public void ForceRefresh()
@@ -413,7 +472,7 @@ namespace FASTER.libdpr
                 BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me))
                     .GetAwaiter().GetResult();
         }
-        
+
         /// <summary>
         /// Performs a checkpoint uniquely identified by the given version number along with the given metadata to be
         /// persisted. Implementers are allowed to return as soon as the checkpoint content is finalized, but before

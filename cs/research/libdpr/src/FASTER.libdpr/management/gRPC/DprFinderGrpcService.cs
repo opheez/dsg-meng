@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FASTER.libdpr.proto;
 using Grpc.Core;
+using Microsoft.Extensions.Hosting;
 
 namespace FASTER.libdpr
 {
@@ -39,34 +40,29 @@ namespace FASTER.libdpr
         }
     }
     
-    public class DprFinderGrpcService : DprFinder.DprFinderBase, IDisposable
+    public class DprFinderGrpcBackgroundService : BackgroundService 
     {
         private readonly GraphDprFinderBackend backend;
-        private Thread processThread;
-        private ManualResetEventSlim termination;
         private GrpcPrecomputedSyncResponse response;
         
-        public DprFinderGrpcService(GraphDprFinderBackend backend)
+        public DprFinderGrpcBackgroundService(GraphDprFinderBackend backend)
         {
             this.backend = backend;
             response = new GrpcPrecomputedSyncResponse();
             backend.AddResponseObjectToPrecompute(response);
-            termination = new ManualResetEventSlim();
-            processThread = new Thread(() =>
-            {
-                while (!termination.IsSet)
-                    backend.Process();
-            });
-            processThread.Start();
         }
-
-        public void Dispose()
+        
+        
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            termination.Set();
-            processThread.Join();
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                backend.Process();
+                await Task.Yield();
+            }
         }
 
-        public override Task<AddWorkerResponse> AddWorker(AddWorkerRequest request, ServerCallContext context)
+        public Task<AddWorkerResponse> AddWorker(AddWorkerRequest request)
         {
             var result = new TaskCompletionSource<AddWorkerResponse>();
             backend.AddWorker(new DprWorkerId(request.Id),
@@ -75,7 +71,7 @@ namespace FASTER.libdpr
             return result.Task;
         }
 
-        public override Task<RemoveWorkerResponse> RemoveWorker(RemoveWorkerRequest request, ServerCallContext context)
+        public Task<RemoveWorkerResponse> RemoveWorker(RemoveWorkerRequest request)
         {
             var result = new TaskCompletionSource<RemoveWorkerResponse>();
             backend.DeleteWorker(new DprWorkerId(request.Id),
@@ -83,8 +79,7 @@ namespace FASTER.libdpr
             return result.Task;
         }
 
-        public override Task<NewCheckpointResponse> NewCheckpoint(NewCheckpointRequest request,
-            ServerCallContext context)
+        public Task<NewCheckpointResponse> NewCheckpoint(NewCheckpointRequest request)
         {
             backend.NewCheckpoint(request.WorldLine, new WorkerVersion(request.Id, request.Version),
                 request.Deps.Select(wv => new WorkerVersion(wv.Id, wv.Version)));
@@ -94,7 +89,7 @@ namespace FASTER.libdpr
             });
         }
 
-        public override Task<SyncResponse> Sync(SyncRequest request, ServerCallContext context)
+        public Task<SyncResponse> Sync()
         {
             response.rwLatch.EnterReadLock();
             var result = response.obj.Clone();
@@ -102,7 +97,7 @@ namespace FASTER.libdpr
             return Task.FromResult(result);
         }
 
-        public override Task<ResendGraphResponse> ResendGraph(ResendGraphRequest request, ServerCallContext context)
+        public Task<ResendGraphResponse> ResendGraph(ResendGraphRequest request)
         {
             foreach (var n in request.GraphNodes)
             {
@@ -114,6 +109,42 @@ namespace FASTER.libdpr
             {
                 Ok = true
             });
+        }
+    }
+    
+    public class DprFinderGrpcService : DprFinder.DprFinderBase
+    {
+        private DprFinderGrpcBackgroundService backend;
+        
+        public DprFinderGrpcService(DprFinderGrpcBackgroundService backend)
+        {
+            this.backend = backend;
+        }
+
+        public override Task<AddWorkerResponse> AddWorker(AddWorkerRequest request, ServerCallContext context)
+        {
+            return backend.AddWorker(request);
+        }
+
+        public override Task<RemoveWorkerResponse> RemoveWorker(RemoveWorkerRequest request, ServerCallContext context)
+        {
+            return backend.RemoveWorker(request);
+        }
+
+        public override Task<NewCheckpointResponse> NewCheckpoint(NewCheckpointRequest request,
+            ServerCallContext context)
+        {
+            return backend.NewCheckpoint(request);
+        }
+
+        public override Task<SyncResponse> Sync(SyncRequest request, ServerCallContext context)
+        {
+            return backend.Sync();
+        }
+
+        public override Task<ResendGraphResponse> ResendGraph(ResendGraphRequest request, ServerCallContext context)
+        {
+            return backend.ResendGraph(request);
         }
     }
 }

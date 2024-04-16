@@ -388,13 +388,13 @@ namespace FASTER.core
         }
 
         
-        public Guid TakeDprStyleCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
+        public bool TryTakeDprStyleCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist, out Guid token)
         {
             CommitCookie = metadata.ToArray();
             var backend = new FoldOverCheckpointTask(onPersist);
             var success = StartStateMachine(new HybridLogCheckpointStateMachine(backend, version));
-            Debug.Assert(success);
-            return _hybridLogCheckpointToken;
+            token = _hybridLogCheckpointToken;
+            return success;
         }
 
         /// <summary>

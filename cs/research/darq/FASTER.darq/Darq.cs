@@ -193,16 +193,6 @@ namespace FASTER.darq
         /// <returns> whether enqueue is successful </returns>
         public bool Enqueue(IReadOnlySpanBatch entries, long producerId, long sequenceNum)
         {
-#if DEBUG
-            unsafe
-            {
-                for (var i = 0; i < entries.TotalEntries(); i++)
-                {
-                    fixed (byte* h = entries.Get(i))
-                        Debug.Assert((DarqMessageType)(*h) == DarqMessageType.IN);
-                }
-            }
-#endif
             // Check that we are not executing duplicates and update dvc accordingly
             if (producerId != -1 && !dvc.Process(producerId, sequenceNum))
                 return false;
@@ -318,12 +308,13 @@ namespace FASTER.darq
             return RegisterNewProcessorAsync().GetAwaiter().GetResult();
         }
 
-        public async Task<long> RegisterNewProcessorAsync()
+        public Task<long> RegisterNewProcessorAsync()
         {
             var result = Interlocked.Increment(ref incarnation.value);
-            // TODO(Tianyu): This is not necessary and just an easy way to ensure there is no overlap of processing from two processor
-            await NextCommit();
-            return result;
+            // TODO(Tianyu): Must use some sort of epoch to force all threads to synchronize and recognize the new
+            // incarnation? On the other hand, maybe the sequential processing of steps is sufficient guarantee...
+            // ForceCheckpoint(spin: true);
+            return Task.FromResult(result);
         }
 
         /// <summary>

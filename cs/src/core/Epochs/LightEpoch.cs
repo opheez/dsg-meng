@@ -127,7 +127,8 @@ namespace FASTER.core
             {
                 if (context == null)
                     threadLocalThreadEntryIndex = 0;
-                context.threadEntryIndex = 0;
+                else 
+                    context.threadEntryIndex = 0;
             }        
         }
 
@@ -557,7 +558,10 @@ namespace FASTER.core
                     if (0 == Interlocked.CompareExchange(
                             ref (threadIndexAligned + EpochContext.GetStartOffset1(context))->contextId,
                             EpochContext.GetId(context), 0))
+                    {
                         EpochContext.SetThreadEntryIndex(context, EpochContext.GetStartOffset1(context));
+                        return;
+                    }
                 }
 
                 if (EpochContext.GetStartOffset2(context) > 0)

@@ -1,7 +1,7 @@
 using FASTER.libdpr;
 using pubsub;
 
-namespace ExampleServices;
+namespace dse.services;
 
 public interface SpPubSubEventHandler
 {

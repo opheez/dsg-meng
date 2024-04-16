@@ -12,18 +12,13 @@ namespace FASTER.darq
     {
         private Darq darq;
         private SimpleObjectPool<DarqMessage> messagePool;
-        private ManualResetEventSlim terminationStart, terminationComplete;
-
-        private bool shouldSnapshotDpr;
-
-        // TODO(Tianyu): For benchmark purposes only
-        public Stopwatch sw = new();
+        private ManualResetEventSlim terminationComplete;
 
         // TODO(Tianyu): Reason about behavior in the case of rollback
-        private long incarnation;
+        public long incarnation;
         private DarqScanIterator iterator;
+        private DprSession session;
         private Capabilities capabilities;
-        private CancellationTokenSource loopAwaitCancellationTokenSource;
 
         private enum ProcessResult
         {
@@ -31,28 +26,29 @@ namespace FASTER.darq
             NO_ENTRY,
             TERMINATED
         }
-
+        
         private class Capabilities : IDarqProcessorClientCapabilities
         {
             private readonly ColocatedDarqProcessorClient parent;
-            internal readonly long worldLine;
+            private DprSession session;
 
-            public Capabilities(ColocatedDarqProcessorClient parent, long worldLine)
+            public Capabilities(ColocatedDarqProcessorClient parent)
             {
                 this.parent = parent;
-                this.worldLine = worldLine;
+                session = parent.session;
             }
 
-            public unsafe ValueTask<StepStatus> Step(StepRequest request)
+            public ValueTask<StepStatus> Step(StepRequest request)
             {
-                Span<byte> header = default;
                 // If step results in a version mismatch, rely on the scan to trigger a rollback for simplicity
-                if (parent.darq.WorldLine() != worldLine)
+                if (!parent.darq.TrySynchronizeAndStartAction(session))
                     return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
-
                 var status = parent.darq.Step(parent.incarnation, request);
+                parent.darq.EndAction();
                 return new ValueTask<StepStatus>(status);
             }
+
+            public DprSession GetSession() => session;
         }
 
         /// <summary>
@@ -64,7 +60,6 @@ namespace FASTER.darq
         {
             this.darq = darq;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool));
-            loopAwaitCancellationTokenSource = new CancellationTokenSource();
         }
 
         public void Dispose()
@@ -102,22 +97,12 @@ namespace FASTER.darq
             try
             {
                 var hasNext = TryReadEntry(out var m);
-                // Manually check if worldLine matches without going through the heavyweight DPR path
-                if (capabilities.worldLine != darq.WorldLine())
-                {
-                    Console.WriteLine("Processor detected rollback, restarting");
-                    OnProcessorClientRestart(processor);
-                    // Reset to next iteration without doing anything
-                    return ProcessResult.CONTINUE;
-                }
-
                 if (!hasNext)
                     return ProcessResult.NO_ENTRY;
-
                 // Not a message we need to worry about
                 if (m == null) return ProcessResult.CONTINUE;
 
-                if (!sw.IsRunning) sw.Start();
+                session.SynchronizeWith(darq);
                 switch (m.GetMessageType())
                 {
                     case DarqMessageType.IN:
@@ -140,30 +125,23 @@ namespace FASTER.darq
 
         private void OnProcessorClientRestart<T>(T processor) where T : IDarqProcessor
         {
-            capabilities = new Capabilities(this, darq.WorldLine());
+            session = new DprSession();
+            capabilities = new Capabilities(this);
             processor.OnRestart(capabilities);
             iterator = darq.StartScan(true);
         }
-
+        
         /// <inheritdoc/>
-        public void StartProcessing<T>(T processor) where T : IDarqProcessor
-        {
-            StartProcessingAsync(processor).GetAwaiter().GetResult();
-        }
-
-        /// <inheritdoc/>
-        public async Task StartProcessingAsync<T>(T processor)
+        public async Task StartProcessingAsync<T>(T processor, CancellationToken token)
             where T : IDarqProcessor
         {
             try
             {
-                terminationStart = new ManualResetEventSlim();
                 terminationComplete = new ManualResetEventSlim();
-
                 incarnation = darq.RegisterNewProcessor();
                 OnProcessorClientRestart(processor);
                 Console.WriteLine("Starting Processor...");
-                while (!terminationStart.IsSet)
+                while (!token.IsCancellationRequested)
                 {
                     ProcessResult result;
                     do
@@ -177,7 +155,7 @@ namespace FASTER.darq
                     // FASTER.darq.StateObject().RefreshSafeReadTail();
                     try
                     {
-                        await iterator.WaitAsync(loopAwaitCancellationTokenSource.Token).AsTask();
+                        await iterator.WaitAsync(token);
                     }
                     catch (OperationCanceledException) {}
                 }
@@ -191,23 +169,6 @@ namespace FASTER.darq
                 Console.WriteLine(e.Message);
                 Console.WriteLine(e.StackTrace);
             }
-        }
-
-        /// <inheritdoc/>
-        public void StopProcessing()
-        {
-            StopProcessingAsync().GetAwaiter().GetResult();
-        }
-
-        /// <inheritdoc/>
-        public async Task StopProcessingAsync()
-        {
-            terminationStart.Set();
-            loopAwaitCancellationTokenSource.Cancel();
-            while (!terminationComplete.IsSet)
-                await Task.Delay(10);
-            iterator.Dispose();
-            if (sw.IsRunning) sw.Stop();
         }
     }
 }

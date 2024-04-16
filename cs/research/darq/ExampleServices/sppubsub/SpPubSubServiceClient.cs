@@ -12,7 +12,7 @@ using Newtonsoft.Json.Linq;
 using pubsub;
 using StepRequest = pubsub.StepRequest;
 
-namespace ExampleServices;
+namespace dse.services;
 
 public class SpPubSubServiceClient
 {

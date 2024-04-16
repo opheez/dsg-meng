@@ -44,9 +44,9 @@ namespace FASTER.server
     {
         private readonly IFasterServer server;
         private readonly Darq darq;
-        private readonly DarqBackgroundWorkerPool workerPool;
         private readonly DarqProvider<TVersionScheme> provider;
-        private readonly DarqBackgroundTask _backgroundTask;
+        private readonly DarqBackgroundMaintenanceTask maintenanceTask;
+        private readonly CancellationTokenSource cts;
         private readonly ManualResetEventSlim terminationStart;
         private readonly CountdownEvent terminationComplete;
         private Thread refreshThread, responseThread;
@@ -55,7 +55,13 @@ namespace FASTER.server
         public DarqServer(DarqServerOptions options, TVersionScheme versionScheme)
         {
             darq = new Darq(options.DarqSettings, versionScheme);
-            _backgroundTask = new DarqBackgroundTask(darq, options.WorkerPool, session => new DarqProducerClient(options.ClusterInfo, session));
+            maintenanceTask = new DarqBackgroundMaintenanceTask(darq, new DarqMaintenanceBackgroundServiceSettings
+            {
+                morselSize = 512,
+                batchSize = 06,
+                producerFactory = session => new DarqProducerClient(options.ClusterInfo, session)
+            });
+            cts = new CancellationTokenSource();
             terminationStart = new ManualResetEventSlim();
             terminationComplete = new CountdownEvent(2);
             darq.ConnectToCluster(out _);
@@ -74,12 +80,12 @@ namespace FASTER.server
 
         public Darq GetDarq() => darq;
 
-        public long BackgroundProcessingLag => _backgroundTask.ProcessingLag;
+        public long BackgroundProcessingLag => maintenanceTask.ProcessingLag;
 
         public void Start()
         {
             server.Start();
-            _backgroundTask.BeginProcessing();
+            Task.Run(async () => await maintenanceTask.RunAsync(cts.Token));
 
             refreshThread = new Thread(() =>
             {
@@ -116,9 +122,9 @@ namespace FASTER.server
             terminationStart.Set();
             // TODO(Tianyu): this shutdown process is unsafe and may leave things unsent/unprocessed in the queue
             darq.ForceCheckpoint();
+            cts.Cancel();
             Thread.Sleep(2000);
-            _backgroundTask?.StopProcessing();
-            _backgroundTask?.Dispose();
+            maintenanceTask?.Dispose();
             server.Dispose();
             terminationComplete.Wait();
             darq.Dispose();

@@ -27,22 +27,18 @@ namespace FASTER.libdpr.gRPC
             ServerCallContext context,
             UnaryServerMethod<TRequest, TResponse> continuation)
         {
-            // Get a id that is almost guaranteed to be unique for the runtime of the RPC for use in epoch as context
-            var epochContext = new LightEpoch.EpochContext
-            {
-                customId = Interlocked.Increment(ref requestId)
-            };
+            // TODO(Tianyu): Create Epoch Context specific to a request
             var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             if (header != null)
             {
                 // Speculative code path
-                if (!_stateObject.TryReceiveAndStartAction(header, epochContext))
+                if (!_stateObject.TryReceiveAndStartAction(header))
                     // Use an error to signal to caller that this call cannot proceed
                     // TODO(Tianyu): add more descriptive exception information
                     throw new RpcException(Status.DefaultCancelled);
                 var response = await continuation.Invoke(request, context);
                 var buf = serializationArrayPool.Checkout();
-                _stateObject.ProduceTagAndEndAction(buf, epochContext);
+                _stateObject.ProduceTagAndEndAction(buf);
                 context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
                 serializationArrayPool.Return(buf);
                 return response;
@@ -50,9 +46,9 @@ namespace FASTER.libdpr.gRPC
             else
             {
                 // Non speculative code path
-                _stateObject.StartLocalAction(epochContext);
+                _stateObject.StartLocalAction();
                 var response = await continuation.Invoke(request, context);
-                _stateObject.EndAction(epochContext);
+                _stateObject.EndAction();
                 // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
                 await _stateObject.NextCommit();
                 return response;

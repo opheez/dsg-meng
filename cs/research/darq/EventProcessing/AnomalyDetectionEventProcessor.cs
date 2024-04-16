@@ -1,5 +1,5 @@
 using System.Text;
-using ExampleServices;
+using dse.services;
 using Google.Protobuf;
 using pubsub;
 namespace EventProcessing;

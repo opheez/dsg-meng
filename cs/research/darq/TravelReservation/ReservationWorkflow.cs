@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
-using System.Text.Unicode;
+using dse.services;
 using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
@@ -13,37 +13,12 @@ using protobuf;
 using DarqMessage = FASTER.libdpr.DarqMessage;
 using DarqMessageType = FASTER.libdpr.DarqMessageType;
 
-namespace SimpleWorkflowBench;
+namespace TravelReservation;
 
 internal enum ReservationWorkflowMessageTypes : byte
 {
-    WORKFLOW_DEFN, RESERVATION_START,  RESERVATION_ROLLBACK
-}
-
-internal struct WorkflowDefinitionDarqEntry : ILogEnqueueEntry
-{
-    internal long workflowId;
-    internal ByteString input;
-
-    public int SerializedLength => sizeof(long) + sizeof(ReservationWorkflowMessageTypes) + sizeof(int) + input?.Length ?? 0;
-
-    public void SerializeTo(Span<byte> dest)
-    {
-        unsafe
-        {
-            fixed (byte* d = dest)
-            {
-                var head = d;
-                *(long*)head = workflowId;
-                head += sizeof(long);
-                *(ReservationWorkflowMessageTypes*)head = ReservationWorkflowMessageTypes.WORKFLOW_DEFN;
-                head += sizeof(ReservationWorkflowMessageTypes);
-                *(int*)head = input?.Length ?? 0;
-                head += sizeof(int);
-                input?.Span.CopyTo(new Span<byte>(head, dest.Length  - (int)(head - d)));
-            }
-        }
-    }
+    RESERVATION_START,
+    RESERVATION_ROLLBACK
 }
 
 internal struct ActivityDarqEntry : ILogEnqueueEntry
@@ -63,7 +38,7 @@ internal struct ActivityDarqEntry : ILogEnqueueEntry
                 var head = d;
                 *(long*)head = workflowId;
                 head += sizeof(long);
-                *(ReservationWorkflowMessageTypes *)head = type;
+                *(ReservationWorkflowMessageTypes*)head = type;
                 head += sizeof(ReservationWorkflowMessageTypes);
                 *(int*)head = index;
             }
@@ -98,7 +73,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
         }
     }
-    
+
     public async Task<ExecuteWorkflowResult> GetResult(CancellationToken token)
     {
         var result = await tcs.Task.WaitAsync(token);
@@ -111,7 +86,6 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
 
     public void ProcessMessage(DarqMessage m)
     {
-        backend.StartLocalAction();
         if (m.GetMessageBody().Length == sizeof(long))
         {
             // Then this is the initial message, bootstrap the state machine and begin execution
@@ -125,16 +99,17 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                 index = 0
             });
             requestBuilder.MarkMessageConsumed(m.GetLsn());
-            
+
             // Will always be completed synchronously
             capabilities.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
             m.Dispose();
             stepRequestPool.Return(stepRequest);
+            return;
         }
 
         Debug.Assert(m.GetMessageType() == DarqMessageType.IN);
         var lsn = m.GetLsn();
-        var type = (ReservationWorkflowMessageTypes) m.GetMessageBody()[sizeof(long)];
+        var type = (ReservationWorkflowMessageTypes)m.GetMessageBody()[sizeof(long)];
         var index = BitConverter.ToInt32(
             m.GetMessageBody()[(sizeof(long) + sizeof(ReservationWorkflowMessageTypes))..]);
         if (type == ReservationWorkflowMessageTypes.RESERVATION_START)
@@ -150,63 +125,61 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         {
             // We are done and there are no more reservations to make
             tcs.SetResult(true);
-            backend.EndAction();
-            // Clean up
-            foreach(var val in connections.Values)
-                val.Dispose();
+            // TODO(Tianyu):Clean up
+            // foreach (var val in connections.Values)
+                // val.Dispose();
             return;
         }
 
-        var session = backend.DetachFromWorker();
+        var c = capabilities;
         Task.Run(async () =>
         {
+            // var channel = connections.GetOrAdd(index,
+            // k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
             var channel = connections.GetOrAdd(index,
-                k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
+                k => GrpcChannel.ForAddress($"http://127.0.0.1:15722"));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
-                    channel.Intercept(new DprClientInterceptor(session)));
+                    channel.Intercept(new DprClientInterceptor(c.GetSession())));
             var result = await client.MakeReservationAsync(toExecute[index]);
-            if (!backend.TryMergeAndStartAction(session)) return;                
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
-                requestBuilder.MarkMessageConsumed(lsn);
-                requestBuilder.AddSelfMessage(new ActivityDarqEntry
-                {
-                    workflowId = workflowId,
-                    type = result.Ok ? ReservationWorkflowMessageTypes.RESERVATION_START : ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
-                    index = result.Ok ? index + 1 : index - 1
-                });
-                requestBuilder.FinishStep();
-                // Will always be completed synchronously
-                capabilities.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
-                stepRequestPool.Return(stepRequest);
-
+            requestBuilder.MarkMessageConsumed(lsn);
+            requestBuilder.AddSelfMessage(new ActivityDarqEntry
+            {
+                workflowId = workflowId,
+                type = result.Ok
+                    ? ReservationWorkflowMessageTypes.RESERVATION_START
+                    : ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
+                index = result.Ok ? index + 1 : index - 1
+            });
+            requestBuilder.FinishStep();
+            // Will always be completed synchronously
+            c.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
+            stepRequestPool.Return(stepRequest);
         });
     }
-    
+
     private void CancelReservation(long lsn, int index)
     {
         if (index == -1)
         {
             // We are done and there are no more reservations to make
             tcs.SetResult(false);
-            backend.EndAction();
-            // Clean up
-            foreach(var val in connections.Values)
-                val.Dispose();
             return;
         }
-        
-        var session = backend.DetachFromWorker();
+
+        var c = capabilities;
         Task.Run(async () =>
         {
+            // var channel = connections.GetOrAdd(index,
+            // k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
             var channel = connections.GetOrAdd(index,
-                k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
+                k => GrpcChannel.ForAddress($"http://127.0.0.1:15722"));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
-                    channel.Intercept(new DprClientInterceptor(session)));
+                    channel.Intercept(new DprClientInterceptor(c.GetSession())));
             var result = await client.CancelReservationAsync(toExecute[index]);
-            if (!backend.TryMergeAndStartAction(session)) return;                
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
@@ -218,7 +191,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
             requestBuilder.FinishStep();
             // Will always be completed synchronously
-            capabilities.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
+            c.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
             stepRequestPool.Return(stepRequest);
         });
     }

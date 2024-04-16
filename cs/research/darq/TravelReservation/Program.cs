@@ -6,8 +6,7 @@ using System.Net;
 using System.Text;
 using Azure.Storage.Blobs;
 using CommandLine;
-using darq;
-using ExampleServices.spfaster;
+using FASTER.client;
 using FASTER.core;
 using FASTER.darq;
 using FASTER.devices;
@@ -20,18 +19,19 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using SimpleWorkflowBench;
+using dse.services;
 
+namespace TravelReservation;
 public class Options
 {
     [Option('t', "type", Required = true,
         HelpText = "type of worker to launch")]
     public string Type { get; set; }
-    
+
     [Option('w', "workload-trace", Required = false,
         HelpText = "Workload trace file to use")]
     public string WorkloadTrace { get; set; }
-    
+
     [Option('n', "name", Required = false,
         HelpText = "identifier of the service to launch")]
     public int WorkerName { get; set; }
@@ -65,10 +65,10 @@ public class Program
             case "generate":
                 new WorkloadGenerator()
                     .SetNumClients(1)
-                    .SetNumServices(3)
-                    .SetNumWorkflowsPerSecond(50)
-                    .SetNumSeconds(60)
-                    .SetNumOfferings(1000)
+                    .SetNumServices(1)
+                    .SetNumWorkflowsPerSecond(10)
+                    .SetNumSeconds(10)
+                    .SetNumOfferings(100)
                     .SetBaseFileName(options.WorkloadTrace)
                     .GenerateWorkloadTrace(new Random());
                 break;
@@ -76,7 +76,7 @@ public class Program
                 throw new NotImplementedException();
         }
     }
-    
+
     private static async Task LaunchBenchmarkClient(Options options)
     {
         Console.WriteLine("Parsing workload file...");
@@ -100,8 +100,7 @@ public class Program
         var channelPool = new List<GrpcChannel>();
         for (var i = 0; i < 8; i++)
             // k8 load-balancing will ensure that we get a spread of different orchestrators behind these channels
-            // channelPool.Add(GrpcChannel.ForAddress("http://orchestrator.dse.svc.cluster.local:15721"));
-            channelPool.Add(GrpcChannel.ForAddress("http://orchestrator.dse.svc.cluster.local:15721"));
+            channelPool.Add(GrpcChannel.ForAddress("http://127.0.0.1:15721"));
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
         Console.WriteLine("Creating gRPC connections...");
@@ -129,19 +128,19 @@ public class Program
 
     private static async Task WriteResults(Options options, ConcurrentBag<long> measurements)
     {
-        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
+        var connString = "";
         var blobServiceClient = new BlobServiceClient(connString);
         var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
-        
+
         await blobContainerClient.CreateIfNotExistsAsync();
         var blobClient = blobContainerClient.GetBlobClient($"client{options.WorkerName}-result.txt");
-        
+
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
         foreach (var line in measurements)
             streamWriter.WriteLine(line);
         await streamWriter.FlushAsync();
-        
+
         memoryStream.Position = 0;
         await blobClient.UploadAsync(memoryStream, overwrite: true);
     }
@@ -155,36 +154,59 @@ public class Program
             serverOptions.Listen(IPAddress.Any, 15721,
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-        builder.Services.AddSingleton(new DarqBackgroundWorkerPoolSettings
-        {
-            numWorkers = 2
-        });
-        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
+
+        var connString = "";
+
+        // var checkpointManager = new DeviceLogCommitCheckpointManager(
+        //     new AzureStorageNamedDeviceFactory(connString),
+        //     new DefaultCheckpointNamingScheme($"orchestrators/{options.WorkerName}/checkpoints/"), removeOutdated: false);
+        // // TODO(Tianyu): Do not purge/delete on close when testing for restart
+        // checkpointManager.PurgeAll();
+        
+        var checkpointManager = new DeviceLogCommitCheckpointManager(
+            new LocalStorageNamedDeviceFactory(),
+            new DefaultCheckpointNamingScheme($"orchestrators{options.WorkerName}"), removeOutdated: false);
+        checkpointManager.PurgeAll();
         builder.Services.AddSingleton(new DarqSettings
         {
             MyDpr = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721")),
-            LogDevice = new AzureStorageDevice(connString, "orchestrators", options.WorkerName.ToString(), "darq"),
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://127.0.0.1:15720")),
+            // LogDevice = new AzureStorageDevice(connString, "orchestrators", options.WorkerName.ToString(), "darq"),
+            // LogCommitManager = checkpointManager,
+            LogDevice = new LocalStorageDevice($"D:\\orchestator{options.WorkerName}.log", deleteOnClose: true),
+            LogCommitManager = checkpointManager, 
             PageSize = 1L << 22,
             MemorySize = 1L << 28,
             SegmentSize = 1L << 30,
-            CheckpointPeriodMilli = 5,
+            CheckpointPeriodMilli = 10,
             RefreshPeriodMilli = 5,
             FastCommitMode = true,
         });
-        var workflowFactories = new Dictionary<int, WorkflowOrchestratorService.WorkflowFactory>();
-        workflowFactories.Add(0, (so, input) => new ReservationWorkflowStateMachine(so, input));
-        builder.Services.AddSingleton(workflowFactories);
+        // TODO(Tianyu): Switch to epoch after testing
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
         builder.Services.AddSingleton<Darq>();
-        builder.Services.AddSingleton<DarqBackgroundWorkerPool>();
-        builder.Services.AddSingleton<WorkflowOrchestratorService>();
-        
         builder.Services.AddSingleton<StateObject>(sp => sp.GetService<Darq>());
+        builder.Services.AddSingleton(new DarqMaintenanceBackgroundServiceSettings
+        {
+            morselSize = 512,
+            batchSize = 16,
+            // Workflow orchestrator DARQs never produce out messages
+            producerFactory = null
+        });
+        var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
+            { { 0, (so, input) => new ReservationWorkflowStateMachine(so, input) } };
+        builder.Services.AddSingleton(workflowFactories);
+        builder.Services.AddSingleton<OrchestratorBackgroundProcessingService>();
+        builder.Services.AddSingleton<WorkflowOrchestratorService>();
         builder.Services.AddSingleton<DprServerInterceptor<WorkflowOrchestratorService>>();
+        
+        builder.Services.AddHostedService<OrchestratorBackgroundProcessingService>(provider =>
+            provider.GetRequiredService<OrchestratorBackgroundProcessingService>());
+        builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
+        builder.Services.AddHostedService<DarqMaintenanceBackgroundService>();
         builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<WorkflowOrchestratorService>>(); });
-
         var app = builder.Build();
+        
         app.MapGrpcService<WorkflowOrchestratorService>();
         app.MapGet("/",
             () =>
@@ -201,15 +223,21 @@ public class Program
             serverOptions.Listen(IPAddress.Any, 15720,
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
-        using var device1 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "1", deleteOnClose:true);
-        using var device2 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "2", deleteOnClose:true);
+        var connString = "";
+        // TODO(Tianyu): do not delete on close for tests with restarts
+        using var device1 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "1", deleteOnClose: true);
+        using var device2 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "2", deleteOnClose: true);
         var dprFinderServiceDevice = new PingPongDevice(device1, device2);
         builder.Services.AddSingleton(dprFinderServiceDevice);
         builder.Services.AddSingleton<GraphDprFinderBackend>();
+        builder.Services.AddSingleton<DprFinderGrpcBackgroundService>();
         builder.Services.AddSingleton<DprFinderGrpcService>();
+        
         builder.Services.AddGrpc();
+        builder.Services.AddHostedService<DprFinderGrpcBackgroundService>(provider =>
+            provider.GetRequiredService<DprFinderGrpcBackgroundService>());
         var app = builder.Build();
+        
         app.MapGrpcService<DprFinderGrpcService>();
         app.MapGet("/",
             () =>
@@ -226,35 +254,56 @@ public class Program
             serverOptions.Listen(IPAddress.Any, 15722,
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
-        using var faster = new FasterKV<Key, Value>(1 << 20, new LogSettings
+        // var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
+        var connString = "";
+        // var checkpointManager = new DeviceLogCommitCheckpointManager(
+            // new AzureStorageNamedDeviceFactory(connString),
+            // new DefaultCheckpointNamingScheme($"services/{options.WorkerName}/checkpoints/"), removeOutdated: false);
+        // TODO(Tianyu): Do not purge/delete on close when testing for restart
+        // checkpointManager.PurgeAll();
+        var checkpointManager = new DeviceLogCommitCheckpointManager(
+            new LocalStorageNamedDeviceFactory(),
+            new DefaultCheckpointNamingScheme($"service{options.WorkerName}"), removeOutdated: false);
+        checkpointManager.PurgeAll();
+        builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
-            LogDevice = new AzureStorageDevice(connString, "services", options.WorkerName.ToString(), "log"),
-            PageSizeBits = 25,
-            SegmentSizeBits = 30,
-            MemorySizeBits = 28
-        }, new CheckpointSettings
-        {
-            CheckpointManager = new DeviceLogCommitCheckpointManager(
-                new AzureStorageNamedDeviceFactory(connString),
-                new DefaultCheckpointNamingScheme($"services/{options.WorkerName}/checkpoints/"))
+            IndexSize = 1 << 24,
+            // LogDevice = new AzureStorageDevice(connString, "services", options.WorkerName.ToString(), "log", deleteOnClose: true),
+            LogDevice = new LocalStorageDevice($"D:\\service{options.WorkerName}.log", deleteOnClose: true),
+            PageSize = 1 << 25,
+            SegmentSize = 1 << 30,
+            MemorySize = 1 << 28,
+            CheckpointManager = checkpointManager,
+            TryRecoverLatest = false,
         });
-        builder.Services.AddSingleton(faster);
-        
+        builder.Services.AddSingleton<FasterKV<Key, Value>>();
         builder.Services.AddSingleton(new DprWorkerOptions
         {
             Me = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721")),
-            CheckpointPeriodMilli = 10,
+            // DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721")),
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://127.0.0.1:15720")),
+            CheckpointPeriodMilli = 20,
             RefreshPeriodMilli = 5
         });
+        // TODO(Tianyu): Switch implementation to epoch after testing
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
         builder.Services.AddSingleton<FasterKvReservationStateObject>();
+        builder.Services.AddSingleton(new FasterKvReservationStartFile
+        {
+            file = options.WorkloadTrace
+        });
+        builder.Services.AddSingleton<FasterKvReservationBackgroundService>();
+        
         builder.Services.AddSingleton<FasterKvReservationService>();
         builder.Services.AddSingleton<StateObject>(sp => sp.GetService<FasterKvReservationStateObject>());
         builder.Services.AddSingleton<DprServerInterceptor<FasterKvReservationService>>();
+        
         builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<FasterKvReservationService>>(); });
+        builder.Services.AddHostedService<FasterKvReservationBackgroundService>(provider =>
+            provider.GetRequiredService<FasterKvReservationBackgroundService>());
+        builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
         var app = builder.Build();
+        
         app.MapGrpcService<FasterKvReservationService>();
         app.MapGet("/",
             () =>

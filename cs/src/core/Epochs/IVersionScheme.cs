@@ -161,7 +161,7 @@ namespace FASTER.core;
         /// Constructs a new version state machine for transition to the given version
         /// </summary>
         /// <param name="toVersion"> version to transition to, or -1 if unconditionally transitioning to an unspecified next version</param>
-        protected VersionSchemeStateMachine(long toVersion = -1)
+        protected VersionSchemeStateMachine(long toVersion)
         {
             this.toVersion = toVersion;
             actualToVersion = toVersion;

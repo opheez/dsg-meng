@@ -1,26 +1,18 @@
 ﻿// See https://aka.ms/new-console-template for more information
-
-using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Net;
 using Azure.Storage.Blobs;
 using CommandLine;
 using Consul;
-using darq;
-using ExampleServices;
-using ExampleServices.spfaster;
 using FASTER.core;
 using FASTER.darq;
 using FASTER.devices;
 using FASTER.libdpr;
-using FASTER.libdpr.gRPC;
-using Google.Protobuf;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
-using SimpleWorkflowBench;
+using dse.services;
 
 namespace EventProcessing;
 
@@ -123,10 +115,6 @@ public class Program
         });
 
         var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
-        using var workerPool = new DarqBackgroundWorkerPool(new DarqBackgroundWorkerPoolSettings
-        {
-            numWorkers = 2
-        });
         builder.Services.AddSingleton(new SpPubSubServiceSettings
         {
             consulConfig = new ConsulClientConfiguration
@@ -147,7 +135,6 @@ public class Program
                 FastCommitMode = true
             }, new RwLatchVersionScheme()),
             hostId = options.WorkerName.ToString(),
-            workerPool = workerPool
         });
 
         builder.Services.AddSingleton<SpPubSubService>();

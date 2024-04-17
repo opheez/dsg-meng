@@ -9,6 +9,7 @@ using FASTER.libdpr.gRPC;
 using Google.Protobuf;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Microsoft.Extensions.Logging;
 using protobuf;
 using DarqMessage = FASTER.libdpr.DarqMessage;
 using DarqMessageType = FASTER.libdpr.DarqMessageType;
@@ -57,9 +58,10 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private IEnvironment environment;
     private bool speculative;
     private StateObject backend;
+    private ILogger logger;
 
     public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input,
-        ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative)
+        ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative, ILogger logger)
     {
         var messageString = Encoding.UTF8.GetString(input);
         var split = messageString.Split(',');
@@ -78,6 +80,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         this.connectionPool = connectionPool;
         this.environment = environment;
         this.speculative = speculative;
+        this.logger = logger;
     }
 
     public async Task<ExecuteWorkflowResult> GetResult(CancellationToken token)
@@ -129,6 +132,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         if (index == toExecute.Count)
         {
+            logger.LogInformation($"Workflow with id {workflowId} completed successfully");
             // We are done and there are no more reservations to make
             tcs.SetResult(true);
             return;
@@ -152,7 +156,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                 await s.SpeculationBarrier(backend.GetDprFinder());
             }
 
+            logger.LogInformation($"Workflow with id {workflowId} is starting reservation number {index}");
             var result = await client.MakeReservationAsync(toExecute[index]);
+            logger.LogInformation($"Workflow with id {workflowId} has completed reservation number {index}");
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
@@ -176,6 +182,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         if (index == -1)
         {
+            logger.LogInformation($"Workflow with id {workflowId} completed with rollback");
             // We are done and there are no more reservations to make
             tcs.SetResult(false);
             return;
@@ -199,7 +206,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                 await s.SpeculationBarrier(backend.GetDprFinder());
             }
             
+            logger.LogInformation($"Workflow with id {workflowId} is cancelling reservation number {index}");
             await client.CancelReservationAsync(toExecute[index]);
+            logger.LogInformation($"Workflow with id {workflowId} has cancelled reservation number {index}");
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
@@ -221,5 +230,6 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         this.capabilities = capabilities;
         this.backend = backend;
+        // TODO(Tianyu): currently not actually a restart -- will only be called once at start and can only handle that
     }
 }

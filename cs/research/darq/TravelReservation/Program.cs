@@ -33,9 +33,9 @@ public class Options
         HelpText = "identifier of the service to launch")]
     public int WorkerName { get; set; }
     
-    [Option('s', "speculative", Required = false, Default = false,
-        HelpText = "whether services proceed speculatively")]
-    public bool Speculative { get; set; }
+    // [Option('s', "speculative", Required = false, Default = false,
+        // HelpText = "whether services proceed speculatively")]
+    // public bool Speculative { get; set; }
 }
 
 public class Program
@@ -106,7 +106,7 @@ public class Program
             channelPool.Add(GrpcChannel.ForAddress(environment.GetOrchestratorConnString()));
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
-        Console.WriteLine("Creating gRPC connections...");
+        Console.WriteLine("Starting Workload...");
 
         for (var i = 0; i < timedRequests.Count; i++)
         {
@@ -118,8 +118,10 @@ public class Program
             Task.Run(async () =>
             {
                 var startTime = stopwatch.ElapsedMilliseconds;
+                Console.WriteLine($"Issuing request to start workflow id:{request.Item2.WorkflowId}, request content: {request.Item2.Input.ToString(Encoding.UTF8)}");
                 await client.ExecuteWorkflowAsync(request.Item2);
                 var endTime = stopwatch.ElapsedMilliseconds;
+                Console.WriteLine($"workflow id:{request.Item2.WorkflowId} has completed in {endTime - startTime} milliseconds");
                 measurements.Add(endTime - startTime);
             });
         }
@@ -178,7 +180,7 @@ public class Program
 
         var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, input => new ReservationWorkflowStateMachine(input, connectionPool, environment, options.Speculative) } };
+            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, connectionPool, environment, true, logger) } };
         builder.Services.AddSingleton(workflowFactories);
         builder.Services.AddSingleton<OrchestratorBackgroundProcessingService>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();

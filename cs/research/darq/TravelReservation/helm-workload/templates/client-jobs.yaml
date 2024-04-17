@@ -7,6 +7,31 @@ spec:
   template:
     spec:
       priorityClassName: high-priority
+      initContainers:
+        - name: wait-all
+          image: busybox
+          command: [ "sh", "-c" ]
+          args:
+            - >
+              while true; do
+                allReady=true;
+                deployments=$(kubectl get deployments -o json | jq -r '.items[].status');
+                for d in $deployments; do
+                  readyReplicas=$(echo $d | jq '.readyReplicas // 0');
+                  replicas=$(echo $d | jq '.replicas');
+                  if [ "$readyReplicas" != "$replicas" ]; then
+                    allReady=false;
+                    break;
+                  fi;
+                done;
+                if $allReady; then
+                  echo "All deployments are ready.";
+                  break;
+                else
+                  echo "Waiting for all deployments to be ready...";
+                  sleep 10;
+                fi;
+              done;
       containers:
         - command:
             - "TravelReservation/TravelReservation"

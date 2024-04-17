@@ -127,10 +127,10 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public IDevice GetOrchestratorDevice(Options options)
     {
-        var result = new ManagedLocalStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log");
         if (cleanStart)
-            result.Reset();
-        return result;
+            new ManagedLocalStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log", recoverDevice: true,
+                deleteOnClose: true).Dispose();
+        return new ManagedLocalStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log");
     }
 
     public string GetServiceConnString(int index) => $"http://service{index}.dse.svc.cluster.local:15721";
@@ -149,10 +149,10 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public IDevice GetServiceDevice(Options options)
     {
-        var result = new ManagedLocalStorageDevice($"/mnt/plrs/service{options.WorkerName}.log");
         if (cleanStart)
-            result.Reset();
-        return result;
+            new ManagedLocalStorageDevice($"/mnt/plrs/service{options.WorkerName}.log", recoverDevice: true,
+                deleteOnClose: true).Dispose();
+        return new ManagedLocalStorageDevice($"/mnt/plrs/service{options.WorkerName}.log");
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -161,13 +161,14 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public PingPongDevice GetDprFinderDevice()
     {
-        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1");
-        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2");
         if (cleanStart)
         {
-            device1.Reset();
-            device2.Reset();
+            new ManagedLocalStorageDevice("/mnt/plrs/finder1", recoverDevice: true, deleteOnClose: true).Dispose();
+            new ManagedLocalStorageDevice("/mnt/plrs/finder2", recoverDevice: true, deleteOnClose: true).Dispose();
         }
+
+        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1");
+        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2");
         return new PingPongDevice(device1, device2, true);
     }
 
@@ -201,7 +202,8 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
     {
         var result = new DeviceLogCommitCheckpointManager(
             new AzureStorageNamedDeviceFactory(Environment.GetEnvironmentVariable("AZURE_CONN_STRING")),
-            new DefaultCheckpointNamingScheme($"orchestrators/{options.WorkerName}/checkpoints"), removeOutdated: false);
+            new DefaultCheckpointNamingScheme($"orchestrators/{options.WorkerName}/checkpoints"),
+            removeOutdated: false);
         if (cleanStart)
             result.PurgeAll();
         return result;
@@ -254,6 +256,7 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
             device1.Reset();
             device2.Reset();
         }
+
         return new PingPongDevice(device1, device2, true);
     }
 

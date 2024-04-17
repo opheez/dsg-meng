@@ -17,6 +17,10 @@ spec:
         service: service{{ .num }}
     spec:
       priorityClassName: high-priority
+      initContainers:
+        - name: wait-for-dprfinder
+          image: busybox
+          command: [ 'sh', '-c', 'until kubectl get pods -l app=dprfinder -n dse | grep -q "1/1 * Running"; do echo waiting for deployment-b; sleep 10; done;' ]
       containers:
         - command:
             - "TravelReservation/TravelReservation"

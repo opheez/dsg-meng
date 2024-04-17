@@ -1,4 +1,5 @@
 conn_string: foo
+results_conn_string: foo
 workload: workload-small
 
 services:

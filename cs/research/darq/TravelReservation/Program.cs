@@ -44,23 +44,24 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
+        var environment = new LocalDebugEnvironment();
         switch (options.Type.Trim())
         {
             case "client":
                 Console.WriteLine("Starting client");
-                await LaunchBenchmarkClient(options);
+                await LaunchBenchmarkClient(options, environment);
                 break;
             case "orchestrator":
                 Console.WriteLine("Starting orchestrator");
-                await LaunchOrchestratorService(options);
+                await LaunchOrchestratorService(options, environment);
                 break;
             case "service":
                 Console.WriteLine("Starting reservation service");
-                await LaunchReservationService(options);
+                await LaunchReservationService(options, environment);
                 break;
             case "dprfinder":
                 Console.WriteLine("Starting DPR finder");
-                await LaunchDprFinder(options);
+                await LaunchDprFinder(options, environment);
                 break;
             case "generate":
                 new WorkloadGenerator()
@@ -77,7 +78,7 @@ public class Program
         }
     }
 
-    private static async Task LaunchBenchmarkClient(Options options)
+    private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
         Console.WriteLine("Parsing workload file...");
         var timedRequests = new List<(long, ExecuteWorkflowRequest)>();
@@ -100,7 +101,7 @@ public class Program
         var channelPool = new List<GrpcChannel>();
         for (var i = 0; i < 8; i++)
             // k8 load-balancing will ensure that we get a spread of different orchestrators behind these channels
-            channelPool.Add(GrpcChannel.ForAddress("http://127.0.0.1:15721"));
+            channelPool.Add(GrpcChannel.ForAddress(environment.GetOrchestratorConnString()));
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
         Console.WriteLine("Creating gRPC connections...");
@@ -123,57 +124,37 @@ public class Program
 
         while (measurements.Count != timedRequests.Count)
             await Task.Delay(5);
-        await WriteResults(options, measurements);
+        await WriteResults(options, environment, measurements);
     }
 
-    private static async Task WriteResults(Options options, ConcurrentBag<long> measurements)
+    private static async Task WriteResults(Options options, IEnvironment environment,ConcurrentBag<long> measurements)
     {
-        var connString = "";
-        var blobServiceClient = new BlobServiceClient(connString);
-        var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
-
-        await blobContainerClient.CreateIfNotExistsAsync();
-        var blobClient = blobContainerClient.GetBlobClient($"client{options.WorkerName}-result.txt");
-
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
         foreach (var line in measurements)
             streamWriter.WriteLine(line);
         await streamWriter.FlushAsync();
-
         memoryStream.Position = 0;
-        await blobClient.UploadAsync(memoryStream, overwrite: true);
+        await environment.PublishResultsAsync($"client{options.WorkerName}-result.txt", memoryStream);
     }
 
-    public static Task LaunchOrchestratorService(Options options)
+    public static async Task LaunchOrchestratorService(Options options, IEnvironment environment)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
-            serverOptions.Listen(IPAddress.Any, 15721,
+            serverOptions.Listen(IPAddress.Any, environment.GetOrchestratorPort(options),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-
-        var connString = "";
-
-        // var checkpointManager = new DeviceLogCommitCheckpointManager(
-        //     new AzureStorageNamedDeviceFactory(connString),
-        //     new DefaultCheckpointNamingScheme($"orchestrators/{options.WorkerName}/checkpoints/"), removeOutdated: false);
-        // // TODO(Tianyu): Do not purge/delete on close when testing for restart
-        // checkpointManager.PurgeAll();
         
-        var checkpointManager = new DeviceLogCommitCheckpointManager(
-            new LocalStorageNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"orchestrators{options.WorkerName}"), removeOutdated: false);
-        checkpointManager.PurgeAll();
+        var checkpointManager = environment.GetOrchestratorCheckpointManager(options);
         builder.Services.AddSingleton(new DarqSettings
         {
             MyDpr = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://127.0.0.1:15720")),
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress(environment.GetDprFinderConnString())),
             // LogDevice = new AzureStorageDevice(connString, "orchestrators", options.WorkerName.ToString(), "darq"),
-            // LogCommitManager = checkpointManager,
-            LogDevice = new LocalStorageDevice($"D:\\orchestator{options.WorkerName}.log", deleteOnClose: true),
+            LogDevice = environment.GetOrchestratorDevice(options),
             LogCommitManager = checkpointManager, 
             PageSize = 1L << 22,
             MemorySize = 1L << 28,
@@ -193,8 +174,10 @@ public class Program
             // Workflow orchestrator DARQs never produce out messages
             producerFactory = null
         });
+
+        var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, (so, input) => new ReservationWorkflowStateMachine(so, input) } };
+            { { 0, (so, input) => new ReservationWorkflowStateMachine(so, input, connectionPool, environment) } };
         builder.Services.AddSingleton(workflowFactories);
         builder.Services.AddSingleton<OrchestratorBackgroundProcessingService>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();
@@ -211,23 +194,21 @@ public class Program
         app.MapGet("/",
             () =>
                 "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
-        return app.RunAsync();
+        await app.RunAsync();
+        foreach (var channel in connectionPool.Values)
+            channel.Dispose();
     }
 
-    public static Task LaunchDprFinder(Options options)
+    public static async Task LaunchDprFinder(Options options, IEnvironment environment)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
-            serverOptions.Listen(IPAddress.Any, 15720,
+            serverOptions.Listen(IPAddress.Any, environment.GetDprFinderPort(),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-        var connString = "";
-        // TODO(Tianyu): do not delete on close for tests with restarts
-        using var device1 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "1", deleteOnClose: true);
-        using var device2 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "2", deleteOnClose: true);
-        var dprFinderServiceDevice = new PingPongDevice(device1, device2);
+        using var dprFinderServiceDevice = environment.GetDprFinderDevice();
         builder.Services.AddSingleton(dprFinderServiceDevice);
         builder.Services.AddSingleton<GraphDprFinderBackend>();
         builder.Services.AddSingleton<DprFinderGrpcBackgroundService>();
@@ -242,34 +223,28 @@ public class Program
         app.MapGet("/",
             () =>
                 "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
-        return app.RunAsync();
+        await app.RunAsync();
     }
 
-    public static Task LaunchReservationService(Options options)
+    public static async Task LaunchReservationService(Options options, IEnvironment environment)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
-            serverOptions.Listen(IPAddress.Any, 15722,
+            serverOptions.Listen(IPAddress.Any, environment.GetServicePort(options),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
         // var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
-        var connString = "";
         // var checkpointManager = new DeviceLogCommitCheckpointManager(
             // new AzureStorageNamedDeviceFactory(connString),
             // new DefaultCheckpointNamingScheme($"services/{options.WorkerName}/checkpoints/"), removeOutdated: false);
-        // TODO(Tianyu): Do not purge/delete on close when testing for restart
-        // checkpointManager.PurgeAll();
-        var checkpointManager = new DeviceLogCommitCheckpointManager(
-            new LocalStorageNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"service{options.WorkerName}"), removeOutdated: false);
-        checkpointManager.PurgeAll();
+        var checkpointManager = environment.GetServiceCheckpointManager(options);
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
             IndexSize = 1 << 24,
             // LogDevice = new AzureStorageDevice(connString, "services", options.WorkerName.ToString(), "log", deleteOnClose: true),
-            LogDevice = new LocalStorageDevice($"D:\\service{options.WorkerName}.log", deleteOnClose: true),
+            LogDevice = environment.GetServiceDevice(options),
             PageSize = 1 << 25,
             SegmentSize = 1 << 30,
             MemorySize = 1 << 28,
@@ -280,9 +255,8 @@ public class Program
         builder.Services.AddSingleton(new DprWorkerOptions
         {
             Me = new DprWorkerId(options.WorkerName),
-            // DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721")),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://127.0.0.1:15720")),
-            CheckpointPeriodMilli = 20,
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress(environment.GetDprFinderConnString())),
+            CheckpointPeriodMilli = 10,
             RefreshPeriodMilli = 5
         });
         // TODO(Tianyu): Switch implementation to epoch after testing
@@ -308,6 +282,6 @@ public class Program
         app.MapGet("/",
             () =>
                 "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
-        return app.RunAsync();
+        await app.RunAsync();
     }
 }

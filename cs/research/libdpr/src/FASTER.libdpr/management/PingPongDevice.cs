@@ -19,15 +19,17 @@ namespace FASTER.libdpr
 
         private IDevice frontDevice, backDevice;
         private long versionCounter;
+        private bool disposeChild;
 
         /// <summary>
         /// Creates a new PingPongDevice from the given two devices.
         /// </summary>
         /// <param name="device1"> first device </param>
         /// <param name="device2"> second device </param>
-        public PingPongDevice(IDevice device1, IDevice device2)
+        public PingPongDevice(IDevice device1, IDevice device2, bool disposeChild = false)
         {
             Debug.Assert(checksumHasher.HashSize == 128);
+            this.disposeChild = disposeChild;
             var v1 = ReadFromDevice(device1, out _);
             var v2 = ReadFromDevice(device2, out _);
             if (v1 == -1 && v2 == -1)
@@ -61,6 +63,11 @@ namespace FASTER.libdpr
         public void Dispose()
         {
             checksumHasher?.Dispose();
+            if (disposeChild)
+            {
+                backDevice.Dispose();
+                frontDevice.Dispose();
+            }
         }
 
         /// <summary>

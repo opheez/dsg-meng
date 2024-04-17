@@ -5,3 +5,4 @@ metadata:
   namespace: dse
 data:
   AZURE_CONN_STRING: "{{ .Values.conn_string }}"
+  AZURE_RESULTS_CONN_STRING: "{{ .Values.results_conn_string }}"

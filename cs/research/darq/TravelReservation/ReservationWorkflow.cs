@@ -54,9 +54,11 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private IDarqProcessorClientCapabilities capabilities;
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
     private StateObject backend;
-    private static ConcurrentDictionary<int, GrpcChannel> connections = new();
+    private ConcurrentDictionary<int, GrpcChannel> connectionPool;
+    private IEnvironment environment;
 
-    public ReservationWorkflowStateMachine(StateObject backend, ReadOnlySpan<byte> input)
+    public ReservationWorkflowStateMachine(StateObject backend, ReadOnlySpan<byte> input,
+        ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment)
     {
         this.backend = backend;
         var messageString = Encoding.UTF8.GetString(input);
@@ -72,6 +74,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                 Count = int.Parse(split[i + 3])
             });
         }
+
+        this.connectionPool = connectionPool;
+        this.environment = environment;
     }
 
     public async Task<ExecuteWorkflowResult> GetResult(CancellationToken token)
@@ -127,17 +132,15 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             tcs.SetResult(true);
             // TODO(Tianyu):Clean up
             // foreach (var val in connections.Values)
-                // val.Dispose();
+            // val.Dispose();
             return;
         }
 
         var c = capabilities;
         Task.Run(async () =>
         {
-            // var channel = connections.GetOrAdd(index,
-            // k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
-            var channel = connections.GetOrAdd(index,
-                k => GrpcChannel.ForAddress($"http://127.0.0.1:15722"));
+            var channel = connectionPool.GetOrAdd(index,
+                k => GrpcChannel.ForAddress(environment.GetServiceConnString(index)));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
                     channel.Intercept(new DprClientInterceptor(c.GetSession())));
@@ -172,10 +175,8 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         var c = capabilities;
         Task.Run(async () =>
         {
-            // var channel = connections.GetOrAdd(index,
-            // k => GrpcChannel.ForAddress($"http://service{index}.dse.svc.cluster.local:15721"));
-            var channel = connections.GetOrAdd(index,
-                k => GrpcChannel.ForAddress($"http://127.0.0.1:15722"));
+            var channel = connectionPool.GetOrAdd(index,
+                k => GrpcChannel.ForAddress(environment.GetServiceConnString(index)));
             var client =
                 new FasterKVReservationService.FasterKVReservationServiceClient(
                     channel.Intercept(new DprClientInterceptor(c.GetSession())));

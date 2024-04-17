@@ -21,7 +21,7 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
     private ILogger<OrchestratorBackgroundProcessingService> logger;
     private CancellationTokenSource cts;
 
-    public delegate IWorkflowStateMachine WorkflowFactory(StateObject obj, ReadOnlySpan<byte> input);
+    public delegate IWorkflowStateMachine WorkflowFactory(ReadOnlySpan<byte> input);
     
      public OrchestratorBackgroundProcessingService(Darq darq, Dictionary<int, WorkflowFactory> workflowFactories, ILogger<OrchestratorBackgroundProcessingService> logger)
     {
@@ -41,7 +41,7 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
 
     public async Task<ExecuteWorkflowResult> CreateWorkflow(ExecuteWorkflowRequest request)
     {
-        var workflowHandler = workflowFactories[request.WorkflowClassId](backend, request.Input.Span);
+        var workflowHandler = workflowFactories[request.WorkflowClassId](request.Input.Span);
         workflowHandler.OnRestart(capabilities, backend);
         var actualHandler = startedWorkflows.GetOrAdd(request.WorkflowId, workflowHandler);
         if (actualHandler == workflowHandler)
@@ -89,7 +89,7 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
             logger.LogInformation($"Replaying Workflow creation for id {-workflowId}");
             Debug.Assert(m.GetMessageType() == DarqMessageType.RECOVERY);
             var request = ExecuteWorkflowRequest.Parser.ParseFrom(m.GetMessageBody());
-            var workflow = workflowFactories[request.WorkflowClassId](backend, request.Input.Span);
+            var workflow = workflowFactories[request.WorkflowClassId](request.Input.Span);
             workflow.OnRestart(capabilities, backend);
             var ok = startedWorkflows.TryAdd(-workflowId, workflow);
             Debug.Assert(ok);

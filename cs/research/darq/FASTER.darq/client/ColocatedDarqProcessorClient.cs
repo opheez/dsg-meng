@@ -38,17 +38,33 @@ namespace FASTER.darq
                 session = parent.session;
             }
 
-            public ValueTask<StepStatus> Step(StepRequest request)
+            public ValueTask<StepStatus> Step(StepRequest request, DprSession s = null)
             {
                 // If step results in a version mismatch, rely on the scan to trigger a rollback for simplicity
-                if (!parent.darq.TrySynchronizeAndStartAction(session))
+                if (!parent.darq.TakeOnDependencyAndStartAction(s ?? session))
                     return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
                 var status = parent.darq.Step(parent.incarnation, request);
                 parent.darq.EndAction();
                 return new ValueTask<StepStatus>(status);
             }
 
-            public DprSession GetSession() => session;
+            public DprSession Detach()
+            {
+                // TODO(Tianyu): Spurious dependency for expedience. Correct solution should snapshot current session
+                var s = parent.darq.DetachFromWorker();
+                if (!parent.darq.IsCompatible(session))
+                {
+                    parent.darq.DisposeDetachedSession(s);
+                    throw new DprSessionRolledBackException(parent.darq.WorldLine());
+                }
+
+                return s;
+            }
+
+            public void Return(DprSession s)
+            {
+                parent.darq.DisposeDetachedSession(s);
+            }
         }
 
         /// <summary>
@@ -102,7 +118,7 @@ namespace FASTER.darq
                 // Not a message we need to worry about
                 if (m == null) return ProcessResult.CONTINUE;
 
-                session.SynchronizeWith(darq);
+                session.DependOn(darq);
                 switch (m.GetMessageType())
                 {
                     case DarqMessageType.IN:

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using FASTER.common;
-using FASTER.core;
 
 namespace FASTER.libdpr
 {
@@ -107,6 +106,7 @@ namespace FASTER.libdpr
         ///     EnhancedDprFinderBackend state, the constructor will attempt to recover from it.
         /// </summary>
         /// <param name="persistentStorage"> persistent storage backing this dpr finder </param>
+        // TODO(Tianyu): Change to explicitly depend on a log instead of blob storage?
         public GraphDprFinderBackend(PingPongDevice persistentStorage)
         {
             this.persistentStorage = persistentStorage;

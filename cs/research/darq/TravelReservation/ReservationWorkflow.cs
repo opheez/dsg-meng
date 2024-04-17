@@ -53,14 +53,14 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private TaskCompletionSource<bool> tcs = new();
     private IDarqProcessorClientCapabilities capabilities;
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
-    private StateObject backend;
     private ConcurrentDictionary<int, GrpcChannel> connectionPool;
     private IEnvironment environment;
+    private bool speculative;
+    private StateObject backend;
 
-    public ReservationWorkflowStateMachine(StateObject backend, ReadOnlySpan<byte> input,
-        ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment)
+    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input,
+        ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative)
     {
-        this.backend = backend;
         var messageString = Encoding.UTF8.GetString(input);
         var split = messageString.Split(',');
         workflowId = long.Parse(split[1]);
@@ -77,6 +77,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
 
         this.connectionPool = connectionPool;
         this.environment = environment;
+        this.speculative = speculative;
     }
 
     public async Task<ExecuteWorkflowResult> GetResult(CancellationToken token)
@@ -130,20 +131,27 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         {
             // We are done and there are no more reservations to make
             tcs.SetResult(true);
-            // TODO(Tianyu):Clean up
-            // foreach (var val in connections.Values)
-            // val.Dispose();
             return;
         }
 
         var c = capabilities;
+        var s = c.Detach();
         Task.Run(async () =>
         {
             var channel = connectionPool.GetOrAdd(index,
-                k => GrpcChannel.ForAddress(environment.GetServiceConnString(index)));
-            var client =
-                new FasterKVReservationService.FasterKVReservationServiceClient(
-                    channel.Intercept(new DprClientInterceptor(c.GetSession())));
+                i => GrpcChannel.ForAddress(environment.GetServiceConnString(i)));
+            FasterKVReservationService.FasterKVReservationServiceClient client;
+            if (speculative)
+            {
+                client = new FasterKVReservationService.FasterKVReservationServiceClient(
+                        channel.Intercept(new DprClientInterceptor(s)));
+            }
+            else
+            {
+                client = new FasterKVReservationService.FasterKVReservationServiceClient(channel);
+                await s.SpeculationBarrier(backend.GetDprFinder());
+            }
+
             var result = await client.MakeReservationAsync(toExecute[index]);
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
@@ -158,7 +166,8 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
             requestBuilder.FinishStep();
             // Will always be completed synchronously
-            c.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
+            c.Step(requestBuilder.FinishStep(), s).GetAwaiter().GetResult();
+            c.Return(s);
             stepRequestPool.Return(stepRequest);
         });
     }
@@ -173,14 +182,24 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         }
 
         var c = capabilities;
+        var s = c.Detach();
         Task.Run(async () =>
         {
             var channel = connectionPool.GetOrAdd(index,
                 k => GrpcChannel.ForAddress(environment.GetServiceConnString(index)));
-            var client =
-                new FasterKVReservationService.FasterKVReservationServiceClient(
-                    channel.Intercept(new DprClientInterceptor(c.GetSession())));
-            var result = await client.CancelReservationAsync(toExecute[index]);
+            FasterKVReservationService.FasterKVReservationServiceClient client;
+            if (speculative)
+            {
+                client = new FasterKVReservationService.FasterKVReservationServiceClient(
+                    channel.Intercept(new DprClientInterceptor(s)));
+            }
+            else
+            {
+                client = new FasterKVReservationService.FasterKVReservationServiceClient(channel);
+                await s.SpeculationBarrier(backend.GetDprFinder());
+            }
+            
+            await client.CancelReservationAsync(toExecute[index]);
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
@@ -192,8 +211,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
             requestBuilder.FinishStep();
             // Will always be completed synchronously
-            c.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
+            c.Step(requestBuilder.FinishStep(), s).GetAwaiter().GetResult();
             stepRequestPool.Return(stepRequest);
+            c.Return(s);
         });
     }
 

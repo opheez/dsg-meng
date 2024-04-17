@@ -380,7 +380,7 @@ namespace FASTER.libdpr
             return true;
         }
         
-        public unsafe bool TrySynchronizeAndStartAction(DprSession session, LightEpoch.EpochContext context = null)
+        public unsafe bool TakeOnDependencyAndStartAction(DprSession session, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -445,6 +445,11 @@ namespace FASTER.libdpr
             sessionPool.Return(detachedSession);
             // TODO(Tianyu): optimize if necessary
             return TryReceiveAndStartAction(header, context);
+        }
+        
+        public void DisposeDetachedSession(DprSession detachedSession)
+        {
+            sessionPool.Return(detachedSession);
         }
 
         public bool IsCompatible(DprSession detachedSession)

@@ -1,15 +1,12 @@
 ﻿// See https://aka.ms/new-console-template for more information
-
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Text;
-using Azure.Storage.Blobs;
 using CommandLine;
 using FASTER.client;
 using FASTER.core;
 using FASTER.darq;
-using FASTER.devices;
 using FASTER.libdpr;
 using FASTER.libdpr.gRPC;
 using Google.Protobuf;
@@ -35,6 +32,10 @@ public class Options
     [Option('n', "name", Required = false,
         HelpText = "identifier of the service to launch")]
     public int WorkerName { get; set; }
+    
+    [Option('s', "speculative", Required = false, Default = false,
+        HelpText = "whether services proceed speculatively")]
+    public bool Speculative { get; set; }
 }
 
 public class Program
@@ -153,7 +154,6 @@ public class Program
         {
             MyDpr = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress(environment.GetDprFinderConnString())),
-            // LogDevice = new AzureStorageDevice(connString, "orchestrators", options.WorkerName.ToString(), "darq"),
             LogDevice = environment.GetOrchestratorDevice(options),
             LogCommitManager = checkpointManager, 
             PageSize = 1L << 22,
@@ -177,7 +177,7 @@ public class Program
 
         var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, (so, input) => new ReservationWorkflowStateMachine(so, input, connectionPool, environment) } };
+            { { 0, input => new ReservationWorkflowStateMachine(input, connectionPool, environment, options.Speculative) } };
         builder.Services.AddSingleton(workflowFactories);
         builder.Services.AddSingleton<OrchestratorBackgroundProcessingService>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();
@@ -235,15 +235,10 @@ public class Program
             serverOptions.Listen(IPAddress.Any, environment.GetServicePort(options),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-        // var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
-        // var checkpointManager = new DeviceLogCommitCheckpointManager(
-            // new AzureStorageNamedDeviceFactory(connString),
-            // new DefaultCheckpointNamingScheme($"services/{options.WorkerName}/checkpoints/"), removeOutdated: false);
         var checkpointManager = environment.GetServiceCheckpointManager(options);
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
             IndexSize = 1 << 24,
-            // LogDevice = new AzureStorageDevice(connString, "services", options.WorkerName.ToString(), "log", deleteOnClose: true),
             LogDevice = environment.GetServiceDevice(options),
             PageSize = 1 << 25,
             SegmentSize = 1 << 30,

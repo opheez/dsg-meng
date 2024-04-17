@@ -1,5 +1,6 @@
 using Azure.Storage.Blobs;
 using FASTER.core;
+using FASTER.devices;
 using FASTER.libdpr;
 
 namespace TravelReservation;
@@ -101,22 +102,35 @@ public class LocalDebugEnvironment : IEnvironment
     }
 }
 
-public class KubernetesNoFailureLocalStorageEnvironment : IEnvironment
+public class KubernetesLocalStorageEnvironment : IEnvironment
 {
+    private bool cleanStart;
+
+    public KubernetesLocalStorageEnvironment(bool cleanStart)
+    {
+        this.cleanStart = cleanStart;
+    }
+
     public string GetOrchestratorConnString() => "http://orchestrator.dse.svc.cluster.local:15721";
 
     public int GetOrchestratorPort(Options options) => 15721;
 
     public DeviceLogCommitCheckpointManager GetOrchestratorCheckpointManager(Options options)
     {
-        // TODO(Tianyu): Figure out how to mount storage volumes on Kubernetes 
-        throw new NotImplementedException();
+        var result = new DeviceLogCommitCheckpointManager(
+            new LocalStorageNamedDeviceFactory(),
+            new DefaultCheckpointNamingScheme($"/mnt/plrs/orchestrators{options.WorkerName}"), removeOutdated: false);
+        if (cleanStart)
+            result.PurgeAll();
+        return result;
     }
 
     public IDevice GetOrchestratorDevice(Options options)
     {
-        // TODO(Tianyu): Figure out how to mount storage volumes on Kubernetes 
-        throw new NotImplementedException();
+        var filePath = $"/mnt/plrs/orchestrator{options.WorkerName}.log";
+        if (cleanStart && File.Exists(filePath))
+            File.Delete(filePath);
+        return new ManagedLocalStorageDevice(filePath);
     }
 
     public string GetServiceConnString(int index) => $"http://service{index}.dse.svc.cluster.local:15721";
@@ -125,14 +139,20 @@ public class KubernetesNoFailureLocalStorageEnvironment : IEnvironment
 
     public DeviceLogCommitCheckpointManager GetServiceCheckpointManager(Options options)
     {
-        // TODO(Tianyu): Figure out how to mount storage volumes on Kubernetes 
-        throw new NotImplementedException();
+        var result = new DeviceLogCommitCheckpointManager(
+            new LocalStorageNamedDeviceFactory(),
+            new DefaultCheckpointNamingScheme($"/mnt/plrs/service{options.WorkerName}"), removeOutdated: false);
+        if (cleanStart)
+            result.PurgeAll();
+        return result;
     }
 
     public IDevice GetServiceDevice(Options options)
     {
-        // TODO(Tianyu): Figure out how to mount storage volumes on Kubernetes 
-        throw new NotImplementedException();
+        var filePath = $"/mnt/plrs/service{options.WorkerName}.log";
+        if (cleanStart && File.Exists(filePath))
+            File.Delete(filePath);
+        return new ManagedLocalStorageDevice(filePath);
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -141,8 +161,15 @@ public class KubernetesNoFailureLocalStorageEnvironment : IEnvironment
 
     public PingPongDevice GetDprFinderDevice()
     {
-        // TODO(Tianyu): Figure out how to mount storage volumes on Kubernetes 
-        throw new NotImplementedException();
+        if (cleanStart)
+        {
+            if (File.Exists($"/mnt/plrs/finder1")) File.Delete($"/mnt/plrs/finder1");
+            if (File.Exists($"/mnt/plrs/finder2")) File.Delete($"/mnt/plrs/finder2");
+        }
+
+        var device1 = new ManagedLocalStorageDevice($"/mnt/plrs/finder1");
+        var device2 = new ManagedLocalStorageDevice($"/mnt/plrs/finder2");
+        return new PingPongDevice(device1, device2, true);
     }
 
     public async Task PublishResultsAsync(string fileName, MemoryStream bytes)
@@ -150,11 +177,99 @@ public class KubernetesNoFailureLocalStorageEnvironment : IEnvironment
         var connString = Environment.GetEnvironmentVariable("AZURE_RESULTS_CONN_STRING");
         var blobServiceClient = new BlobServiceClient(connString);
         var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
-        
+
         await blobContainerClient.CreateIfNotExistsAsync();
         var blobClient = blobContainerClient.GetBlobClient(fileName);
-        
-        await blobClient.UploadAsync(bytes, overwrite: true);    
+
+        await blobClient.UploadAsync(bytes, overwrite: true);
     }
-    
+}
+
+public class KubernetesCloudStorageEnvironment : IEnvironment
+{
+    private bool cleanStart;
+
+    public KubernetesCloudStorageEnvironment(bool cleanStart)
+    {
+        this.cleanStart = cleanStart;
+    }
+
+    public string GetOrchestratorConnString() => "http://orchestrator.dse.svc.cluster.local:15721";
+
+    public int GetOrchestratorPort(Options options) => 15721;
+
+    public DeviceLogCommitCheckpointManager GetOrchestratorCheckpointManager(Options options)
+    {
+        var result = new DeviceLogCommitCheckpointManager(
+            new AzureStorageNamedDeviceFactory(Environment.GetEnvironmentVariable("AZURE_CONN_STRING")),
+            new DefaultCheckpointNamingScheme($"orchestrators/{options.WorkerName}/checkpoints"), removeOutdated: false);
+        if (cleanStart)
+            result.PurgeAll();
+        return result;
+    }
+
+    public IDevice GetOrchestratorDevice(Options options)
+    {
+        if (cleanStart)
+            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "orchestrators",
+                options.WorkerName.ToString(), "darq").PurgeAll();
+        return new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "orchestrators",
+            options.WorkerName.ToString(), "darq");
+    }
+
+    public string GetServiceConnString(int index) => $"http://service{index}.dse.svc.cluster.local:15721";
+
+    public int GetServicePort(Options options) => 15721;
+
+    public DeviceLogCommitCheckpointManager GetServiceCheckpointManager(Options options)
+    {
+        var result = new DeviceLogCommitCheckpointManager(
+            new AzureStorageNamedDeviceFactory(Environment.GetEnvironmentVariable("AZURE_CONN_STRING")),
+            new DefaultCheckpointNamingScheme($"services/{options.WorkerName}/checkpoints"), removeOutdated: false);
+        if (cleanStart)
+            result.PurgeAll();
+        return result;
+    }
+
+    public IDevice GetServiceDevice(Options options)
+    {
+        if (cleanStart)
+            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "services",
+                options.WorkerName.ToString(), "log").PurgeAll();
+        return new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "services",
+            options.WorkerName.ToString(), "log");
+    }
+
+    public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
+
+    public int GetDprFinderPort() => 15721;
+
+    public PingPongDevice GetDprFinderDevice()
+    {
+        if (cleanStart)
+        {
+            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
+                "data", "1").PurgeAll();
+            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
+                "data", "2").PurgeAll();
+        }
+
+        var device1 = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
+            "data", "1");
+        var device2 = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
+            "data", "2");
+        return new PingPongDevice(device1, device2, true);
+    }
+
+    public async Task PublishResultsAsync(string fileName, MemoryStream bytes)
+    {
+        var connString = Environment.GetEnvironmentVariable("AZURE_RESULTS_CONN_STRING");
+        var blobServiceClient = new BlobServiceClient(connString);
+        var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
+
+        await blobContainerClient.CreateIfNotExistsAsync();
+        var blobClient = blobContainerClient.GetBlobClient(fileName);
+
+        await blobClient.UploadAsync(bytes, overwrite: true);
+    }
 }

@@ -495,13 +495,25 @@ namespace FASTER.client
         }
         
         
-        public ValueTask<StepStatus> Step(StepRequest request)
+        public ValueTask<StepStatus> Step(StepRequest request, DprSession session = null)
         {
-            return new ValueTask<StepStatus>(writeClient.Step(request, incarnation, false));
+            throw new NotImplementedException();
+            // return new ValueTask<StepStatus>(writeClient.Step(request, incarnation, false));
         }
 
-        public DprSession GetSession() => session;
+        public DprSession Detach()
+        {
+            throw new NotImplementedException();
+        }
 
+        public void Return(DprSession session)
+        {
+            throw new NotImplementedException();
+        }
+        
+
+
+        public DprSession GetSession() => session;
 
         /// <inheritdoc/>
         public async Task StartProcessingAsync<T>(T processor, CancellationToken token) where T : IDarqProcessor

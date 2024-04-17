@@ -26,6 +26,9 @@ spec:
           name: dprfinder
           ports:
             - containerPort: 15721
+          volumeMounts:
+            - name: dprfinderstorage
+              mountPath: "/mnt/plrs"
           resources:
             requests:
               cpu: 2000m
@@ -34,4 +37,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: env-config
+      volumes:
+        - name: dprfinderstorage
+          persistentVolumeClaim:
+            claimName: dprfinder-pvc
       restartPolicy: Always

@@ -4,7 +4,6 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using FASTER.core;
 
 namespace FASTER.libdpr
 {
@@ -159,7 +158,7 @@ namespace FASTER.libdpr
             return true;
         }
 
-        public bool SynchronizeWith(StateObject so)
+        public bool DependOn(StateObject so)
         {
             var version = so.Version();
             var wl = so.WorldLine();
@@ -170,7 +169,9 @@ namespace FASTER.libdpr
             deps.Update(so.Me(), version);
             return true;
         }
+        
 
+        // TODO(Tianyu): Need to find a way for long-running sessions to prune its dependencies
         // Not safe to invoke concurrently with other methods on this session
         public async Task SpeculationBarrier(IDprFinder dprFinder, bool autoRefresh = false)
         {

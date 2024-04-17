@@ -29,6 +29,9 @@ spec:
           name: "orchestrator{{ .num }}"
           ports:
             - containerPort: {{ $.Values.orchestrator_port }}
+          volumeMounts:
+            - name: orchestratorstorage{{ .num }}
+              mountPath: "/mnt/plrs"
           resources:
             requests:
               cpu: 2000m
@@ -37,6 +40,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: env-config
+      volumes:
+        - name: orchestratorstorage{{ .num }}
+          persistentVolumeClaim:
+            claimName: orchestrator{{ .num }}-pvc
       restartPolicy: Always
 ---
 {{- end }}

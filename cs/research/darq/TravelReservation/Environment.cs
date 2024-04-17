@@ -127,10 +127,10 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public IDevice GetOrchestratorDevice(Options options)
     {
-        var filePath = $"/mnt/plrs/orchestrator{options.WorkerName}.log";
-        if (cleanStart && File.Exists(filePath))
-            File.Delete(filePath);
-        return new ManagedLocalStorageDevice(filePath);
+        var result = new ManagedLocalStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log");
+        if (cleanStart)
+            result.Reset();
+        return result;
     }
 
     public string GetServiceConnString(int index) => $"http://service{index}.dse.svc.cluster.local:15721";
@@ -149,10 +149,10 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public IDevice GetServiceDevice(Options options)
     {
-        var filePath = $"/mnt/plrs/service{options.WorkerName}.log";
-        if (cleanStart && File.Exists(filePath))
-            File.Delete(filePath);
-        return new ManagedLocalStorageDevice(filePath);
+        var result = new ManagedLocalStorageDevice($"/mnt/plrs/service{options.WorkerName}.log");
+        if (cleanStart)
+            result.Reset();
+        return result;
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -161,14 +161,13 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public PingPongDevice GetDprFinderDevice()
     {
+        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1");
+        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2");
         if (cleanStart)
         {
-            if (File.Exists($"/mnt/plrs/finder1")) File.Delete($"/mnt/plrs/finder1");
-            if (File.Exists($"/mnt/plrs/finder2")) File.Delete($"/mnt/plrs/finder2");
+            device1.Reset();
+            device2.Reset();
         }
-
-        var device1 = new ManagedLocalStorageDevice($"/mnt/plrs/finder1");
-        var device2 = new ManagedLocalStorageDevice($"/mnt/plrs/finder2");
         return new PingPongDevice(device1, device2, true);
     }
 
@@ -210,11 +209,11 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
 
     public IDevice GetOrchestratorDevice(Options options)
     {
-        if (cleanStart)
-            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "orchestrators",
-                options.WorkerName.ToString(), "darq").PurgeAll();
-        return new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "orchestrators",
+        var result = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "orchestrators",
             options.WorkerName.ToString(), "darq");
+        if (cleanStart)
+            result.Reset();
+        return result;
     }
 
     public string GetServiceConnString(int index) => $"http://service{index}.dse.svc.cluster.local:15721";
@@ -233,11 +232,11 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
 
     public IDevice GetServiceDevice(Options options)
     {
-        if (cleanStart)
-            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "services",
-                options.WorkerName.ToString(), "log").PurgeAll();
-        return new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "services",
+        var result = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "services",
             options.WorkerName.ToString(), "log");
+        if (cleanStart)
+            result.Reset();
+        return result;
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -246,18 +245,15 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
 
     public PingPongDevice GetDprFinderDevice()
     {
-        if (cleanStart)
-        {
-            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
-                "data", "1").PurgeAll();
-            new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
-                "data", "2").PurgeAll();
-        }
-
         var device1 = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
             "data", "1");
         var device2 = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "dprfinder",
             "data", "2");
+        if (cleanStart)
+        {
+            device1.Reset();
+            device2.Reset();
+        }
         return new PingPongDevice(device1, device2, true);
     }
 

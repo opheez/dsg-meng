@@ -43,7 +43,7 @@ namespace FASTER.libdpr
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     // Must not begin refreshing before the state object is connected
-                    if (defaultStateObject.ConnectedToCluster())
+                    if (toRegister.ConnectedToCluster())
                         toRegister.Refresh();
                     await Task.Yield();
                 }

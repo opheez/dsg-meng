@@ -7,9 +7,10 @@ spec:
   template:
     spec:
       priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-all
-          image: busybox
+          image: bitnami/kubectl
           command: [ "sh", "-c" ]
           args:
             - >

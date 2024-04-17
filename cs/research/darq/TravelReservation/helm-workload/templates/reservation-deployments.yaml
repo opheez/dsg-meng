@@ -17,9 +17,10 @@ spec:
         service: service{{ .num }}
     spec:
       priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
       initContainers:
-        - name: wait-for-dprfinder
-          image: busybox
+        - name: wait-for-dprfinder{{ .num }}
+          image: bitnami/kubectl
           command: [ 'sh', '-c', 'until kubectl get pods -l service=dprfinder -n dse | grep -q "1/1 * Running"; do echo waiting for deployment-b; sleep 10; done;' ]
       containers:
         - command:

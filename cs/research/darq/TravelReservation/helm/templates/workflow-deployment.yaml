@@ -45,7 +45,7 @@ spec:
           persistentVolumeClaim:
             claimName: orchestrator{{ .num }}-pvc
       nodeSelector:
-        nodepool: dsebench2
+        nodepool: dsebench
       restartPolicy: Always
 ---
 {{- end }}

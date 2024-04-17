@@ -41,4 +41,13 @@ spec:
         - name: dprfinderstorage
           persistentVolumeClaim:
             claimName: dprfinder-pvc
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nodepool
+                    operator: In
+                    values:
+                      - dsebench
       restartPolicy: Always

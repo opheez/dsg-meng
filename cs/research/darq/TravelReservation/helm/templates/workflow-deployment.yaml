@@ -44,6 +44,15 @@ spec:
         - name: orchestratorstorage{{ .num }}
           persistentVolumeClaim:
             claimName: orchestrator{{ .num }}-pvc
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nodepool
+                    operator: In
+                    values:
+                      - dsebench
       restartPolicy: Always
 ---
 {{- end }}

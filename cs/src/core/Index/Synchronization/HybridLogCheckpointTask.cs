@@ -46,7 +46,6 @@ namespace FASTER.core
                 case Phase.PERSISTENCE_CALLBACK:
                     CollectMetadata(next, faster);
                     faster.WriteHybridLogMetaInfo();
-                    onPersist?.Invoke();
                     faster.lastVersion = lastVersion;
                     break;
                 case Phase.REST:
@@ -105,6 +104,12 @@ namespace FASTER.core
         public virtual void GlobalAfterEnteringState<Key, Value>(SystemState next,
             FasterKV<Key, Value> faster)
         {
+            switch (next.Phase)
+            {
+                case Phase.PERSISTENCE_CALLBACK:
+                    onPersist?.Invoke();
+                    break;
+            }
         }
 
         /// <inheritdoc />

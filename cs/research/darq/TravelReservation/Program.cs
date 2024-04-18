@@ -183,7 +183,11 @@ public class Program
         var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
             { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, connectionPool, environment, options.Speculative, logger) } };
-        builder.Services.AddSingleton(workflowFactories);
+        builder.Services.AddSingleton(new OrchestartorBackgroundProcessingServiceSettings
+        {
+            workflowFactories = workflowFactories,
+            speculative = options.Speculative
+        });
         builder.Services.AddSingleton<OrchestratorBackgroundProcessingService>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();
         builder.Services.AddSingleton<DprServerInterceptor<WorkflowOrchestratorService>>();

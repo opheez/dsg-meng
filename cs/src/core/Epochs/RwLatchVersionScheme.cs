@@ -9,6 +9,8 @@ public class NonThreadBasedReaderWriterLatch
     private volatile int readerCount = 0;
     private volatile int writerPending = 0;
 
+    public bool HasActiveThreads() => readerCount != 0 || writerPending != 0;
+
     public void EnterReadLock()
     {
         while (true)
@@ -41,6 +43,12 @@ public class NonThreadBasedReaderWriterLatch
 public class RwLatchVersionScheme : VersionSchemeBase
 {
     private NonThreadBasedReaderWriterLatch rwLatch = new();
+    
+    public override void SignalStepAvailable()
+    {
+        if (!rwLatch.HasActiveThreads())
+            TryStepStateMachine();
+    }
     
     // Atomic transition from expectedState -> nextState
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -84,8 +92,8 @@ public class RwLatchVersionScheme : VersionSchemeBase
         var success = MakeTransition(VersionSchemeState.MakeIntermediate(oldState), nextState);
         machineLocal.AfterEnteringState(nextState);
         Debug.Assert(success);
-        TryStepStateMachine(machineLocal);
         rwLatch.ExitWriteLock();
+        TryStepStateMachine(machineLocal);
     }
 
     public override VersionSchemeState Enter(LightEpoch.EpochContext context = null)

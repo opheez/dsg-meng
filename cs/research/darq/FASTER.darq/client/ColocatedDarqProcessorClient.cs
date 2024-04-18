@@ -20,6 +20,8 @@ namespace FASTER.darq
         private DprSession session;
         private Capabilities capabilities;
 
+        private bool speculative;
+
         private enum ProcessResult
         {
             CONTINUE,
@@ -38,33 +40,17 @@ namespace FASTER.darq
                 session = parent.session;
             }
 
-            public ValueTask<StepStatus> Step(StepRequest request, DprSession s = null)
+            public ValueTask<StepStatus> Step(StepRequest request)
             {
                 // If step results in a version mismatch, rely on the scan to trigger a rollback for simplicity
-                if (!parent.darq.TakeOnDependencyAndStartAction(s ?? session))
+                if (!parent.darq.TakeOnDependencyAndStartAction(session))
                     return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
                 var status = parent.darq.Step(parent.incarnation, request);
                 parent.darq.EndAction();
                 return new ValueTask<StepStatus>(status);
             }
 
-            public DprSession Detach()
-            {
-                // TODO(Tianyu): Spurious dependency for expedience. Correct solution should snapshot current session
-                var s = parent.darq.DetachFromWorker();
-                if (!parent.darq.IsCompatible(session))
-                {
-                    parent.darq.DisposeDetachedSession(s);
-                    throw new DprSessionRolledBackException(parent.darq.WorldLine());
-                }
-
-                return s;
-            }
-
-            public void Return(DprSession s)
-            {
-                parent.darq.DisposeDetachedSession(s);
-            }
+            public DprSession GetDprSession() => session;
         }
 
         /// <summary>
@@ -72,10 +58,11 @@ namespace FASTER.darq
         /// </summary>
         /// <param name="darq">DARQ DprServer that this consumer attaches to </param>
         /// <param name="clusterInfo"> information about the DARQ cluster </param>
-        public ColocatedDarqProcessorClient(Darq darq)
+        public ColocatedDarqProcessorClient(Darq darq, bool speculative)
         {
             this.darq = darq;
             messagePool = new SimpleObjectPool<DarqMessage>(() => new DarqMessage(messagePool));
+            this.speculative = speculative;
         }
 
         public void Dispose()
@@ -144,7 +131,7 @@ namespace FASTER.darq
             session = new DprSession();
             capabilities = new Capabilities(this);
             processor.OnRestart(capabilities);
-            iterator = darq.StartScan(true);
+            iterator = darq.StartScan(speculative);
         }
         
         /// <inheritdoc/>

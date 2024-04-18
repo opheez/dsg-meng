@@ -446,11 +446,6 @@ namespace FASTER.libdpr
             // TODO(Tianyu): optimize if necessary
             return TryReceiveAndStartAction(header, context);
         }
-        
-        public void DisposeDetachedSession(DprSession detachedSession)
-        {
-            sessionPool.Return(detachedSession);
-        }
 
         public bool IsCompatible(DprSession detachedSession)
         {

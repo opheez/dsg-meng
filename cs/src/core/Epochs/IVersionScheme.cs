@@ -331,11 +331,8 @@ public abstract class VersionSchemeBase : IVersionScheme
 
     public abstract void Leave(LightEpoch.EpochContext context = null);
 
-    public void SignalStepAvailable()
-    {
-        TryStepStateMachine();
-    }
-
+    public abstract void SignalStepAvailable();
+    
     public StateMachineExecutionStatus TryExecuteStateMachine(VersionSchemeStateMachine stateMachine)
     {
         if (stateMachine.ToVersion() != -1 && stateMachine.ToVersion() <= state.Version) return StateMachineExecutionStatus.FAIL;

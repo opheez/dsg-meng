@@ -9,6 +9,12 @@ using Microsoft.Extensions.Logging;
 
 namespace dse.services;
 
+public class OrchestartorBackgroundProcessingServiceSettings
+{
+    public Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory> workflowFactories;
+    public bool speculative;
+}
+
 public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqProcessor
 {
     private Darq backend;
@@ -20,14 +26,15 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
     private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
     private ILogger<OrchestratorBackgroundProcessingService> logger;
     private CancellationTokenSource cts;
-
-    public delegate IWorkflowStateMachine WorkflowFactory(ReadOnlySpan<byte> input, ILogger logger);
     
-     public OrchestratorBackgroundProcessingService(Darq darq, Dictionary<int, WorkflowFactory> workflowFactories, ILogger<OrchestratorBackgroundProcessingService> logger)
+    public delegate IWorkflowStateMachine WorkflowFactory(ReadOnlySpan<byte> input, ILogger logger);
+
+    
+     public OrchestratorBackgroundProcessingService(Darq darq, OrchestartorBackgroundProcessingServiceSettings settings, ILogger<OrchestratorBackgroundProcessingService> logger)
     {
         backend = darq;
-        processorClient = new ColocatedDarqProcessorClient(backend);
-        this.workflowFactories = workflowFactories;
+        processorClient = new ColocatedDarqProcessorClient(backend, settings.speculative);
+        workflowFactories = settings.workflowFactories;
         this.logger = logger;
     }
      

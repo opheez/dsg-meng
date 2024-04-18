@@ -28,6 +28,11 @@ namespace FASTER.core
         /// <returns> the underlying epoch framework </returns>
         public LightEpoch GetUnderlyingEpoch() => epoch;
         
+        public override void SignalStepAvailable()
+        {
+            TryStepStateMachine();
+        }
+        
         
         /// <summary>
         /// Enter protection on the current thread. During protection, no version transition is possible. For the system

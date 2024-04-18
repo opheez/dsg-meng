@@ -12,11 +12,9 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="request"> step request </param>
         /// <returns> status of the step </returns>
-        ValueTask<StepStatus> Step(StepRequest request, DprSession session = null);
+        ValueTask<StepStatus> Step(StepRequest request);
 
-        DprSession Detach();
-
-        void Return(DprSession session);
+        DprSession GetDprSession();
     }
     
     

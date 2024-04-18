@@ -34,8 +34,6 @@ public interface IEnvironment
 
 public class LocalDebugEnvironment : IEnvironment
 {
-    private string connString = "";
-
     public string GetOrchestratorConnString() => "http://127.0.0.1:15721";
 
     public int GetOrchestratorPort(Options options)
@@ -128,8 +126,7 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public IDevice GetOrchestratorDevice(Options options)
     {
         if (cleanStart)
-            new ManagedLocalStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log", recoverDevice: true,
-                deleteOnClose: true).Dispose();
+            ManagedLocalStorageDevice.RemoveIfPresent($"/mnt/plrs/orchestrator{options.WorkerName}.log");
         return new ManagedLocalStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log");
     }
 
@@ -150,8 +147,7 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public IDevice GetServiceDevice(Options options)
     {
         if (cleanStart)
-            new ManagedLocalStorageDevice($"/mnt/plrs/service{options.WorkerName}.log", recoverDevice: true,
-                deleteOnClose: true).Dispose();
+            ManagedLocalStorageDevice.RemoveIfPresent($"/mnt/plrs/service{options.WorkerName}.log");
         return new ManagedLocalStorageDevice($"/mnt/plrs/service{options.WorkerName}.log");
     }
 
@@ -163,12 +159,12 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     {
         if (cleanStart)
         {
-            new ManagedLocalStorageDevice("/mnt/plrs/finder1", recoverDevice: true, deleteOnClose: true).Dispose();
-            new ManagedLocalStorageDevice("/mnt/plrs/finder2", recoverDevice: true, deleteOnClose: true).Dispose();
+            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
+            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
         }
 
-        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1");
-        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2");
+        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1", recoverDevice: true);
+        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2", recoverDevice: true);
         return new PingPongDevice(device1, device2, true);
     }
 

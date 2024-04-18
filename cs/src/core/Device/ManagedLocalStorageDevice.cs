@@ -83,6 +83,19 @@ namespace FASTER.core
         // We do not throttle ManagedLocalStorageDevice because our AsyncPool of handles takes care of this
         public override bool Throttle() => false;
 
+        public static void RemoveIfPresent(string filename)
+        {
+            FileInfo fi = new(filename); // may not exist
+            DirectoryInfo di = fi.Directory;
+            if (!di.Exists) return;
+
+            string bareName = fi.Name;
+
+            foreach (FileInfo item in di.GetFiles(bareName + "*"))
+                File.Delete(item.FullName);
+        }
+        
+
         private void RecoverFiles()
         {
             FileInfo fi = new(FileName); // may not exist

@@ -1,6 +1,7 @@
 conn_string: foo
 results_conn_string: foo
 workload: workload-tiny-speculative
+output_name: workload-tiny-speculative
 
 services:
   - num: 0

@@ -36,7 +36,7 @@ spec:
             - "-n"
             - "{{ .num }}"
             - "-o"
-            - "{{ $.Values.workload }}-result-{{ .num }}.txt"
+            - "{{ $.Values.output_name }}-result-{{ .num }}.txt"
           image: tianyuli96/faster:latest
           name: "service{{ .num }}"
           ports:

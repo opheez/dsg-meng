@@ -1,22 +1,18 @@
 conn_string: foo
 results_conn_string: foo
-workload: workload-small
+workload: workload-tiny
+output_name: workload-tiny
 
 services:
   - num: 0
-    port: 15721
-  - num: 1
-    port: 15721
-  - num: 2
     port: 15721
 
 orchestrator_port: 15721
 
 orchestrators:
-  - num: 3
-  - num: 4
-    
+  - num: 1
+
 clients:
   - num: 0
-    
-speculative: true
+
+speculative: false

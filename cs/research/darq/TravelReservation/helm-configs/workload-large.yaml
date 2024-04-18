@@ -1,0 +1,30 @@
+conn_string: foo
+results_conn_string: foo
+workload: workload-large
+
+services:
+  - num: 0
+    port: 15721
+  - num: 1
+    port: 15721
+  - num: 2
+    port: 15721
+  - num: 3
+    port: 15721
+  - num: 4
+    port: 15721
+
+orchestrator_port: 15721
+
+orchestrators:
+  - num: 5
+  - num: 6
+  - num: 7
+
+clients:
+  - num: 0
+  - num: 1
+  - num: 2
+  - num: 3
+
+speculative: true

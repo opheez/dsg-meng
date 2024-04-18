@@ -18,3 +18,5 @@ orchestrators:
     
 clients:
   - num: 0
+    
+speculative: true

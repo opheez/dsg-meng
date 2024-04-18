@@ -30,6 +30,9 @@ spec:
             - "orchestrator"
             - "-n"
             - "{{ .num }}"
+            {{- if $.Values.services }}
+            - "-s"
+            {{- end }}
           image: tianyuli96/faster:latest
           name: "orchestrator{{ .num }}"
           ports:

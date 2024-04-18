@@ -33,9 +33,11 @@ public class Options
         HelpText = "identifier of the service to launch")]
     public int WorkerName { get; set; }
     
-    // [Option('s', "speculative", Required = false, Default = false,
-        // HelpText = "whether services proceed speculatively")]
-    // public bool Speculative { get; set; }
+    [Option('s', "speculative", Required = false, Default = false,
+        HelpText = "whether services proceed speculatively")]
+    public bool Speculative { get; set; }
+    
+
 }
 
 public class Program
@@ -67,11 +69,11 @@ public class Program
                 break;
             case "generate":
                 new WorkloadGenerator()
-                    .SetNumClients(1)
-                    .SetNumServices(1)
-                    .SetNumWorkflowsPerSecond(10)
-                    .SetNumSeconds(10)
-                    .SetNumOfferings(100)
+                    .SetNumClients(4)
+                    .SetNumServices(5)
+                    .SetNumWorkflowsPerSecond(1000)
+                    .SetNumSeconds(120)
+                    .SetNumOfferings(1000000)
                     .SetBaseFileName(options.WorkloadTrace)
                     .GenerateWorkloadTrace(new Random());
                 break;
@@ -160,7 +162,7 @@ public class Program
             LogDevice = environment.GetOrchestratorDevice(options),
             LogCommitManager = checkpointManager, 
             PageSize = 1L << 22,
-            MemorySize = 1L << 28,
+            MemorySize = 1L << 30,
             SegmentSize = 1L << 30,
             CheckpointPeriodMilli = 10,
             RefreshPeriodMilli = 5,
@@ -180,7 +182,7 @@ public class Program
 
         var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, connectionPool, environment, true, logger) } };
+            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, connectionPool, environment, options.Speculative, logger) } };
         builder.Services.AddSingleton(workflowFactories);
         builder.Services.AddSingleton<OrchestratorBackgroundProcessingService>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();
@@ -245,7 +247,7 @@ public class Program
             LogDevice = environment.GetServiceDevice(options),
             PageSize = 1 << 25,
             SegmentSize = 1 << 30,
-            MemorySize = 1 << 28,
+            MemorySize = 1 << 30,
             CheckpointManager = checkpointManager,
             TryRecoverLatest = false,
         });

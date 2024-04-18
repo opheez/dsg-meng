@@ -32,6 +32,9 @@ spec:
             - "workloads/{{ $.Values.workload }}-service-{{ .num }}.csv"
             - "-n"
             - "{{ .num }}"
+            {{- if $.Values.services }}
+            - "-s"
+            {{- end }}
           image: tianyuli96/faster:latest
           name: service{{ .num }}
           ports:

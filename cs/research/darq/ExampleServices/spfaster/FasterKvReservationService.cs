@@ -79,7 +79,7 @@ public struct Value
             currentCount = field3;
             if (currentCount < by) return false;
             decremented = currentCount - by;
-        } while (Interlocked.CompareExchange(ref field3, decremented, currentCount) != decremented);
+        } while (Interlocked.CompareExchange(ref field3, decremented, currentCount) != currentCount);
 
         return true;
     }

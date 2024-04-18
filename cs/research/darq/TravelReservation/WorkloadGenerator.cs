@@ -48,7 +48,7 @@ public class WorkloadGenerator
     {
         // Generate database
         // Over provision a to ensure we don't all abort
-        var numOfferingsRequired = (int)(numClients * numWorkflowsPerSecond * numSeconds * 1.2 / numOfferings);
+        var numOfferingsRequired = (int) Math.Ceiling(numClients * numWorkflowsPerSecond * numSeconds * 4.0 / numOfferings);
         for (var i = 0; i < numServices; i++)
         {
             using var writer = new StreamWriter($"{baseFileName}-service-{i}.csv");
@@ -96,7 +96,7 @@ public class WorkloadGenerator
                 long id;
                 do
                 {
-                    id = random.NextInt64() / numClients + i;
+                    id = random.NextInt64(0xFFFFFFFFFFFF) / numClients + i;
                 } while (!uniqueIds.TryAdd(id, 0));
                 builder.Append(id);
                 
@@ -106,7 +106,7 @@ public class WorkloadGenerator
                     // Reservation Id -- must ensure uniqueness
                     do
                     {
-                        id = random.NextInt64() / numClients + i;
+                        id = random.NextInt64(0xFFFFFFFFFFFF) / numClients + i;
                     } while (!uniqueIds.TryAdd(id, 0));
 
                     builder.Append(id);

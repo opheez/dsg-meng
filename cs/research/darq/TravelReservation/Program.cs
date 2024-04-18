@@ -36,8 +36,6 @@ public class Options
     [Option('s', "speculative", Required = false, Default = false,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
-    
-
 }
 
 public class Program
@@ -69,11 +67,11 @@ public class Program
                 break;
             case "generate":
                 new WorkloadGenerator()
-                    .SetNumClients(4)
-                    .SetNumServices(5)
-                    .SetNumWorkflowsPerSecond(1000)
-                    .SetNumSeconds(120)
-                    .SetNumOfferings(1000000)
+                    .SetNumClients(1)
+                    .SetNumServices(1)
+                    .SetNumWorkflowsPerSecond(10)
+                    .SetNumSeconds(60)
+                    .SetNumOfferings(10000)
                     .SetBaseFileName(options.WorkloadTrace)
                     .GenerateWorkloadTrace(new Random());
                 break;

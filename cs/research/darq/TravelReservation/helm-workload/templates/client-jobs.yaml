@@ -22,7 +22,7 @@ spec:
                   break;
                 else
                   echo "Waiting for all deployments to be ready. $notReadyCount deployments are not ready.";
-                  sleep 10;
+                  sleep 1;
                 fi;
               done;
       containers:

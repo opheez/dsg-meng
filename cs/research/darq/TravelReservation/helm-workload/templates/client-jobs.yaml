@@ -35,6 +35,8 @@ spec:
             - "workloads/{{ $.Values.workload }}-client-{{ .num }}.csv"
             - "-n"
             - "{{ .num }}"
+            - "-o"
+            - "{{ $.Values.workload }}-result-{{ .num }}.txt"
           image: tianyuli96/faster:latest
           name: "service{{ .num }}"
           ports:

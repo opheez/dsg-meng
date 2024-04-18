@@ -28,6 +28,10 @@ public class Options
     [Option('w', "workload-trace", Required = false,
         HelpText = "Workload trace file to use")]
     public string WorkloadTrace { get; set; }
+    
+    [Option('o', "output-file", Required = false,
+        HelpText = "Name of file to output")]
+    public string OutputFile { get; set; }
 
     [Option('n', "name", Required = false,
         HelpText = "identifier of the service to launch")]
@@ -139,7 +143,7 @@ public class Program
             streamWriter.WriteLine(line);
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
-        await environment.PublishResultsAsync($"client{options.WorkerName}-result.txt", memoryStream);
+        await environment.PublishResultsAsync(options.OutputFile, memoryStream);
     }
 
     public static async Task LaunchOrchestratorService(Options options, IEnvironment environment)

@@ -57,7 +57,6 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private ConcurrentDictionary<int, GrpcChannel> connectionPool;
     private IEnvironment environment;
     private bool speculative;
-    private StateObject backend;
     private ILogger logger;
 
     public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input,
@@ -178,7 +177,6 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             tcs.SetResult(false);
             return;
         }
-
         var c = capabilities;
         Task.Run(async () =>
         {
@@ -211,7 +209,6 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     public void OnRestart(IDarqProcessorClientCapabilities capabilities, StateObject backend)
     {
         this.capabilities = capabilities;
-        this.backend = backend;
         // TODO(Tianyu): currently not actually a restart -- will only be called once at start and can only handle that
     }
 }

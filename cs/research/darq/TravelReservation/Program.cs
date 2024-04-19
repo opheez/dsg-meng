@@ -49,8 +49,8 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        // var environment = new LocalDebugEnvironment();
-        var environment = new KubernetesLocalStorageEnvironment(true);
+        var environment = new LocalDebugEnvironment();
+        // var environment = new KubernetesLocalStorageEnvironment(true);
         switch (options.Type.Trim())
         {
             case "client":
@@ -111,6 +111,7 @@ public class Program
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
         Console.WriteLine("Starting Workload...");
+        SemaphoreSlim rateLimiter = new SemaphoreSlim(32, 32);
 
         for (var i = 0; i < timedRequests.Count; i++)
         {
@@ -119,14 +120,15 @@ public class Program
                 await Task.Yield();
             var channel = channelPool[i % channelPool.Count];
             var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
+            await rateLimiter.WaitAsync();
             Task.Run(async () =>
             {
-                var startTime = stopwatch.ElapsedMilliseconds;
                 Console.WriteLine($"Issuing request to start workflow id:{request.Item2.WorkflowId}, request content: {request.Item2.Input.ToString(Encoding.UTF8)}");
                 await client.ExecuteWorkflowAsync(request.Item2);
                 var endTime = stopwatch.ElapsedMilliseconds;
-                Console.WriteLine($"workflow id:{request.Item2.WorkflowId} has completed in {endTime - startTime} milliseconds");
-                measurements.Add(endTime - startTime);
+                Console.WriteLine($"workflow id:{request.Item2.WorkflowId} has completed in {endTime - request.Item1} milliseconds");
+                measurements.Add(endTime - request.Item1);
+                rateLimiter.Release();
             });
         }
 

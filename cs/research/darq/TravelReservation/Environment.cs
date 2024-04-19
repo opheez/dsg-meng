@@ -103,7 +103,7 @@ public class LocalDebugEnvironment : IEnvironment
 public class KubernetesLocalStorageEnvironment : IEnvironment
 {
     private bool cleanStart;
-
+    
     public KubernetesLocalStorageEnvironment(bool cleanStart)
     {
         this.cleanStart = cleanStart;
@@ -210,7 +210,7 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
         var result = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "orchestrators",
             options.WorkerName.ToString(), "darq");
         if (cleanStart)
-            result.Reset();
+            result.PurgeAll();
         return result;
     }
 
@@ -233,7 +233,7 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
         var result = new AzureStorageDevice(Environment.GetEnvironmentVariable("AZURE_CONN_STRING"), "services",
             options.WorkerName.ToString(), "log");
         if (cleanStart)
-            result.Reset();
+            result.PurgeAll();
         return result;
     }
 
@@ -249,8 +249,8 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
             "data", "2");
         if (cleanStart)
         {
-            device1.Reset();
-            device2.Reset();
+            device1.PurgeAll();
+            device2.PurgeAll();
         }
 
         return new PingPongDevice(device1, device2, true);

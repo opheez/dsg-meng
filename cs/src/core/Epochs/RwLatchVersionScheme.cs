@@ -123,5 +123,6 @@ public class RwLatchVersionScheme : VersionSchemeBase
     public override void Leave(LightEpoch.EpochContext context = null)
     {
         rwLatch.ExitReadLock();
+        TryStepStateMachine();
     }
 }

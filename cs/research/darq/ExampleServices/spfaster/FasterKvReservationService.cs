@@ -108,13 +108,39 @@ public class FasterKvReservationStateObject : StateObject
 
     public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
     {
-        // TODO(Tianyu): Do something about index checkpoints
-        Guid token;
-        // If return is false, this means the previous checkpoint is still running and we should not advance more
-        while (!kv.TryTakeDprStyleCheckpoint(version, metadata, onPersist, out token))
-            Thread.Yield();
-        tokenMappings[version] = token;
-        Task.Run(() => kv.CompleteCheckpointAsync());
+        try
+        {
+            // TODO(Tianyu): Do something about index checkpoints
+            Console.WriteLine($"Performing checkpoint for version {version}");
+            Guid token;
+            // If return is false, this means the previous checkpoint is still running and we should not advance more
+            while (!kv.TryTakeDprStyleCheckpoint(version, metadata, () =>
+                   {
+                       onPersist();
+                       Console.WriteLine($"Checkpoint for version {version} has finished");
+                   }, out token))
+                Thread.Yield();
+            tokenMappings[version] = token;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await kv.CompleteCheckpointAsync();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.Message);
+                    Console.WriteLine(e.StackTrace);
+                    Environment.Exit(1);
+                }
+            });
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.Message);
+            Console.WriteLine(e.StackTrace);
+            Environment.Exit(1);
+        }
     }
 
     private Guid FindHybridLogCheckpoint(long version)
@@ -282,8 +308,12 @@ public class FasterKvReservationBackgroundService : BackgroundService
     {
         logger.LogInformation("Faster service is starting...");
         backend.ConnectToCluster(out var restored);
-        if (!restored && !file.file.Equals(""))
-            LoadFromFile(file.file);
+        // if (!restored && !file.file.Equals(""))
+            // LoadFromFile(file.file);
+        LoadFromFile("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-small-service-0.csv");
+        LoadFromFile("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-small-service-1.csv");
+        LoadFromFile("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-small-service-2.csv");
+
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
         logger.LogInformation("Faster service is stopping...");
     }

@@ -14,29 +14,36 @@ namespace FASTER.libdpr
         internal SyncResponse obj = new SyncResponse();
         public override void ResetClusterState(ClusterState clusterState)
         {
-            rwLatch.EnterWriteLock();
-            obj.WorldLine = clusterState.currentWorldLine;
-            obj.WorldLinePrefix.Clear();
-            foreach (var entry in clusterState.worldLinePrefix)
-                obj.WorldLinePrefix.Add(new proto.WorkerVersion
-                {
-                    Id = entry.Key.guid,
-                    Version = entry.Value
-                });
-            rwLatch.ExitWriteLock();
+            lock (this)
+            {
+                var newResponse = new SyncResponse(obj);
+                newResponse.WorldLine = clusterState.currentWorldLine;
+                newResponse.WorldLinePrefix.Clear();
+                foreach (var entry in clusterState.worldLinePrefix)
+                    newResponse.WorldLinePrefix.Add(new proto.WorkerVersion
+                    {
+                        Id = entry.Key.guid,
+                        Version = entry.Value
+                    });
+                obj = newResponse;
+            }
         }
 
         public override void UpdateCut(Dictionary<DprWorkerId, long> newCut)
         {
-            rwLatch.EnterWriteLock();
-            obj.CurrentCut.Clear();
-            foreach (var entry in newCut)
-                obj.CurrentCut.Add(new proto.WorkerVersion
-                {
-                    Id = entry.Key.guid,
-                    Version = entry.Value
-                });
-            rwLatch.ExitWriteLock();
+            lock (this)
+            {
+                var newResponse = new SyncResponse(obj);
+
+                newResponse.CurrentCut.Clear();
+                foreach (var entry in newCut)
+                    newResponse.CurrentCut.Add(new proto.WorkerVersion
+                    {
+                        Id = entry.Key.guid,
+                        Version = entry.Value
+                    });
+                obj = newResponse;
+            }
         }
     }
     
@@ -91,10 +98,7 @@ namespace FASTER.libdpr
 
         public Task<SyncResponse> Sync()
         {
-            response.rwLatch.EnterReadLock();
-            var result = response.obj.Clone();
-            response.rwLatch.ExitReadLock();
-            return Task.FromResult(result);
+            return Task.FromResult(response.obj);
         }
 
         public Task<ResendGraphResponse> ResendGraph(ResendGraphRequest request)

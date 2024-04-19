@@ -58,7 +58,7 @@ namespace FASTER.libdpr
         
         public byte[] SerializeToBytes()
         {
-            // Reserve space for world-line + prefixas a minimum
+            // Reserve space for world-line + prefix as a minimum
             var result = new byte[sizeof(long) + RespUtil.DictionarySerializedSize(worldLinePrefix)];
             BitConverter.TryWriteBytes(new Span<byte>(result, 0, sizeof(long)), currentWorldLine);
             RespUtil.SerializeDictionary(worldLinePrefix, result, sizeof(long));

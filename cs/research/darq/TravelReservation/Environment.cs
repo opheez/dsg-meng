@@ -38,7 +38,6 @@ public class LocalDebugEnvironment : IEnvironment
 
     public int GetOrchestratorPort(Options options)
     {
-        if (options.WorkerName != 1) throw new NotImplementedException();
         return 15721;
     }
 
@@ -56,13 +55,11 @@ public class LocalDebugEnvironment : IEnvironment
 
     public string GetServiceConnString(int index)
     {
-        if (index != 0) throw new NotImplementedException();
         return "http://127.0.0.1:15722";
     }
 
     public int GetServicePort(Options options)
     {
-        if (options.WorkerName != 0) throw new NotImplementedException();
         return 15722;
     }
 

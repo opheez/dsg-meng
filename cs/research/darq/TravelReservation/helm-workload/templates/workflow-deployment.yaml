@@ -54,6 +54,7 @@ spec:
             claimName: orchestrator{{ .num }}-pvc
       nodeSelector:
         nodepool: dsebench
-      restartPolicy: Always
+{{/*      restartPolicy: Always*/}}
+      restartPolicy: Never
 ---
 {{- end }}

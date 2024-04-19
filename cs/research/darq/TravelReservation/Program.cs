@@ -111,7 +111,7 @@ public class Program
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
         Console.WriteLine("Starting Workload...");
-        SemaphoreSlim rateLimiter = new SemaphoreSlim(32, 32);
+        var rateLimiter = new SemaphoreSlim(16, 16);
 
         for (var i = 0; i < timedRequests.Count; i++)
         {

@@ -29,7 +29,7 @@ spec:
             - "-t"
             - "service"
             - "-w"
-            - "workloads/{{ $.Values.workload }}-service-{{ .num }}.csv"
+            - "/app/workloads/{{ $.Values.workload }}-service-{{ .num }}.csv"
             - "-n"
             - "{{ .num }}"
             {{- if $.Values.services }}

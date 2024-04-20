@@ -27,7 +27,7 @@ spec:
               done;
       containers:
         - command:
-            - "app/research/darq/TravelReservation/out/TravelReservation"
+            - "out/TravelReservation"
           args:
             - "-t"
             - "client"

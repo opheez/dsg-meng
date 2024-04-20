@@ -114,8 +114,8 @@ public class FasterKvReservationStateObject : StateObject
             Console.WriteLine($"Performing checkpoint for version {version}");
             Guid token;
             // If return is false, this means the previous checkpoint is still running and we should not advance more
-            while (!kv.TryTakeDprStyleCheckpoint(version, metadata, onPersist, out token))
-                Thread.Yield();
+            var success = kv.TryTakeDprStyleCheckpoint(version, metadata, onPersist, out token);
+            Debug.Assert(success);
             tokenMappings[version] = token;
             Task.Run(() => kv.CompleteCheckpointAsync());
         }

@@ -392,9 +392,47 @@ namespace FASTER.core
         {
             CommitCookie = metadata.ToArray();
             var backend = new FoldOverCheckpointTask(onPersist);
-            var success = StartStateMachine(new HybridLogCheckpointStateMachine(backend, version));
+            var stateMachine = new HybridLogCheckpointStateMachine(backend, version);
+            var success = StartStateMachine(stateMachine);
             token = _hybridLogCheckpointToken;
-            return success;
+            if (!success) return false;
+            Debug.Assert(!epoch.ThisInstanceProtected());
+            while (true)
+            {
+                var systemState = this.systemState;
+                if (systemState.Version == stateMachine.ToVersion())
+                    return true;
+
+                List<ValueTask> valueTasks = new();
+
+                try
+                {
+                    epoch.Resume();
+                    ThreadStateMachineStep<Empty, Empty, Empty, NullFasterSession>(null, NullFasterSession.Instance, valueTasks);
+                }
+                catch (Exception)
+                {
+                    this._indexCheckpoint.Reset();
+                    this._hybridLogCheckpoint.Dispose();
+                    throw;
+                }
+                finally
+                {
+                    epoch.Suspend();
+                }
+
+                if (valueTasks.Count == 0)
+                {
+                    // Note: The state machine will not advance as long as there are active locking sessions.
+                    continue; // we need to re-check loop, so we return only when we are at REST
+                }
+
+                foreach (var task in valueTasks)
+                {
+                    if (!task.IsCompleted)
+                        task.ConfigureAwait(false).GetAwaiter().GetResult();
+                }
+            }
         }
 
         /// <summary>

@@ -106,7 +106,7 @@ namespace FASTER.core
         {
             switch (next.Phase)
             {
-                case Phase.PERSISTENCE_CALLBACK:
+                case Phase.REST:
                     onPersist?.Invoke();
                     break;
             }

@@ -37,6 +37,7 @@ spec:
           name: "orchestrator{{ .num }}"
           ports:
             - containerPort: {{ $.Values.orchestrator_port }}
+            - containerPort: 4022
           volumeMounts:
             - name: orchestratorstorage{{ .num }}
               mountPath: "/mnt/plrs"
@@ -54,7 +55,6 @@ spec:
             claimName: orchestrator{{ .num }}-pvc
       nodeSelector:
         nodepool: dsebench
-{{/*      restartPolicy: Always*/}}
-      restartPolicy: Never
+      restartPolicy: Always
 ---
 {{- end }}

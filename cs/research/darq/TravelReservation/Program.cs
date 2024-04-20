@@ -1,5 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Text;
@@ -111,7 +110,7 @@ public class Program
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
         Console.WriteLine("Starting Workload...");
-        var rateLimiter = new SemaphoreSlim(16, 16);
+        var rateLimiter = new SemaphoreSlim(4, 4);
 
         for (var i = 0; i < timedRequests.Count; i++)
         {

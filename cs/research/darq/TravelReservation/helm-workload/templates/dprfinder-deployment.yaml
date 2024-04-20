@@ -26,6 +26,7 @@ spec:
           name: dprfinder
           ports:
             - containerPort: 15721
+            - containerPort: 4022
           volumeMounts:
             - name: dprfinderstorage
               mountPath: "/mnt/plrs"

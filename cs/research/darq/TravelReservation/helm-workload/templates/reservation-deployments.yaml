@@ -39,6 +39,7 @@ spec:
           name: service{{ .num }}
           ports:
             - containerPort: 15721
+            - containerPort: 4022
           volumeMounts:
             - name: servicestorage{{ .num }}
               mountPath: "/mnt/plrs"

@@ -94,7 +94,9 @@ namespace FASTER.libdpr
 
         public void RefreshStateless()
         {
-            backCut.Clear();
+            backCut.Clear();            
+            backState.currentWorldLine = 1;
+            backState.worldLinePrefix.Clear();
             // Cut is unavailable, do nothing.
             if (!Sync(backState, backCut)) return;
 

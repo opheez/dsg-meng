@@ -163,7 +163,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
             requestBuilder.FinishStep();
             // Will always be completed synchronously
-            c.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
+            await c.Step(requestBuilder.FinishStep());
             stepRequestPool.Return(stepRequest);
         });
     }
@@ -201,7 +201,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
             requestBuilder.FinishStep();
             // Will always be completed synchronously
-            c.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
+            await c.Step(requestBuilder.FinishStep());
             stepRequestPool.Return(stepRequest);
         });
     }

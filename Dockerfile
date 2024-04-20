@@ -1,4 +1,21 @@
-FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:7.0
+
+# Install LLDB
+RUN apt-get update && apt-get install -y lldb
+RUN apt-get install -y procps
+RUN apt-get install -y sudo
+
+# Install .NET diagnostic tools
+RUN dotnet tool install --global dotnet-sos
+RUN dotnet tool install --global dotnet-dump
+RUN dotnet tool install --global dotnet-trace
+
+# Set path for global tools
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+# Automatically configure SOS for LLDB
+RUN dotnet-sos install
+
 WORKDIR /app
 
 # Copy Workload Files
@@ -8,17 +25,8 @@ COPY ./cs/research/darq/workloads ./workloads
 COPY ./cs .
 WORKDIR /app/research/darq/TravelReservation
 RUN dotnet restore
-RUN dotnet publish -c Debug -o out
+RUN dotnet build -c Debug -o out /p:DebugType=portable
 
-# Build EventProcessing
-WORKDIR /app/research/darq/EventProcessing
-RUN dotnet restore
-RUN dotnet publish -c Debug -o out
 
-# Generate the runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:7.0
-WORKDIR /app
-COPY --from=build-env /app/workloads ./workloads
-COPY --from=build-env /app/research/darq/TravelReservation/out ./TravelReservation
-COPY --from=build-env /app/research/darq/EventProcessing/out ./EventProcessing
 EXPOSE 4022
+USER root

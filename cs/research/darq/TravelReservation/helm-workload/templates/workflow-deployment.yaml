@@ -24,7 +24,7 @@ spec:
           command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
       containers:
         - command:
-            - "TravelReservation/TravelReservation"
+            - "app/research/darq/TravelReservation/out/TravelReservation"
           args: 
             - "-t"
             - "orchestrator"

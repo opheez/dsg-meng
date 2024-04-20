@@ -4,7 +4,6 @@ using dse.services;
 using FASTER.core;
 using FASTER.libdpr;
 using FASTER.libdpr.gRPC;
-using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -21,6 +20,10 @@ public class Options
     [Option('t', "type", Required = true,
         HelpText = "type of worker to launch")]
     public string Type { get; set; }
+    
+    [Option('n', "num", Required = false,
+        HelpText = "type of worker to launch")]
+    public int Num { get; set; }
 }
 
 public class Program
@@ -34,13 +37,7 @@ public class Program
             await LaunchDprFinder();
         else if (options.Type.Equals("faster"))
         {
-            for (var i = 0; i < 3; i++)
-            {
-                var i1 = i;
-                Task.Run(() => LaunchReservationService(15721 + i1));
-            }
-
-            await Task.Delay(Timeout.InfiniteTimeSpan);
+            await LaunchReservationService(15721 + options.Num);
         }
         else
         {
@@ -85,8 +82,13 @@ public class Program
             //         var session = new DprSession();
             //         var client = new FasterKVReservationService.FasterKVReservationServiceClient(
             //             channel.Intercept(new DprClientInterceptor(session)));
-            //         for (var j = i1; j < requests.Count; j += numTasks)
-            //             await client.MakeReservationAsync(requests[j]);
+            //         for (var j = i1; j < requests0.Count; j += numTasks)
+            //         {
+            //             await client.MakeReservationAsync(requests0[j]);
+            //             await client.MakeReservationAsync(requests1[j]);
+            //             await client.MakeReservationAsync(requests2[j]);
+            //         }
+            //
             //         var dprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://127.0.0.1:15722"));
             //         await session.SpeculationBarrier(dprFinder, true);
             //         ev.Signal();
@@ -94,27 +96,29 @@ public class Program
             // }
             // ev.Wait();
 
-            // var channel0 = GrpcChannel.ForAddress("http://127.0.0.1:15721");
-            // var channel1 = GrpcChannel.ForAddress("http://127.0.0.1:15722");
-            // var channel2 = GrpcChannel.ForAddress("http://127.0.0.1:15723");
-            //
-            // var client0 = new FasterKVReservationService.FasterKVReservationServiceClient(channel0);
-            // var client1 = new FasterKVReservationService.FasterKVReservationServiceClient(channel0);
-            // var client2 = new FasterKVReservationService.FasterKVReservationServiceClient(channel0);
-            //
-            // var semaphore = new SemaphoreSlim(8, 8);
-            // for (var i = 0; i < requests0.Count; i++)
-            // {
-            //     await semaphore.WaitAsync();
-            //     var i1 = i;
-            //     Task.Run(async () =>
-            //     {
-            //         await client.MakeReservationAsync(requests[i1]);
-            //         semaphore.Release();
-            //     });
-            // }
-            //
-            // await semaphore.WaitAsync();
+            var channel0 = GrpcChannel.ForAddress("http://127.0.0.1:15721");
+            var channel1 = GrpcChannel.ForAddress("http://127.0.0.1:15722");
+            var channel2 = GrpcChannel.ForAddress("http://127.0.0.1:15723");
+            
+            var client0 = new FasterKVReservationService.FasterKVReservationServiceClient(channel0);
+            var client1 = new FasterKVReservationService.FasterKVReservationServiceClient(channel1);
+            var client2 = new FasterKVReservationService.FasterKVReservationServiceClient(channel2);
+            
+            var semaphore = new SemaphoreSlim(512, 512);
+            for (var i = 0; i < requests0.Count; i++)
+            {
+                await semaphore.WaitAsync();
+                var i1 = i;
+                Task.Run(async () =>
+                {
+                    await client0.MakeReservationAsync(requests0[i1]);
+                    await client1.MakeReservationAsync(requests1[i1]);
+                    await client2.MakeReservationAsync(requests2[i1]);
+                    semaphore.Release();
+                });
+            }
+            
+            await semaphore.WaitAsync();
         }
     }
 
@@ -124,7 +128,7 @@ public class Program
         builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
-            serverOptions.Listen(IPAddress.Any, 15722,
+            serverOptions.Listen(IPAddress.Any, 15720,
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
         using var device1 = new LocalMemoryDevice(1 << 28, 1 << 28, 1);
@@ -158,13 +162,13 @@ public class Program
         });
         var checkpointManager = new DeviceLogCommitCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme("D:\\reservation\\checkpoints"), removeOutdated: false);
+            new DefaultCheckpointNamingScheme($"D:\\reservation{port}\\checkpoints"), removeOutdated: false);
         checkpointManager.PurgeAll();
 
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
             IndexSize = 1 << 24,
-            LogDevice = new LocalStorageDevice($"D:\\reservation.log", deleteOnClose: true),
+            LogDevice = new ManagedLocalStorageDevice($"D:\\reservation{port}.log", deleteOnClose: true),
             PageSize = 1 << 25,
             SegmentSize = 1 << 28,
             MemorySize = 1 << 28,
@@ -174,8 +178,8 @@ public class Program
         builder.Services.AddSingleton<FasterKV<Key, Value>>();
         builder.Services.AddSingleton(new DprWorkerOptions
         {
-            Me = new DprWorkerId(0),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://127.0.0.1:15722")),
+            Me = new DprWorkerId(port - 15721),
+            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("http://127.0.0.1:15720")),
             CheckpointPeriodMilli = 10,
             RefreshPeriodMilli = 5
         });

@@ -292,11 +292,8 @@ public class FasterKvReservationBackgroundService : BackgroundService
     {
         logger.LogInformation("Faster service is starting...");
         backend.ConnectToCluster(out var restored);
-        // if (!restored && !file.file.Equals(""))
-            // LoadFromFile(file.file);
-        LoadFromFile("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-small-service-0.csv");
-        LoadFromFile("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-small-service-1.csv");
-        LoadFromFile("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-small-service-2.csv");
+        if (!restored && !file.file.Equals(""))
+            LoadFromFile(file.file);
 
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
         logger.LogInformation("Faster service is stopping...");

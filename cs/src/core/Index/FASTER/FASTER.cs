@@ -399,16 +399,13 @@ namespace FASTER.core
             Debug.Assert(!epoch.ThisInstanceProtected());
             while (true)
             {
-                var systemState = this.systemState;
-                if (systemState.Version == stateMachine.ToVersion())
-                    return true;
-
-                List<ValueTask> valueTasks = new();
-
                 try
                 {
                     epoch.Resume();
-                    ThreadStateMachineStep<Empty, Empty, Empty, NullFasterSession>(null, NullFasterSession.Instance, valueTasks);
+                    var systemState = this.systemState;
+                    if (systemState.Version == stateMachine.ToVersion())
+                        return true;
+                    ThreadStateMachineStep<Empty, Empty, Empty, NullFasterSession>(null, NullFasterSession.Instance, null);
                 }
                 catch (Exception)
                 {
@@ -419,18 +416,6 @@ namespace FASTER.core
                 finally
                 {
                     epoch.Suspend();
-                }
-
-                if (valueTasks.Count == 0)
-                {
-                    // Note: The state machine will not advance as long as there are active locking sessions.
-                    continue; // we need to re-check loop, so we return only when we are at REST
-                }
-
-                foreach (var task in valueTasks)
-                {
-                    if (!task.IsCompleted)
-                        task.ConfigureAwait(false).GetAwaiter().GetResult();
                 }
             }
         }

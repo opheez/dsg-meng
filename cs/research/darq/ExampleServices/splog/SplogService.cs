@@ -107,7 +107,7 @@ public class SplogBackgroundService : BackgroundService
         var nextEntry = iterator.WaitAsync().AsTask();
         var session = backend.DetachFromWorkerAndPauseAction();
         var result =  await Task.WhenAny(nextEntry, Task.Delay((int)(timeoutMilli - currentTime)));
-        if (!backend.TryMergeAndStartAction(session))
+        if (!await backend.TryMergeAndStartActionAsync(session))
             throw new RpcException(Status.DefaultCancelled);
         return result == nextEntry;
     }

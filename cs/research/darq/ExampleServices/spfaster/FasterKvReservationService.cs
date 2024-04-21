@@ -108,23 +108,14 @@ public class FasterKvReservationStateObject : StateObject
 
     public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
     {
-        try
-        {
-            // TODO(Tianyu): Do something about index checkpoints
-            Console.WriteLine($"Performing checkpoint for version {version}");
-            Guid token;
-            // If return is false, this means the previous checkpoint is still running and we should not advance more
-            var success = kv.TryTakeDprStyleCheckpoint(version, metadata, onPersist, out token);
-            Debug.Assert(success);
-            tokenMappings[version] = token;
-            Task.Run(() => kv.CompleteCheckpointAsync());
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e.Message);
-            Console.WriteLine(e.StackTrace);
-            Environment.Exit(1);
-        }
+        // TODO(Tianyu): Do something about index checkpoints
+        Console.WriteLine($"Performing checkpoint for version {version}");
+        Guid token;
+        // If return is false, this means the previous checkpoint is still running and we should not advance more
+        var success = kv.TryTakeDprStyleCheckpoint(version, metadata, onPersist, out token);
+        Debug.Assert(success);
+        tokenMappings[version] = token;
+        Task.Run(() => kv.CompleteCheckpointAsync());
     }
 
     public override void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
@@ -141,6 +132,7 @@ public class FasterKvReservationStateObject : StateObject
             var checkpointVersion = long.Parse(s.ReadLine());
             tokenMappings[checkpointVersion] = guid;
         }
+
         kv.Recover(default, tokenMappings[version]);
         metadata = kv.CommitCookie;
     }
@@ -243,8 +235,10 @@ public class ReserveFunctions : FunctionsBase<Key, Value, int, bool, Empty>
 public class FasterKvReservationBackgroundService : BackgroundService
 {
     private FasterKvReservationStateObject backend;
+
     private ThreadLocalObjectPool<ClientSession<Key, Value, int, bool, Empty, IFunctions<Key, Value, int, bool, Empty>>>
         sessions;
+
     private ILogger<FasterKvReservationBackgroundService> logger;
     private FasterKvReservationStartFile file;
 
@@ -278,6 +272,7 @@ public class FasterKvReservationBackgroundService : BackgroundService
             // Not planning on running into larger-than-mem or other complex situations
             if (!status.IsCompletedSuccessfully) throw new NotImplementedException();
         }
+
         sessions.Return(s);
         backend.ForceCheckpoint();
     }
@@ -406,12 +401,12 @@ public class FasterKvReservationBackgroundService : BackgroundService
 public class FasterKvReservationService : FasterKVReservationService.FasterKVReservationServiceBase
 {
     private FasterKvReservationBackgroundService faster;
-    
+
     public FasterKvReservationService(FasterKvReservationBackgroundService faster)
     {
         this.faster = faster;
     }
-    
+
     public override Task<ReservationResponse> MakeReservation(ReservationRequest request, ServerCallContext context)
     {
         return faster.MakeReservation(request);

@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FASTER.common;
@@ -13,6 +14,7 @@ namespace FASTER.libdpr.gRPC
         private StateObject _stateObject;
         private ThreadLocalObjectPool<byte[]> serializationArrayPool;
         private int requestId;
+        private SemaphoreSlim semaphore;
 
         // For now, we require that the gRPC integration only works with RwLatchVersionScheme, which supports protected
         // blocks that start and end on different threads
@@ -21,6 +23,8 @@ namespace FASTER.libdpr.gRPC
         {
             this._stateObject = stateObject;
             serializationArrayPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 10]);
+            ThreadPool.GetAvailableThreads(out var t, out _);
+            semaphore = new SemaphoreSlim(2 * t);
         }
 
         public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request,
@@ -28,30 +32,38 @@ namespace FASTER.libdpr.gRPC
             UnaryServerMethod<TRequest, TResponse> continuation)
         {
             // TODO(Tianyu): Create Epoch Context specific to a request
-            var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
-            if (header != null)
+            await semaphore.WaitAsync();
+            try
             {
-                // Speculative code path
-                if (!_stateObject.TryReceiveAndStartAction(header))
-                    // Use an error to signal to caller that this call cannot proceed
-                    // TODO(Tianyu): add more descriptive exception information
-                    throw new RpcException(Status.DefaultCancelled);
-                var response = await continuation.Invoke(request, context);
-                var buf = serializationArrayPool.Checkout();
-                _stateObject.ProduceTagAndEndAction(buf);
-                context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
-                serializationArrayPool.Return(buf);
-                return response;
+                var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
+                if (header != null)
+                {
+                    // Speculative code path
+                    if (!await _stateObject.TryReceiveAndStartActionAsync(header))
+                        // Use an error to signal to caller that this call cannot proceed
+                        // TODO(Tianyu): add more descriptive exception information
+                        throw new RpcException(Status.DefaultCancelled);
+                    var response = await continuation.Invoke(request, context);
+                    var buf = serializationArrayPool.Checkout();
+                    _stateObject.ProduceTagAndEndAction(buf);
+                    context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
+                    serializationArrayPool.Return(buf);
+                    return response;
+                }
+                else
+                {
+                    // Non speculative code path
+                    _stateObject.StartLocalAction();
+                    var response = await continuation.Invoke(request, context);
+                    _stateObject.EndAction();
+                    // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
+                    await _stateObject.NextCommit();
+                    return response;
+                }
             }
-            else
+            finally
             {
-                // Non speculative code path
-                _stateObject.StartLocalAction();
-                var response = await continuation.Invoke(request, context);
-                _stateObject.EndAction();
-                // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
-                await _stateObject.NextCommit();
-                return response;
+                semaphore.Release();
             }
         }
     }

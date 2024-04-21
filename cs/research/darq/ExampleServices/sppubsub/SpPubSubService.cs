@@ -154,7 +154,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         if (request.DprHeader != null)
         {
             // Speculative code path
-            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span))
+            if (!await topic.TryReceiveAndStartActionAsync(request.DprHeader))
                 // Use an error to signal to caller that this call cannot proceed
                 // TODO(Tianyu): add more descriptive exception information
                 throw new RpcException(Status.DefaultCancelled);
@@ -298,7 +298,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         if (request.DprHeader != null)
         {
             // Speculative code path
-            if (!topic.TryReceiveAndStartAction(request.DprHeader.Span, epochContext))
+            if (!await topic.TryReceiveAndStartActionAsync(request.DprHeader, epochContext))
                 // Use an error to signal to caller that this call cannot proceed
                 // TODO(Tianyu): add more descriptive exception information
                 throw new RpcException(Status.DefaultCancelled);

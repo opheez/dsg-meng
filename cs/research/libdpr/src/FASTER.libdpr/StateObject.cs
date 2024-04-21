@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.core;
+using Google.Protobuf;
 
 namespace FASTER.libdpr
 {
@@ -37,6 +38,8 @@ namespace FASTER.libdpr
 
         private SimpleObjectPool<DprSession> sessionPool;
         private bool connected;
+
+        private long largestRequestedCheckpointVersion = -1;
 
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {
@@ -222,9 +225,16 @@ namespace FASTER.libdpr
             return result;
         }
 
-        private bool BeginCheckpoint(long targetVersion = -1, bool spin = false)
+        private bool BeginCheckpoint(long targetVersion = -1)
         {
-            return versionScheme.ExecuteStateMachine(new CheckpointStateMachine(this, targetVersion), spin);
+            if (versionScheme.TryExecuteStateMachine(new CheckpointStateMachine(this, targetVersion)) ==
+                StateMachineExecutionStatus.OK)
+            {
+                core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -303,8 +313,8 @@ namespace FASTER.libdpr
             {
                 // TODO(Tianyu): Should avoid unnecessarily performing a checkpoint when underlying state object has not changed
                 // TODO(Tianyu): Study when to fast-forward a version by more than one
-                BeginCheckpoint(versionScheme.CurrentState().Version + 1);
-                core.Utility.MonotonicUpdate(ref lastCheckpointMilli, currentTime, out _);
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, versionScheme.CurrentState().Version + 1, out _);
+                BeginCheckpoint(largestRequestedCheckpointVersion);
             }
 
             // Can prune dependency information of committed versions
@@ -320,43 +330,10 @@ namespace FASTER.libdpr
                 if (i != 0) PruneVersion(i);
         }
 
-        public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes, LightEpoch.EpochContext context = null)
+        private unsafe void UpdateDeps(ReadOnlySpan<byte> headerBytes)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-
             ref var header =
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
-
-            // Apply the commit ordering rule, taking checkpoints if necessary.
-            while (header.Version > versionScheme.CurrentState().Version)
-            {
-                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                if (BeginCheckpoint(header.Version))
-                    Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
-                Thread.Yield();
-            }
-
-            // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
-            versionScheme.Enter(context);
-            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
-            // so client operation is not lost in a rollback that the client has already observed.
-            while (header.WorldLine > worldLine)
-            {
-                versionScheme.Leave(context);
-                // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                BeginRestore(header.WorldLine, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
-                Thread.Yield();
-                versionScheme.Enter(context);
-            }
-
-            // If the worker world-line is newer, the request must be dropped. 
-            if (header.WorldLine != 0 && header.WorldLine < worldLine)
-            {
-                versionScheme.Leave();
-                return false;
-            }
-
             // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
             // could get processed at a future version instead due to thread timing. However, this is not a correctness
             // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
@@ -376,7 +353,133 @@ namespace FASTER.libdpr
                     }
                 }
             }
+        }
 
+        private (long, long) GetWorldLineAndVersion(ReadOnlySpan<byte> headerBytes)
+        {
+            ref var header =
+                ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
+            return (header.WorldLine, header.Version);
+        }
+        
+
+        public async Task<bool> TryReceiveAndStartActionAsync(byte[] headerBytes, LightEpoch.EpochContext context = null)
+        {
+            // Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
+
+            var (wl, v) = GetWorldLineAndVersion(headerBytes);
+
+            // Apply the commit ordering rule, taking checkpoints if necessary.
+            while (v > versionScheme.CurrentState().Version)
+            {
+                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                BeginCheckpoint(largestRequestedCheckpointVersion);
+                await Task.Yield();
+            }
+
+            // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
+            versionScheme.Enter(context);
+            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
+            // so client operation is not lost in a rollback that the client has already observed.
+            while (wl > worldLine)
+            {
+                versionScheme.Leave(context);
+                // TODO(Tianyu): Should provide version that does not rollback on the spot?
+                await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                await Task.Yield();
+                versionScheme.Enter(context);
+            }
+
+            // If the worker world-line is newer, the request must be dropped. 
+            if (wl != 0 && wl < worldLine)
+            {
+                versionScheme.Leave();
+                return false;
+            }
+
+            UpdateDeps(headerBytes);
+            return true;
+        }
+        
+        public async ValueTask<bool> TryReceiveAndStartActionAsync(ByteString headerBytes, LightEpoch.EpochContext context = null)
+        {
+            // Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
+
+            var (wl, v) = GetWorldLineAndVersion(headerBytes.Span);
+
+            // Apply the commit ordering rule, taking checkpoints if necessary.
+            while (v > versionScheme.CurrentState().Version)
+            {
+                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                BeginCheckpoint(largestRequestedCheckpointVersion);
+                await Task.Yield();
+            }
+
+            // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
+            versionScheme.Enter(context);
+            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
+            // so client operation is not lost in a rollback that the client has already observed.
+            while (wl > worldLine)
+            {
+                versionScheme.Leave(context);
+                // TODO(Tianyu): Should provide version that does not rollback on the spot?
+                await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                await Task.Yield();
+                versionScheme.Enter(context);
+            }
+
+            // If the worker world-line is newer, the request must be dropped. 
+            if (wl != 0 && wl < worldLine)
+            {
+                versionScheme.Leave();
+                return false;
+            }
+
+            UpdateDeps(headerBytes.Span);
+            return true;
+        }
+
+        public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes, LightEpoch.EpochContext context = null)
+        {
+            // Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
+
+            var (wl, v) = GetWorldLineAndVersion(headerBytes);
+
+            // Apply the commit ordering rule, taking checkpoints if necessary.
+            while (v > versionScheme.CurrentState().Version)
+            {
+                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                BeginCheckpoint(largestRequestedCheckpointVersion);
+                Thread.Yield();
+            }
+
+            // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
+            versionScheme.Enter(context);
+            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
+            // so client operation is not lost in a rollback that the client has already observed.
+            while (wl > worldLine)
+            {
+                versionScheme.Leave(context);
+                // TODO(Tianyu): Should provide version that does not rollback on the spot?
+                BeginRestore(wl, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
+                Thread.Yield();
+                versionScheme.Enter(context);
+            }
+
+            // If the worker world-line is newer, the request must be dropped. 
+            if (wl != 0 && wl < worldLine)
+            {
+                versionScheme.Leave();
+                return false;
+            }
+
+            UpdateDeps(headerBytes);
             return true;
         }
         
@@ -392,6 +495,60 @@ namespace FASTER.libdpr
                 // TODO(Tianyu): handle case where we run out of space
                 throw new NotImplementedException();
             return TryReceiveAndStartAction(header, context);
+        }
+        
+        public async ValueTask<bool> TakeOnDependencyAndStartActionAsync(DprSession session, LightEpoch.EpochContext context = null)
+        {
+// Should not be interacting with DPR-related things if speculation is disabled
+            if (options.DprFinder == null) throw new InvalidOperationException();
+
+            var wl = session.WorldLine;
+            var v = session.version;
+
+            // Apply the commit ordering rule, taking checkpoints if necessary.
+            while (v > versionScheme.CurrentState().Version)
+            {
+                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                BeginCheckpoint(largestRequestedCheckpointVersion);
+                await Task.Yield();
+            }
+
+            // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
+            versionScheme.Enter(context);
+            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
+            // so client operation is not lost in a rollback that the client has already observed.
+            while (wl > worldLine)
+            {
+                versionScheme.Leave(context);
+                // TODO(Tianyu): Should provide version that does not rollback on the spot?
+                await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                await Task.Yield();
+                versionScheme.Enter(context);
+            }
+
+            // If the worker world-line is newer, the request must be dropped. 
+            if (wl != 0 && wl < worldLine)
+            {
+                versionScheme.Leave();
+                return false;
+            }
+
+            // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
+            // could get processed at a future version instead due to thread timing. However, this is not a correctness
+            // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
+            var deps = versions[versionScheme.CurrentState().Version];
+            foreach (var wv in session.deps)
+                deps.Update(wv.DprWorkerId, wv.Version);
+            return true;
+        }
+
+        public async ValueTask<bool> TryMergeAndStartActionAsync(DprSession session,
+            LightEpoch.EpochContext context = null)
+        {
+            var result = await TakeOnDependencyAndStartActionAsync(session, context);
+            sessionPool.Return(session);
+            return result;
         }
 
         public void StartLocalAction(LightEpoch.EpochContext context = null) => versionScheme.Enter(context);
@@ -447,6 +604,7 @@ namespace FASTER.libdpr
             return TryReceiveAndStartAction(header, context);
         }
 
+
         public bool IsCompatible(DprSession detachedSession)
         {
             return detachedSession.WorldLine == worldLine;
@@ -457,10 +615,10 @@ namespace FASTER.libdpr
         ///     Resets the checkpoint schedule to happen checkpoint_milli after this invocation.
         /// </summary>
         /// <param name="targetVersion"> the version to jump to after the checkpoint, or -1 for the immediate next version</param>
-        public void ForceCheckpoint(long targetVersion = -1, bool spin = false)
+        public void ForceCheckpoint(long targetVersion = -1)
         { 
             core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
-            BeginCheckpoint(targetVersion, spin);
+            BeginCheckpoint(targetVersion);
         }
 
         public void ForceRefresh()

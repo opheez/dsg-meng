@@ -42,7 +42,6 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
      {
          backend.ConnectToCluster(out _);
          await processorClient.StartProcessingAsync(this, stoppingToken);
-         backend.ForceCheckpoint(spin: true);
          processorClient.Dispose();
      }
 
@@ -75,7 +74,7 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
             try
             {
                 var result = await workflow.GetResult(cts.Token);
-                if (backend.TryMergeAndStartAction(s)) return result;
+                if (await backend.TryMergeAndStartActionAsync(s)) return result;
             }
             catch (TaskCanceledException)
             {

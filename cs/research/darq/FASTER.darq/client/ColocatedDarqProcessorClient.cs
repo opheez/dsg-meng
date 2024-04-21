@@ -40,14 +40,14 @@ namespace FASTER.darq
                 session = parent.session;
             }
 
-            public ValueTask<StepStatus> Step(StepRequest request)
+            public async ValueTask<StepStatus> Step(StepRequest request)
             {
                 // If step results in a version mismatch, rely on the scan to trigger a rollback for simplicity
-                if (!parent.darq.TakeOnDependencyAndStartAction(session))
-                    return new ValueTask<StepStatus>(StepStatus.REINCARNATED);
+                if (!await parent.darq.TakeOnDependencyAndStartActionAsync(session))
+                    return StepStatus.REINCARNATED;
                 var status = parent.darq.Step(parent.incarnation, request);
                 parent.darq.EndAction();
-                return new ValueTask<StepStatus>(status);
+                return status;
             }
 
             public DprSession GetDprSession() => session;

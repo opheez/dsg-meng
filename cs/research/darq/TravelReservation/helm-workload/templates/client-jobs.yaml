@@ -32,11 +32,11 @@ spec:
             - "-t"
             - "client"
             - "-w"
-            - "/app/workloads/{{ $.Values.workload }}-client-{{ .num }}-{{- if $.Values.speculative }}speculative{{- end }}.csv"
+            - "workloads/{{ $.Values.experiment }}/{{ $.Values.workload }}-client-{{ .num }}.csv"
             - "-n"
             - "{{ .num }}"
             - "-o"
-            - "{{ $.Values.workload }}-result-{{ .num }}.txt"
+            - "{{ $.Values.workload }}-result-{{ .num }}-{{- if $.Values.speculative }}speculative{{- end }}.txt"
           image: tianyuli96/faster:latest
           name: "service{{ .num }}"
           ports:

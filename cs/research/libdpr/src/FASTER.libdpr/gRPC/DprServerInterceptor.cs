@@ -23,8 +23,7 @@ namespace FASTER.libdpr.gRPC
         {
             this._stateObject = stateObject;
             serializationArrayPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 10]);
-            ThreadPool.GetAvailableThreads(out var t, out _);
-            semaphore = new SemaphoreSlim(2 * t);
+            semaphore = new SemaphoreSlim(14);
         }
 
         public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request,

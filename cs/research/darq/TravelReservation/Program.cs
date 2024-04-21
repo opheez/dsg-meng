@@ -76,10 +76,10 @@ public class Program
                 new WorkloadGenerator()
                     .SetNumClients(1)
                     .SetNumServices(10)
-                    .SetNumWorkflowsPerSecond(500)
+                    .SetNumWorkflowsPerSecond(10)
                     .SetNumSeconds(120)
                     .SetNumOfferings(10000)
-                    .SetBaseFileName("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-10service")
+                    .SetBaseFileName("C:\\Users\\tianyu\\Desktop\\workloads\\TravelReservation-latency\\workloads\\workload-10service")
                     .GenerateWorkloadTrace(new Random());
                 break;
             default:

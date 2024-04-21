@@ -18,7 +18,7 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "out/TravelReservation"
+            - "TravelReservation/TravelReservation"
           args: 
             - "-t"
             - "dprfinder"

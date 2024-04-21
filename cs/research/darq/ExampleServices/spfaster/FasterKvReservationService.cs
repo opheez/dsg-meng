@@ -127,9 +127,10 @@ public class FasterKvReservationStateObject : StateObject
         }
     }
 
-    private Guid FindHybridLogCheckpoint(long version)
+    public override void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
     {
-        if (tokenMappings.TryGetValue(version, out var result)) return result;
+        // TODO(Tianyu): Figure out how to do advanced non-blocking rollback
+        tokenMappings.Clear();
         foreach (var guid in kv.CheckpointManager.GetLogCheckpointTokens())
         {
             using StreamReader s = new(new MemoryStream(kv.CheckpointManager.GetLogCheckpointMetadata(guid, null)));
@@ -140,21 +141,14 @@ public class FasterKvReservationStateObject : StateObject
             var checkpointVersion = long.Parse(s.ReadLine());
             tokenMappings[checkpointVersion] = guid;
         }
-
-        return tokenMappings[version];
-    }
-
-    public override void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
-    {
-        // TODO(Tianyu): Figure out how to do advanced non-blocking rollback
-        kv.Recover(default, FindHybridLogCheckpoint(version));
+        kv.Recover(default, tokenMappings[version]);
         metadata = kv.CommitCookie;
     }
 
     public override void PruneVersion(long version)
     {
-        kv.CheckpointManager.Purge(FindHybridLogCheckpoint(version));
-        tokenMappings.TryRemove(version, out _);
+        if (!tokenMappings.TryRemove(version, out var guid)) return;
+        kv.CheckpointManager.Purge(guid);
     }
 
     public override IEnumerable<Memory<byte>> GetUnprunedVersions()

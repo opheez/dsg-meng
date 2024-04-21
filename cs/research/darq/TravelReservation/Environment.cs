@@ -34,11 +34,16 @@ public interface IEnvironment
 
 public class LocalDebugEnvironment : IEnvironment
 {
-    public string GetOrchestratorConnString() => "http://127.0.0.1:15721";
+    private int roundRobin;
+    public string GetOrchestratorConnString()
+    {
+        var port = roundRobin++ / 2 == 0 ? 15724 : 15725;
+        return $"http://127.0.0.1:{port}";
+    }
 
     public int GetOrchestratorPort(Options options)
     {
-        return 15721;
+        return options.WorkerName + 15721;
     }
 
     public DeviceLogCommitCheckpointManager GetOrchestratorCheckpointManager(Options options)
@@ -51,16 +56,16 @@ public class LocalDebugEnvironment : IEnvironment
     }
 
     public IDevice GetOrchestratorDevice(Options options) =>
-        new LocalStorageDevice($"D:\\orchestator{options.WorkerName}.log", deleteOnClose: true);
+        new ManagedLocalStorageDevice($"D:\\orchestator{options.WorkerName}.log", deleteOnClose: true);
 
     public string GetServiceConnString(int index)
     {
-        return "http://127.0.0.1:15722";
+        return $"http://127.0.0.1:{15721 + index}";
     }
 
     public int GetServicePort(Options options)
     {
-        return 15722;
+        return 15721 + options.WorkerName;
     }
 
     public DeviceLogCommitCheckpointManager GetServiceCheckpointManager(Options options)
@@ -73,7 +78,7 @@ public class LocalDebugEnvironment : IEnvironment
     }
 
     public IDevice GetServiceDevice(Options options) =>
-        new LocalStorageDevice($"D:\\service{options.WorkerName}.log", deleteOnClose: true);
+        new ManagedLocalStorageDevice($"D:\\service{options.WorkerName}.log", deleteOnClose: true);
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";
 

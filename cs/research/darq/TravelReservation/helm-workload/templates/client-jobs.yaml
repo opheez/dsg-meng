@@ -27,7 +27,7 @@ spec:
               done;
       containers:
         - command:
-            - "out/TravelReservation"
+            - "TravelReservation/TravelReservation"
           args:
             - "-t"
             - "client"

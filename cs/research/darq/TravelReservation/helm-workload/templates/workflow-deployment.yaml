@@ -30,7 +30,7 @@ spec:
             - "orchestrator"
             - "-n"
             - "{{ .num }}"
-            {{- if $.Values.services }}
+            {{- if $.Values.speculative }}
             - "-s"
             {{- end }}
           image: tianyuli96/faster:latest

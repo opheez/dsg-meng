@@ -71,11 +71,11 @@ public class Program
             case "generate":
                 new WorkloadGenerator()
                     .SetNumClients(1)
-                    .SetNumServices(1)
-                    .SetNumWorkflowsPerSecond(10)
-                    .SetNumSeconds(60)
+                    .SetNumServices(10)
+                    .SetNumWorkflowsPerSecond(500)
+                    .SetNumSeconds(120)
                     .SetNumOfferings(10000)
-                    .SetBaseFileName(options.WorkloadTrace)
+                    .SetBaseFileName("C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-10service")
                     .GenerateWorkloadTrace(new Random());
                 break;
             default:
@@ -110,8 +110,7 @@ public class Program
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
         Console.WriteLine("Starting Workload...");
-        var rateLimiter = new SemaphoreSlim(4, 4);
-
+        var rateLimiter = new SemaphoreSlim(16, 16);
         for (var i = 0; i < timedRequests.Count; i++)
         {
             var request = timedRequests[i];

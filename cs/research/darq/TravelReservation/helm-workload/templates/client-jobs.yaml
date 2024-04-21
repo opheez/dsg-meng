@@ -38,7 +38,7 @@ spec:
             - "-o"
             - "{{ $.Values.workload }}-result-{{ .num }}-{{- if $.Values.speculative }}speculative{{- end }}.txt"
             - "-i"
-            - {{ $.Values.window }}
+            - "{{ $.Values.window }}"
           image: tianyuli96/faster:latest
           name: "service{{ .num }}"
           ports:

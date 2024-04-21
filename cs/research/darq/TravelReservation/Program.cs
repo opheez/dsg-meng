@@ -54,6 +54,7 @@ public class Program
         var options = result.MapResult(o => o, xs => new Options());
         // var environment = new LocalDebugEnvironment();
         var environment = new KubernetesLocalStorageEnvironment(true);
+        ThreadPool.SetMinThreads(16, 16);
         switch (options.Type.Trim())
         {
             case "client":

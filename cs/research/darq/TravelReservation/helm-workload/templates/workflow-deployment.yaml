@@ -41,11 +41,6 @@ spec:
           volumeMounts:
             - name: orchestratorstorage{{ .num }}
               mountPath: "/mnt/plrs"
-          resources:
-            requests:
-              cpu: 2000m
-            limits:
-              cpu: 4000m
           envFrom:
             - configMapRef:
                 name: env-config

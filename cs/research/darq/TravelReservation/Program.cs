@@ -39,6 +39,10 @@ public class Options
     [Option('s', "speculative", Required = false, Default = false,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
+    
+    [Option('i', "issue-window", Required = false, Default = 16,
+        HelpText = "how many requests can be concurrently in-flight")]
+    public int IssueWindow { get; set; }
 }
 
 public class Program
@@ -110,7 +114,7 @@ public class Program
         var measurements = new ConcurrentBag<long>();
         var stopwatch = Stopwatch.StartNew();
         Console.WriteLine("Starting Workload...");
-        var rateLimiter = new SemaphoreSlim(16, 16);
+        var rateLimiter = new SemaphoreSlim(options.IssueWindow, options.IssueWindow);
         for (var i = 0; i < timedRequests.Count; i++)
         {
             var request = timedRequests[i];

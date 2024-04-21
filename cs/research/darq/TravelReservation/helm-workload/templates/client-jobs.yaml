@@ -32,7 +32,7 @@ spec:
             - "-t"
             - "client"
             - "-w"
-            - "workloads/{{ $.Values.experiment }}/{{ $.Values.workload }}-client-{{ .num }}.csv"
+            - "{{ $.Values.experiment }}/workloads/{{ $.Values.workload }}-client-{{ .num }}.csv"
             - "-n"
             - "{{ .num }}"
             - "-o"

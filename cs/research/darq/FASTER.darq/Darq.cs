@@ -158,6 +158,8 @@ namespace FASTER.darq
         /// </summary>
         public long ReplayEnd => largestSteppedLsn.value;
 
+        public long Tail => log.TailAddress;
+
         /// <inheritdoc/>
         public override void Dispose()
         {

@@ -11,3 +11,5 @@ processors:
   - name: aggregate
   - name: detection
   - name: filter
+    
+speculative: false

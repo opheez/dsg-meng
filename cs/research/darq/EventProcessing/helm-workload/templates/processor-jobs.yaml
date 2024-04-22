@@ -41,6 +41,9 @@ spec:
           args:
             - "-t"
             - "{{ .name }}"
+            {{- if $.Values.speculative }}
+            - "-s"
+            {{- end }}
           image: tianyuli96/faster:latest
           name: {{ .name }}
           ports:

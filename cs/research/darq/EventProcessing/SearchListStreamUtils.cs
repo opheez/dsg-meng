@@ -188,7 +188,7 @@ public class SearchListDataLoader
 
     public async Task Run()
     {
-        var semaphore = new SemaphoreSlim(16, 16);
+        var semaphore = new SemaphoreSlim(32, 32);
         var startTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
         var batched = new EnqueueRequest
         {

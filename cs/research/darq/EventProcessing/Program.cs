@@ -32,6 +32,10 @@ public class Options
     [Option('h', "hostid", Required = false,
         HelpText = "identifier of the service to launch")]
     public int HostId { get; set; }
+    
+    [Option('s', "speculative", Required = false, Default = false,
+        HelpText = "whether services proceed speculatively")]
+    public bool Speculative { get; set; }
 }
 
 public class Program
@@ -41,8 +45,8 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        IEnvironment environment = new LocalDebugEnvironment();
-        // var environment = new KubernetesLocalStorageEnvironment(true);
+        // IEnvironment environment = new LocalDebugEnvironment();
+        var environment = new KubernetesLocalStorageEnvironment(true);
         switch (options.Type.Trim())
         {
             case "client":
@@ -81,7 +85,7 @@ public class Program
         _ = Task.Run(loader.Run);
         var processingClient = new SpPubSubProcessorClient(3, client);
         var measurementProcessor = new SearchListLatencyMeasurementProcessor();
-        _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, true));
+        _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, false));
         await measurementProcessor.workloadTerminationed.Task;
         await WriteResults(options, environment, measurementProcessor);
     }
@@ -169,7 +173,7 @@ public class Program
             "detection" => new AnomalyDetectionEventProcessor(outputTopic, 0.2),
             _ => throw new ArgumentOutOfRangeException()
         };
-        await processingClient.StartProcessingAsync(handler, true);
+        await processingClient.StartProcessingAsync(handler, options.Speculative);
     }
 
     public static async Task LaunchDprFinder(Options options, IEnvironment environment)

@@ -9,8 +9,7 @@ public interface IEnvironment
     Dictionary<int, (int, string)> GetClusterMap();
 
     Task PublishResultsAsync(string fileName, MemoryStream bytes);
-
-    public string GetPubsubServiceConnString(int hostId);
+    
     int GetPubsubServicePort(int hostId);
 
     public DeviceLogCommitCheckpointManager GetDarqCheckpointManager(int topicId);
@@ -38,11 +37,7 @@ public class LocalDebugEnvironment : IEnvironment
     {
         return clusterMap;
     }
-
-    public string GetPubsubServiceConnString(int hostId)
-    {
-        return $"http://127.0.0.1:15721";
-    }
+    
 
     public int GetPubsubServicePort(int hostId)
     {
@@ -104,11 +99,6 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public Dictionary<int, (int, string)> GetClusterMap()
     {
         return clusterMap;
-    }
-
-    public string GetPubsubServiceConnString(int hostId)
-    {
-        return $"http://pubsub{hostId}.dse.svc.cluster.local:15721";
     }
 
     public int GetPubsubServicePort(int hostId)

@@ -336,12 +336,18 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
 
         // TODO(Tianyu): Pick the appropriate context 
         LightEpoch.EpochContext epochContext = null;
-
+        long lastCommitted = 0;
+        
         while (!context.CancellationToken.IsCancellationRequested)
         {
             if (TryReadOneEntry(topic, worldLine, scanner, epochContext, out var ev))
             {
-                // TODO(Tianyu): Apply barrier here without killing performance
+                if (!request.Speculative && ev.NextOffset >= lastCommitted)
+                {
+                    // Avoid repeatedly wait for the newest commit
+                    lastCommitted = topic.Tail;
+                    await topic.NextCommit();
+                }
                 await responseStream.WriteAsync(ev);
             }
             else

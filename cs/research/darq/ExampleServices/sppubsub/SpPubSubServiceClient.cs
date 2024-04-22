@@ -1,14 +1,11 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text;
-using Consul;
 using FASTER.common;
 using FASTER.libdpr;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using pubsub;
 using StepRequest = pubsub.StepRequest;
 
@@ -16,37 +13,36 @@ namespace dse.services;
 
 public class SpPubSubServiceClient
 {
-    private ConsulClient consul;
-    private Dictionary<int, GrpcChannel> openConnections;
-    private ThreadLocalObjectPool<byte[]> serializationBufferPool;
+    private Dictionary<int, (int, string)> clusterMap;
+    private ConcurrentDictionary<int, GrpcChannel> openConnections = new();
+    private SimpleObjectPool<byte[]> serializationBufferPool = new(() => new byte[1 << 20]);
 
-    public SpPubSubServiceClient(ConsulClient consul)
+    public SpPubSubServiceClient(Dictionary<int, (int, string)> clusterMap)
     {
-        this.consul = consul;
-        openConnections = new Dictionary<int, GrpcChannel>();
-        serializationBufferPool = new ThreadLocalObjectPool<byte[]>(() => new byte[1 << 20]);
+        this.clusterMap = clusterMap;
     }
 
-    private async Task<GrpcChannel> GetOrCreateConnection(int topicId)
+    private ValueTask<GrpcChannel> GetOrCreateConnection(int topicId)
     {
-        if (openConnections.TryGetValue(topicId, out var result)) return result;
-        var queryResult = await consul.KV.Get("topic-" + topicId);
-        if (queryResult.Response == null)
-            throw new NotImplementedException("Topic does not exist");
-
-        var metadataEntry = JObject.Parse(Encoding.UTF8.GetString(queryResult.Response.Value));
-        return openConnections[topicId] = GrpcChannel.ForAddress((string) metadataEntry["hostAddress"]);
+        if (openConnections.TryGetValue(topicId, out var result)) return ValueTask.FromResult(result);
+        return ValueTask.FromResult(openConnections[topicId] = GrpcChannel.ForAddress(clusterMap[topicId].Item2));
+        // var queryResult = await consul.KV.Get("topic-" + topicId);
+        // if (queryResult.Response == null)
+        //     throw new NotImplementedException("Topic does not exist");
+        //
+        // var metadataEntry = JObject.Parse(Encoding.UTF8.GetString(queryResult.Response.Value));
+        // return openConnections[topicId] = GrpcChannel.ForAddress((string) metadataEntry["hostAddress"]);
     }
 
-    public async Task<bool> CreateTopic(int topicId, string hostId, string hostAddress, DprWorkerId id)
-    {
-        var jsonEntry = JsonConvert.SerializeObject(new
-            { hostId = hostId, hostAddress = hostAddress, dprWorkerId = id.guid });
-        return (await consul.KV.CAS(new KVPair("topic-" + topicId)
-        {
-            Value = Encoding.UTF8.GetBytes(jsonEntry)
-        })).Response;
-    }
+    // public async Task<bool> CreateTopic(int topicId, string hostId, string hostAddress, DprWorkerId id)
+    // {
+    //     var jsonEntry = JsonConvert.SerializeObject(new
+    //         { hostId = hostId, hostAddress = hostAddress, dprWorkerId = id.guid });
+    //     return (await consul.KV.CAS(new KVPair("topic-" + topicId)
+    //     {
+    //         Value = Encoding.UTF8.GetBytes(jsonEntry)
+    //     })).Response;
+    // }
 
     public async Task<EnqueueResult> EnqueueEventsAsync(EnqueueRequest request, DprSession session = null)
     {
@@ -56,6 +52,7 @@ public class SpPubSubServiceClient
             var buf = serializationBufferPool.Checkout();
             var size = session.TagMessage(buf);
             request.DprHeader = ByteString.CopyFrom(new Span<byte>(buf, 0, size));
+            serializationBufferPool.Return(buf);
         }
 
         var client = new SpPubSub.SpPubSubClient(channel);
@@ -84,6 +81,7 @@ public class SpPubSubServiceClient
             var buf = serializationBufferPool.Checkout();
             var size = session.TagMessage(buf);
             request.DprHeader = ByteString.CopyFrom(new Span<byte>(buf, 0, size));
+            serializationBufferPool.Return(buf);
         }
 
         var client = new SpPubSub.SpPubSubClient(channel);

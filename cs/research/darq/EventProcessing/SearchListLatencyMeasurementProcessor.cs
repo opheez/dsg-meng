@@ -6,7 +6,7 @@ namespace EventProcessing;
 public class SearchListLatencyMeasurementProcessor : SpPubSubEventHandler
 {
     public Dictionary<string, (long, long)> results = new();
-    public TaskCompletionSource workloadTerminationed = new TaskCompletionSource();
+    public TaskCompletionSource workloadTerminationed = new();
 
     public ValueTask HandleAsync(Event ev, CancellationToken token)
     {

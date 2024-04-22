@@ -55,12 +55,13 @@ namespace FASTER.server
         public DarqServer(DarqServerOptions options, TVersionScheme versionScheme)
         {
             darq = new Darq(options.DarqSettings, versionScheme);
-            maintenanceTask = new DarqBackgroundMaintenanceTask(darq, new DarqMaintenanceBackgroundServiceSettings
-            {
-                morselSize = 512,
-                batchSize = 06,
-                producerFactory = session => new DarqProducerClient(options.ClusterInfo, session)
-            });
+            // tODO(Tianyu): Broken
+            // maintenanceTask = new DarqBackgroundMaintenanceTask(darq, new DarqMaintenanceBackgroundServiceSettings
+            // {
+            //     morselSize = 512,
+            //     batchSize = 06,
+            //     producerFactory = session => new DarqProducerClient(options.ClusterInfo, session)
+            // });
             cts = new CancellationTokenSource();
             terminationStart = new ManualResetEventSlim();
             terminationComplete = new CountdownEvent(2);

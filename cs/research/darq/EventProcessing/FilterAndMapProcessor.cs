@@ -12,7 +12,7 @@ public class FilterAndMapEventProcessor : SpPubSubEventHandler
     private pubsub.StepRequest currentBatch;
     private int batchSize, numBatchedSteps = 0;
 
-    public FilterAndMapEventProcessor(int outputTopic, int batchSize = 10)
+    public FilterAndMapEventProcessor(int outputTopic, int batchSize = 128)
     {
         this.outputTopic = outputTopic;
         this.batchSize = batchSize;

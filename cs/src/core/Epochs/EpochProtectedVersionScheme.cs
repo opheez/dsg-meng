@@ -32,7 +32,8 @@ namespace FASTER.core
         {
             TryStepStateMachine();
         }
-        
+
+
         
         /// <summary>
         /// Enter protection on the current thread. During protection, no version transition is possible. For the system

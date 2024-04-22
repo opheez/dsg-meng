@@ -30,7 +30,6 @@ public class SpPubSubProcessorClient
     private int topicId;
     private SpPubSubServiceClient client;
     private long incarnationId;
-    private ManualResetEventSlim terminationStart, terminationComplete;
 
     public SpPubSubProcessorClient(int topicId, SpPubSubServiceClient client)
     {
@@ -38,12 +37,11 @@ public class SpPubSubProcessorClient
         this.client = client;
     }
 
-    public async Task StartProcessingAsync(SpPubSubEventHandler handler, bool speculative = true,
+    public async Task StartProcessingAsync(SpPubSubEventHandler handler, bool speculative,
         CancellationToken token = default)
     {
-        terminationStart = new ManualResetEventSlim();
         incarnationId = await client.RegisterProcessor(topicId);
-        while (!terminationStart.IsSet && !token.IsCancellationRequested)
+        while (!token.IsCancellationRequested)
         {
             var session = speculative ? new DprSession() : null;
             handler.OnRestart(new PubsubCapabilities
@@ -58,9 +56,10 @@ public class SpPubSubProcessorClient
                 Speculative = speculative,
                 TopicId = topicId
             }, session, cancellationToken: token);
+            
             try
             {
-                while (!terminationStart.IsSet && await stream.ResponseStream.MoveNext(token))
+                while (await stream.ResponseStream.MoveNext(token))
                     await handler.HandleAsync(stream.ResponseStream.Current, token);
             }
             catch (DprSessionRolledBackException e)
@@ -73,15 +72,5 @@ public class SpPubSubProcessorClient
                 break;
             }
         }
-
-        terminationComplete?.Set();
-    }
-
-    public async Task StopProcessingAsync()
-    {
-        terminationComplete = new ManualResetEventSlim();
-        terminationStart.Set();
-        while (!terminationComplete.IsSet)
-            await Task.Delay(5);
     }
 }

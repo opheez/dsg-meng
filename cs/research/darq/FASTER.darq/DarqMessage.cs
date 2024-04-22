@@ -259,7 +259,7 @@ namespace FASTER.libdpr
         public unsafe StepRequestBuilder AddOutMessage(DarqId recipient, string message)
         {
             while (request.serializationBuffer.Length - request.size <
-                   message.Length + sizeof(DarqMessageType) + sizeof(DarqId) + sizeof(int))
+                   message.Length + sizeof(DarqMessageType) + sizeof(DarqId))
                 request.Grow();
 
             request.offsets.Add(request.size);
@@ -270,10 +270,10 @@ namespace FASTER.libdpr
                 *(DarqMessageType*) head++ = DarqMessageType.OUT;
                 *(DarqId*) head = recipient;
                 head += sizeof(DarqId);
-
-                *(int*)head = message.Length;
-                head += sizeof(int);
-                Encoding.UTF8.GetBytes(message, new Span<byte>(head, message.Length));
+                
+                var ret = Encoding.UTF8.GetBytes(message, new Span<byte>(head, message.Length));
+                Debug.Assert(ret == message.Length);
+                head += message.Length;
                 request.size = (int) (head - b);
             }
 
@@ -349,7 +349,7 @@ namespace FASTER.libdpr
         public unsafe StepRequestBuilder AddSelfMessage(string message)
         {
             while (request.serializationBuffer.Length - request.size <
-                   message.Length + sizeof(DarqMessageType) + sizeof(int))
+                   message.Length + sizeof(DarqMessageType))
                 request.Grow();
 
             request.offsets.Add(request.size);
@@ -358,11 +358,10 @@ namespace FASTER.libdpr
                 var head = b + request.size;
 
                 *(DarqMessageType*) head++ = DarqMessageType.IN;
-                head += sizeof(DarqId);
-
-                *(int*)head = message.Length;
-                head += sizeof(int);
+                head += sizeof(DarqMessageType);
+                
                 Encoding.UTF8.GetBytes(message, new Span<byte>(head, message.Length));
+                head += message.Length;
                 request.size = (int) (head - b);
             }
 

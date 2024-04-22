@@ -23,9 +23,10 @@ namespace FASTER.libdpr
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             logger.LogInformation("Refresh background service is starting");
+            this.stoppingToken = stoppingToken;
             if (defaultStateObject != null)
                 RegisterRefreshTask(defaultStateObject);
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            await Task.Delay(Timeout.Infinite, this.stoppingToken);
             while (dispatchedTasks != 0)
                 await Task.Yield();
             logger.LogInformation("Refresh background service is winding down");

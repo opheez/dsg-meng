@@ -1,20 +1,20 @@
 {{- range .Values.processors }}
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: Job
 metadata:
   labels:
-    service: aggregate-service
-  name: aggregate-service
+    type: processor
+    service: {{ .name }}
+  name: {{ .name }}
 spec:
-  replicas: 1
-  strategy: {}
   selector:
     matchLabels:
-      service: {{ .name }}-service
+      service: {{ .name }}
   template:
     metadata:
       labels:
-        service: {{ .name }}-service
+        type: processor
+        service: {{ .name }}
     spec:
       priorityClassName: high-priority
       serviceAccountName: deployment-watcher
@@ -32,7 +32,7 @@ spec:
                   break;
                 else
                   echo "Waiting for all deployments to be ready. $notReadyCount deployments are not ready.";
-                  sleep 10;
+                  sleep 1;
                 fi;
               done;
       containers:
@@ -42,17 +42,12 @@ spec:
             - "-t"
             - "{{ .name }}"
           image: tianyuli96/faster:latest
-          name: {{ .name }}-service
+          name: {{ .name }}
           ports:
             - containerPort: 15721
-          resources:
-            requests:
-              cpu: 2000m
-            limits:
-              cpu: 4000m
           envFrom:
             - configMapRef:
                 name: env-config
-      restartPolicy: Always
+      restartPolicy: Never
 ---
 {{- end }}

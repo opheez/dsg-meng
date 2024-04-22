@@ -23,7 +23,7 @@ spec:
       initContainers:
         - name: wait-for-dprfinder{{ .num }}
           image: bitnami/kubectl
-          command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 10; done;' ]
+          command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
       containers:
         - command:
             - "EventProcessing/EventProcessing"
@@ -39,11 +39,6 @@ spec:
           volumeMounts:
             - name: pubsub{{ .num }}storage
               mountPath: "/mnt/plrs"
-          resources:
-            requests:
-              cpu: 2000m
-            limits:
-              cpu: 4000m
           envFrom:
             - configMapRef:
                 name: env-config

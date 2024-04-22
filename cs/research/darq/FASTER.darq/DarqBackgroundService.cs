@@ -49,12 +49,7 @@ namespace FASTER.client
             this.logger = logger;
             Reset();
         }
-
-        public DarqBackgroundMaintenanceTask(Darq darq1, DarqMaintenanceBackgroundServiceSettings darqMaintenanceBackgroundServiceSettings)
-        {
-            throw new NotImplementedException();
-        }
-
+        
         private void Reset()
         {
             session = darq.DetachFromWorker();

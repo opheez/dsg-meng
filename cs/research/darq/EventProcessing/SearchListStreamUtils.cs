@@ -1,5 +1,6 @@
 using System.Text;
 using dse.services;
+using FASTER.libdpr;
 using MathNet.Numerics.Distributions;
 using Newtonsoft.Json;
 using pubsub;
@@ -187,6 +188,7 @@ public class SearchListDataLoader
 
     public async Task Run()
     {
+        var semaphore = new SemaphoreSlim(16, 16);
         var startTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
         var batched = new EnqueueRequest
         {
@@ -202,8 +204,13 @@ public class SearchListDataLoader
                 currentTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
                 if (batched.Events.Count != 0)
                 {
-                    // TODO(Tianyu): Should proceed without waiting?
-                    await client.EnqueueEventsAsync(batched);
+                    var batched1 = batched;
+                    await semaphore.WaitAsync();
+                    _ = Task.Run(async () =>
+                    {
+                        await client.EnqueueEventsAsync(batched1);
+                        semaphore.Release();
+                    });
                     batched = new EnqueueRequest
                     {
                         ProducerId = 0,
@@ -218,6 +225,21 @@ public class SearchListDataLoader
             json.Timestamp -= startTime;
             batched.SequenceNum = i;
             batched.Events.Add(m);
+            if (batched.Events.Count >= 512)
+            {
+                await semaphore.WaitAsync();
+                var batched1 = batched;
+                _ = Task.Run(async () =>
+                {
+                    await client.EnqueueEventsAsync(batched1);
+                    semaphore.Release();
+                });
+                batched = new EnqueueRequest
+                {
+                    ProducerId = 0,
+                    TopicId = topicName
+                };
+            }
         }
         Console.WriteLine("########## Finished publishing messages");
         var termination = new EnqueueRequest
@@ -227,6 +249,6 @@ public class SearchListDataLoader
             TopicId = topicName
         };
         termination.Events.Add("termination");
-        await client.EnqueueEventsAsync(batched);
+        await client.EnqueueEventsAsync(termination);
     }
 }

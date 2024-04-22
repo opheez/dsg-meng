@@ -1,11 +1,8 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using System.Net;
-using Azure.Storage.Blobs;
 using CommandLine;
-using Consul;
 using FASTER.core;
 using FASTER.darq;
-using FASTER.devices;
 using FASTER.libdpr;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
@@ -13,6 +10,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using dse.services;
+using FASTER.client;
+using Microsoft.Extensions.Logging;
 
 namespace EventProcessing;
 
@@ -25,10 +24,14 @@ public class Options
     [Option('w', "workload-trace", Required = false,
         HelpText = "Workload trace file to use")]
     public string WorkloadTrace { get; set; }
+    
+    [Option('o', "output-name", Required = false,
+        HelpText = "Name of output file")]
+    public string OutputName { get; set; }
 
-    [Option('n', "name", Required = false,
+    [Option('h', "hostid", Required = false,
         HelpText = "identifier of the service to launch")]
-    public int WorkerName { get; set; }
+    public int HostId { get; set; }
 }
 
 public class Program
@@ -38,29 +41,31 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
+        IEnvironment environment = new LocalDebugEnvironment();
+        // var environment = new KubernetesLocalStorageEnvironment(true);
         switch (options.Type.Trim())
         {
             case "client":
-                await LaunchBenchmarkClient(options);
+                await LaunchBenchmarkClient(options, environment);
                 break;
             case "filter":
             case "aggregate":
             case "detection":
-                await LaunchProcessor(options);
+                await LaunchProcessor(options, environment);
                 break;
             case "worker":
-                await LaunchPubsubService(options);
+                await LaunchPubsubService(options, environment);
                 break;
             case "dprfinder":
-                await LaunchDprFinder(options);
+                await LaunchDprFinder(options, environment);
                 break;
             case "generate":
-                new SearchListDataGenerator().SetOutputFile(options.WorkloadTrace)
+                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing\\workloads\\events-1k.txt")
                     .SetSearchTermRelevantProb(0.2)
-                    .SetTrendParameters(0.1, 250000, 100000)
+                    .SetTrendParameters(0.1, 1000, 500)
                     .SetSearchTermLength(80)
-                    .SetThroughput(250000)
-                    .SetNumSearchTerms(250000 * 30)
+                    .SetThroughput(1000)
+                    .SetNumSearchTerms(1000 * 30)
                     .Generate();
                 break;
             default:
@@ -68,76 +73,75 @@ public class Program
         }
     }
 
-    private static async Task LaunchBenchmarkClient(Options options)
+    private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
-        var client = new SpPubSubServiceClient(new ConsulClient(new ConsulClientConfiguration
-        {
-            Address = new Uri("consul:8500"),
-        }));
+        var client = new SpPubSubServiceClient(environment.GetClusterMap());
         var loader = new SearchListDataLoader(options.WorkloadTrace, client, 0);
-        // TODO(Tianyu): hardcoded numbers for two host machines
-        await client.CreateTopic(3, "1", "host1:15721", new DprWorkerId(3));
         loader.LoadData();
-        Task.Run(loader.Run);
+        _ = Task.Run(loader.Run);
         var processingClient = new SpPubSubProcessorClient(3, client);
         var measurementProcessor = new SearchListLatencyMeasurementProcessor();
-        Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor));
+        _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, true));
         await measurementProcessor.workloadTerminationed.Task;
-        await WriteResults(options, measurementProcessor);
+        await WriteResults(options, environment, measurementProcessor);
     }
 
-    private static async Task WriteResults(Options options, SearchListLatencyMeasurementProcessor processor)
+    private static async Task WriteResults(Options options, IEnvironment environment, SearchListLatencyMeasurementProcessor processor)
     {
-        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
-        var blobServiceClient = new BlobServiceClient(connString);
-        var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
-
-        await blobContainerClient.CreateIfNotExistsAsync();
-        var blobClient = blobContainerClient.GetBlobClient($"events-result.txt");
-
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
         foreach (var line in processor.results)
-            streamWriter.WriteLine($"{line.Key}, {line.Value.Item1}, {line.Value.Item2}");
+            streamWriter.WriteLine(line.Value.Item2 - line.Value.Item1);
         await streamWriter.FlushAsync();
-
         memoryStream.Position = 0;
-        await blobClient.UploadAsync(memoryStream, overwrite: true);
+        
+        await environment.PublishResultsAsync(options.OutputName, memoryStream);
     }
 
-    public static Task LaunchPubsubService(Options options)
+    public static Task LaunchPubsubService(Options options, IEnvironment environment)
     {
         var builder = WebApplication.CreateBuilder();
+        
+        builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
-            serverOptions.Listen(IPAddress.Any, 15721,
+            serverOptions.Listen(IPAddress.Any, environment.GetPubsubServicePort(options.HostId),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-
-        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
+        
+        builder.Services.AddSingleton<DarqMaintenanceBackgroundService>();
+        builder.Services.AddSingleton<StateObjectRefreshBackgroundService>();
+        
         builder.Services.AddSingleton(new SpPubSubServiceSettings
         {
-            consulConfig = new ConsulClientConfiguration
-            {
-                Address = new Uri("consul:8500"),
-            },
+            clusterMap = environment.GetClusterMap(),
             factory = (id, dprId) => new Darq(new DarqSettings
             {
                 Me = new DarqId(id),
                 MyDpr = dprId,
-                DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress("dprfinder:15721")),
-                LogDevice = new AzureStorageDevice(connString, "DARQs", options.WorkerName.ToString(), $"darq{id}"),
+                DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress(environment.GetDprFinderConnString())),
+                LogDevice = environment.GetDarqDevice(id),
+                LogCommitManager = environment.GetDarqCheckpointManager(id),
                 PageSize = 1L << 22,
                 MemorySize = 1L << 28,
                 SegmentSize = 1L << 30,
-                CheckpointPeriodMilli = 5,
+                CheckpointPeriodMilli = 10,
                 RefreshPeriodMilli = 5,
                 FastCommitMode = true
             }, new RwLatchVersionScheme()),
-            hostId = options.WorkerName.ToString(),
+            hostId = options.HostId,
         });
+        builder.Services.AddSingleton<SpPubSubBackendService>();
+        
+        builder.Services.AddHostedService<StateObjectRefreshBackgroundService>(provider =>
+            provider.GetRequiredService<StateObjectRefreshBackgroundService>());
+        builder.Services.AddHostedService<DarqMaintenanceBackgroundService>(provider =>
+            provider.GetRequiredService<DarqMaintenanceBackgroundService>());
+        builder.Services.AddHostedService<SpPubSubBackendService>(provider =>
+            provider.GetRequiredService<SpPubSubBackendService>());
 
         builder.Services.AddSingleton<SpPubSubService>();
+        builder.Services.AddGrpc();
         var app = builder.Build();
         app.MapGrpcService<SpPubSubService>();
         app.MapGet("/",
@@ -146,13 +150,9 @@ public class Program
         return app.RunAsync();
     }
 
-    public static async Task LaunchProcessor(Options options)
+    public static async Task LaunchProcessor(Options options, IEnvironment environment)
     {
-        var client = new SpPubSubServiceClient(new ConsulClient(new ConsulClientConfiguration
-        {
-            Address = new Uri("consul:8500"),
-        }));
-        // TODO(Tianyu): hardcoded numbers for two host machines
+        var client = new SpPubSubServiceClient(environment.GetClusterMap());
         var outputTopic = options.Type switch
         {
             "filter" => 1,
@@ -160,42 +160,43 @@ public class Program
             "detection" => 3,
             _ => throw new ArgumentOutOfRangeException()
         };
-        var hostId = outputTopic % 2;
-        await client.CreateTopic(outputTopic, hostId.ToString(),
-            $"host{hostId}:15721",
-            new DprWorkerId(outputTopic));
+
         var processingClient = new SpPubSubProcessorClient(outputTopic - 1, client);
         SpPubSubEventHandler handler = options.Type switch
         {
             "filter" => new FilterAndMapEventProcessor(outputTopic),
             "aggregate" => new AggregateEventProcessor(outputTopic),
-            "detection" => new AnomalyDetectionEventProcessor(outputTopic, 0.1),
+            "detection" => new AnomalyDetectionEventProcessor(outputTopic, 0.2),
             _ => throw new ArgumentOutOfRangeException()
         };
-        await processingClient.StartProcessingAsync(handler);
+        await processingClient.StartProcessingAsync(handler, true);
     }
 
-    public static Task LaunchDprFinder(Options options)
+    public static async Task LaunchDprFinder(Options options, IEnvironment environment)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.AddConsole();
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
-            serverOptions.Listen(IPAddress.Any, 15720,
+            serverOptions.Listen(IPAddress.Any, environment.GetDprFinderPort(),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
+            serverOptions.Limits.MinRequestBodyDataRate = null;
         });
-        var connString = Environment.GetEnvironmentVariable("AZURE_CONN_STRING");
-        using var device1 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "1", deleteOnClose: true);
-        using var device2 = new AzureStorageDevice(connString, "dprfinder", "recoverlog", "2", deleteOnClose: true);
-        var dprFinderServiceDevice = new PingPongDevice(device1, device2);
+        using var dprFinderServiceDevice = environment.GetDprFinderDevice();
         builder.Services.AddSingleton(dprFinderServiceDevice);
         builder.Services.AddSingleton<GraphDprFinderBackend>();
+        builder.Services.AddSingleton<DprFinderGrpcBackgroundService>();
         builder.Services.AddSingleton<DprFinderGrpcService>();
+        
         builder.Services.AddGrpc();
+        builder.Services.AddHostedService<DprFinderGrpcBackgroundService>(provider =>
+            provider.GetRequiredService<DprFinderGrpcBackgroundService>());
         var app = builder.Build();
+        
         app.MapGrpcService<DprFinderGrpcService>();
         app.MapGet("/",
             () =>
                 "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
-        return app.RunAsync();
+        await app.RunAsync();
     }
 }

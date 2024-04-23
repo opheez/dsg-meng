@@ -51,7 +51,8 @@ public class SpPubSubProcessorClient
             handler.OnRestart(new PubsubCapabilities
             {
                 client = client,
-                session = session,
+                // To ensure that step returns quickly, make the return speculative even if processing is not 
+                session = speculative ? session : new DprSession(),
                 incarnationId = incarnationId,
                 topicId = topicId
             });

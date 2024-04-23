@@ -1,4 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
+
+using System.Diagnostics;
 using System.Net;
 using CommandLine;
 using FASTER.core;
@@ -64,12 +66,12 @@ public class Program
                 await LaunchDprFinder(options, environment);
                 break;
             case "generate":
-                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing\\workloads\\events-1k.txt")
+                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing\\workloads\\events-50k.txt")
                     .SetSearchTermRelevantProb(0.2)
-                    .SetTrendParameters(0.1, 1000, 500)
+                    .SetTrendParameters(0.1, 50000, 25000)
                     .SetSearchTermLength(80)
-                    .SetThroughput(1000)
-                    .SetNumSearchTerms(1000 * 30)
+                    .SetThroughput(50000)
+                    .SetNumSearchTerms(50000 * 30)
                     .Generate();
                 break;
             default:
@@ -80,11 +82,12 @@ public class Program
     private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
         var client = new SpPubSubServiceClient(environment.GetClusterMap());
-        var loader = new SearchListDataLoader(options.WorkloadTrace, client, 0);
+        var stopwatch = new Stopwatch();
+        var loader = new SearchListDataLoader(options.WorkloadTrace, client, 0, stopwatch);
         loader.LoadData();
         _ = Task.Run(loader.Run);
         var processingClient = new SpPubSubProcessorClient(3, client);
-        var measurementProcessor = new SearchListLatencyMeasurementProcessor();
+        var measurementProcessor = new SearchListLatencyMeasurementProcessor(stopwatch);
         _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, false));
         await measurementProcessor.workloadTerminationed.Task;
         await WriteResults(options, environment, measurementProcessor);
@@ -170,7 +173,7 @@ public class Program
         {
             "filter" => new FilterAndMapEventProcessor(outputTopic),
             "aggregate" => new AggregateEventProcessor(outputTopic),
-            "detection" => new AnomalyDetectionEventProcessor(outputTopic, 0.2),
+            "detection" => new AnomalyDetectionEventProcessor(outputTopic, 1.0),
             _ => throw new ArgumentOutOfRangeException()
         };
         await processingClient.StartProcessingAsync(handler, options.Speculative);

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using dse.services;
 using pubsub;
 
@@ -7,7 +8,13 @@ public class SearchListLatencyMeasurementProcessor : SpPubSubEventHandler
 {
     public Dictionary<string, (long, long)> results = new();
     public TaskCompletionSource workloadTerminationed = new();
+    private Stopwatch stopwatch;
 
+    public SearchListLatencyMeasurementProcessor(Stopwatch stopwatch)
+    {
+        this.stopwatch = stopwatch;
+    }
+    
     public ValueTask HandleAsync(Event ev, CancellationToken token)
     {
         if (ev.Data.Equals("termination"))
@@ -17,9 +24,9 @@ public class SearchListLatencyMeasurementProcessor : SpPubSubEventHandler
         }
         var split = ev.Data.Split(":");
         var timestamp = long.Parse(split[2]);
-        var endTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+        var endTime = stopwatch.ElapsedMilliseconds;
         results[ev.Data] = (timestamp, endTime);
-        Console.WriteLine($"Received {ev.Data}, {timestamp}, {endTime}");
+        // Console.WriteLine($"Received {ev.Data}, {timestamp}, {endTime}");
         return ValueTask.CompletedTask;
     }
 

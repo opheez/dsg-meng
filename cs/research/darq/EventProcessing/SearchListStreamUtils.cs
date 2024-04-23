@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using dse.services;
 using FASTER.libdpr;
@@ -167,21 +168,25 @@ public class SearchListDataGenerator
 public class SearchListDataLoader
 {
     private string filename;
+    private List<string> rawJsons = new();
     private List<SearchListJson> parsedJsons = new();
     private SpPubSubServiceClient client;
     private int topicName;
-
-    public SearchListDataLoader(string filename, SpPubSubServiceClient client, int topicName)
+    private Stopwatch stopwatch;
+    
+    public SearchListDataLoader(string filename, SpPubSubServiceClient client, int topicName, Stopwatch stopwatch)
     {
         this.filename = filename;
         this.client = client;
         this.topicName = topicName;
+        this.stopwatch = stopwatch;
     }
 
     public int LoadData()
     {
         Console.WriteLine("Started loading json messages from file");
-        parsedJsons = File.ReadLines(filename).Select(JsonConvert.DeserializeObject<SearchListJson>).ToList()!;
+        rawJsons = File.ReadLines(filename).ToList();
+        parsedJsons = rawJsons.Select(JsonConvert.DeserializeObject<SearchListJson>).ToList()!;
         Console.WriteLine($"Loading of {parsedJsons.Count} messages complete");
         return parsedJsons.Count;
     }
@@ -189,7 +194,7 @@ public class SearchListDataLoader
     public async Task Run()
     {
         var semaphore = new SemaphoreSlim(32, 32);
-        var startTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+        stopwatch.Start();
         var batched = new EnqueueRequest
         {
             ProducerId = 0,
@@ -198,10 +203,10 @@ public class SearchListDataLoader
         for (var i = 0; i < parsedJsons.Count; i++)
         {
             var json = parsedJsons[i];
-            var currentTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
-            while (currentTime < startTime + json.Timestamp)
+            var currentTime = stopwatch.ElapsedMilliseconds;
+            while (currentTime < json.Timestamp)
             {
-                currentTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+                currentTime = stopwatch.ElapsedMilliseconds;
                 if (batched.Events.Count != 0)
                 {
                     var batched1 = batched;
@@ -219,13 +224,9 @@ public class SearchListDataLoader
                 }
                 await Task.Yield();
             }
-            json.Timestamp += startTime;
-            var m = JsonConvert.SerializeObject(json);
-            // Restore value in case we need to rollback and replay this in the future
-            json.Timestamp -= startTime;
             batched.SequenceNum = i;
-            batched.Events.Add(m);
-            if (batched.Events.Count >= 512)
+            batched.Events.Add(rawJsons[i]);
+            if (batched.Events.Count >= 1024)
             {
                 await semaphore.WaitAsync();
                 var batched1 = batched;

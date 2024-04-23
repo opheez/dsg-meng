@@ -31,7 +31,7 @@ spec:
             - "-t"
             - "client"
             - "-w"
-            - "workloads/{{.Values.workload}}"
+            - "EventProcessing-latency/workloads/{{.Values.workload}}"
             - "-o"
             - "{{.Values.workload}}-results.csv"
           image: tianyuli96/faster:latest

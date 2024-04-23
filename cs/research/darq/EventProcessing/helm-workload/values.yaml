@@ -1,6 +1,6 @@
 conn_string: foo
 results_conn_string: foo
-experiment: EventLatency
+experiment: EventLatency-latency
 workload: placeholder
 
 workers:

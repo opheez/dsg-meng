@@ -84,7 +84,7 @@ public class AnomalyDetectionEventProcessor : SpPubSubEventHandler
 
     private async ValueTask CheckpointCurrentState()
     {
-        if (state.Count == 0) return;
+        if (state.Count == 0 && currentStep.ConsumedMessageOffsets.Count == 0) return;
         // TODO(Tianyu): Need some API to easily GC recovery messages
         foreach (var entry in state)
             currentStep.RecoveryMessages.Add(ByteString.CopyFrom($"{entry.Key}:{entry.Value}", Encoding.UTF8));

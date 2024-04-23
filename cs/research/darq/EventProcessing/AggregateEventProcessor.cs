@@ -73,6 +73,11 @@ public class AggregateEventProcessor : SpPubSubEventHandler
         currentRequest.ConsumedMessageOffsets.Add(ev.Offset);
     }
 
+    public ValueTask HandleAwait()
+    {
+        return ValueTask.CompletedTask;
+    }
+
     public void OnRestart(PubsubCapabilities capabilities)
     {
         this.capabilities = capabilities;

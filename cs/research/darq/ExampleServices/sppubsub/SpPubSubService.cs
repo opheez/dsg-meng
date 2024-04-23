@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using darq.client;
 using FASTER.client;
@@ -41,6 +42,9 @@ public class PubsubDarqProducer : IDarqProducer
 {
     private SpPubSubServiceClient client;
     private DprSession session;
+    private SimpleObjectPool<EnqueueRequest> requestPool = new(() => new EnqueueRequest());
+    private SimpleObjectPool<List<Action<bool>>> callbackPool = new(() => new List<Action<bool>>(32));
+    private Dictionary<DarqId, (EnqueueRequest, List<Action<bool>>)> currentRequest = new();
 
     public PubsubDarqProducer(Dictionary<int, (int, string)> clusterMap, DprSession session)
     {
@@ -55,23 +59,40 @@ public class PubsubDarqProducer : IDarqProducer
     public void EnqueueMessageWithCallback(DarqId darqId, ReadOnlySpan<byte> message, Action<bool> callback,
         long producerId, long lsn)
     {
-        var enqueueRequest = new EnqueueRequest
+
+        if (!currentRequest.TryGetValue(darqId, out var entry))
         {
-            ProducerId = producerId,
-            SequenceNum = lsn,
-            TopicId = (int)darqId.guid
-        };
-        enqueueRequest.Events.Add(Encoding.UTF8.GetString(message));
-        Task.Run(async () =>
-        {
-            await client.EnqueueEventsAsync(enqueueRequest, session);
-            callback(true);
-        });
+            var request = requestPool.Checkout();
+            request.TopicId = (int)darqId.guid;
+            request.ProducerId = producerId;
+            request.SequenceNum = 0;
+            request.Events.Clear();
+            var callbacks = callbackPool.Checkout();
+            callbacks.Clear();
+            
+            entry = currentRequest[darqId] = (request, callbacks);
+        }
+        // Only expecting to call with a single producerId for now
+        Debug.Assert(entry.Item1.ProducerId == producerId);
+        // Only expecting to get monotonically increasing lsns for now
+        Debug.Assert(entry.Item1.SequenceNum < lsn);
+        entry.Item1.SequenceNum = lsn;
+        entry.Item1.Events.Add(Encoding.UTF8.GetString(message));
+        entry.Item2.Add(callback);
     }
 
     public void ForceFlush()
     {
-        // TODO(Tianyu): Make things more efficient by batching?
+        foreach (var entry in currentRequest.Values)
+        {
+            Task.Run(async () =>
+            {
+                await client.EnqueueEventsAsync(entry.Item1, session);
+                foreach (var callback in entry.Item2) callback(true);
+            });
+        }
+        currentRequest.Clear();
+        
     }
 }
 
@@ -107,7 +128,7 @@ public class SpPubSubBackendService : BackgroundService
         return topics[id];
     }
 
-    protected async override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         foreach (var entry in settings.clusterMap)
         {
@@ -117,8 +138,9 @@ public class SpPubSubBackendService : BackgroundService
             maintenanceService.RegisterMaintenanceTask(result, new DarqMaintenanceBackgroundServiceSettings
             {
                 morselSize = 512,
-                batchSize = 16,
-                producerFactory = session => new PubsubDarqProducer(settings.clusterMap, session)
+                batchSize = 64,
+                producerFactory = session => new PubsubDarqProducer(settings.clusterMap, session),
+                speculative = true
             });
             refreshService.RegisterRefreshTask(result);
             topics[entry.Key] = result;

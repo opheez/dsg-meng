@@ -1,3 +1,4 @@
+using FASTER.core;
 using FASTER.libdpr;
 using pubsub;
 
@@ -5,6 +6,9 @@ namespace dse.services;
 
 public interface SpPubSubEventHandler
 {
+    // Invoked when there are no more entries and the handler is expected to await
+    ValueTask HandleAwait();
+    
     ValueTask HandleAsync(Event ev, CancellationToken token);
 
     void OnRestart(PubsubCapabilities capabilities);
@@ -59,8 +63,16 @@ public class SpPubSubProcessorClient
             
             try
             {
-                while (await stream.ResponseStream.MoveNext(token))
+                while (true)
+                {
+                    var task = stream.ResponseStream.MoveNext(token);
+                    if (!task.IsCompleted)
+                    {
+                        handler.HandleAwait();
+                        if (!await task) break;
+                    }
                     await handler.HandleAsync(stream.ResponseStream.Current, token);
+                }
             }
             catch (DprSessionRolledBackException e)
             {

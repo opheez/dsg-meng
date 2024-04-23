@@ -35,13 +35,12 @@ public class AnomalyDetectionEventProcessor : SpPubSubEventHandler
                 if (ev.Data.Equals("termination"))
                 {
                     currentStep.ConsumedMessageOffsets.Add(ev.Offset);
-                    CheckpointCurrentState();
                     currentStep.OutMessages.Add(new OutMessage
                     {
                         TopicId = outputTopic,
                         Event = ev.Data
                     });
-                    await capabilities.Step(currentStep);
+                    await CheckpointCurrentState();
                     return;
                 }
                 // Console.WriteLine($"Received Message: {message}");
@@ -54,22 +53,16 @@ public class AnomalyDetectionEventProcessor : SpPubSubEventHandler
                 
                 if (random.NextDouble() < sampleRate)
                 {
-                    CheckpointCurrentState();
                     currentStep.OutMessages.Add(new OutMessage
                     {
                         TopicId = outputTopic,
                         Event = ev.Data
                     });
-                    await capabilities.Step(currentStep);
-                    currentStep = new StepRequest();
-                    batchedCount = 0;
+                    await CheckpointCurrentState();
                 }
                 else if (batchedCount == 100)
                 {
-                    CheckpointCurrentState();
-                    await capabilities.Step(currentStep);
-                    currentStep = new StepRequest();
-                    batchedCount = 0;
+                    await CheckpointCurrentState();
                 }
                 return;
             }
@@ -83,12 +76,21 @@ public class AnomalyDetectionEventProcessor : SpPubSubEventHandler
                 throw new NotImplementedException();
         }
     }
-
-    private void CheckpointCurrentState()
+    
+    public ValueTask HandleAwait()
     {
+        return CheckpointCurrentState();
+    }
+
+    private async ValueTask CheckpointCurrentState()
+    {
+        if (state.Count == 0) return;
         // TODO(Tianyu): Need some API to easily GC recovery messages
         foreach (var entry in state)
             currentStep.RecoveryMessages.Add(ByteString.CopyFrom($"{entry.Key}:{entry.Value}", Encoding.UTF8));
+        await capabilities.Step(currentStep);
+        currentStep = new StepRequest();
+        batchedCount = 0;
     }
 
     public void OnRestart(PubsubCapabilities capabilities)

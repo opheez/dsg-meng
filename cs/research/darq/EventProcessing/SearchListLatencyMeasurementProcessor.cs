@@ -29,6 +29,12 @@ public class SearchListLatencyMeasurementProcessor : SpPubSubEventHandler
         // Console.WriteLine($"Received {ev.Data}, {timestamp}, {endTime}");
         return ValueTask.CompletedTask;
     }
+    
+    public ValueTask HandleAwait()
+    {
+        return ValueTask.CompletedTask;
+    }
+
 
     public void OnRestart(PubsubCapabilities capabilities)
     {

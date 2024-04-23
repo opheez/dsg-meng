@@ -31,7 +31,7 @@ public class FilterAndMapEventProcessor : SpPubSubEventHandler
                 TopicId = outputTopic,
                 Event = ev.Data
             });
-            await capabilities.Step(currentBatch);
+            await Flush();
             return;
         }
         
@@ -49,14 +49,22 @@ public class FilterAndMapEventProcessor : SpPubSubEventHandler
                 Event = outputMessage
             });
         }
-                
-        // TODO(Tianyu): Need to flush final entries on clean shutdown?
+
         if (++numBatchedSteps == batchSize)
-        {
-            await capabilities.Step(currentBatch);
-            currentBatch = new pubsub.StepRequest();
-            numBatchedSteps = 0;
-        }
+            await Flush();
+    }
+
+    public ValueTask HandleAwait()
+    {
+        return Flush();
+    }
+
+    private async ValueTask Flush()
+    {
+        if (numBatchedSteps == 0) return;
+        await capabilities.Step(currentBatch);
+        currentBatch = new pubsub.StepRequest();
+        numBatchedSteps = 0;
     }
 
     public void OnRestart(PubsubCapabilities capabilities)

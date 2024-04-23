@@ -16,6 +16,9 @@ namespace FASTER.client
 
         // batch size for background sends
         public int batchSize = 16;
+        
+        public bool speculative = false;
+        
         public Func<DprSession, IDarqProducer> producerFactory;
     }
 
@@ -53,9 +56,9 @@ namespace FASTER.client
         private void Reset()
         {
             session = darq.DetachFromWorker();
-            currentProducerClient = settings.producerFactory?.Invoke(new DprSession());
+            currentProducerClient = settings.producerFactory?.Invoke(settings.speculative ? new DprSession() : null);
             completionTracker = new DarqCompletionTracker();
-            iterator = darq.StartScan(true);
+            iterator = darq.StartScan(settings.speculative);
         }
 
         public long ProcessingLag => darq.log.TailAddress - processedUpTo;

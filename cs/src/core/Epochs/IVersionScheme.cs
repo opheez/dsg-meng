@@ -167,6 +167,12 @@ namespace FASTER.core;
             actualToVersion = toVersion;
         }
 
+        protected void Reset(long toVersion)
+        {
+            this.toVersion = toVersion;
+            actualToVersion = toVersion;
+        }
+
         /// <summary></summary>
         /// <returns> version to transition to, or -1 if unconditionally transitioning to an unspecified next version</returns>
         public long ToVersion() => toVersion;

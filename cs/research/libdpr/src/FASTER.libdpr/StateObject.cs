@@ -67,6 +67,11 @@ namespace FASTER.libdpr
                 }
             }
 
+            public void Reset(long targetVersion = -1)
+            {
+                base.Reset(targetVersion);
+            }
+
             public override void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
             {
                 if (fromState.Phase == VersionSchemeState.REST)
@@ -121,8 +126,14 @@ namespace FASTER.libdpr
 
             public override void AfterEnteringState(VersionSchemeState state)
             {
+                if (state.Phase == VersionSchemeState.REST)
+                {
+                    so.reusedStateMachines.Return(this);
+                }
             }
         }
+
+        private SimpleObjectPool<CheckpointStateMachine> reusedStateMachines;
 
         /// <summary>
         /// Creates a new DprServer.
@@ -140,6 +151,7 @@ namespace FASTER.libdpr
             depSerializationArray = new byte[2 * LightDependencySet.MaxClusterSize * sizeof(long)];
             nextCommit = new TaskCompletionSource<long>();
             sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
+            reusedStateMachines = new SimpleObjectPool<CheckpointStateMachine>(() => new CheckpointStateMachine(this));
         }
 
         public IDprFinder GetDprFinder() => options.DprFinder;
@@ -227,13 +239,16 @@ namespace FASTER.libdpr
 
         private bool BeginCheckpoint(long targetVersion = -1)
         {
-            if (versionScheme.TryExecuteStateMachine(new CheckpointStateMachine(this, targetVersion)) ==
+            var machine = reusedStateMachines.Checkout();
+            machine.Reset(targetVersion);
+            if (versionScheme.TryExecuteStateMachine(machine) ==
                 StateMachineExecutionStatus.OK)
             {
                 core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
                 return true;
             }
 
+            reusedStateMachines.Return(machine);
             return false;
         }
 

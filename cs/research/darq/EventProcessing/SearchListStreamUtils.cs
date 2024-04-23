@@ -193,7 +193,7 @@ public class SearchListDataLoader
 
     public async Task Run()
     {
-        var semaphore = new SemaphoreSlim(64, 64);
+        var semaphore = new SemaphoreSlim(512, 512);
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
@@ -210,11 +210,13 @@ public class SearchListDataLoader
                 if (batched.Events.Count != 0)
                 {
                     var batched1 = batched;
+                    var now = stopwatch.ElapsedMilliseconds;
                     await semaphore.WaitAsync();
                     _ = Task.Run(async () =>
                     {
                         await client.EnqueueEventsAsync(batched1);
                         semaphore.Release();
+                        Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
                     });
                     batched = new EnqueueRequest
                     {
@@ -229,11 +231,13 @@ public class SearchListDataLoader
             if (batched.Events.Count >= 64)
             {
                 await semaphore.WaitAsync();
+                var now = stopwatch.ElapsedMilliseconds;
                 var batched1 = batched;
                 _ = Task.Run(async () =>
                 {
                     await client.EnqueueEventsAsync(batched1);
                     semaphore.Release();
+                    Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
                 });
                 batched = new EnqueueRequest
                 {

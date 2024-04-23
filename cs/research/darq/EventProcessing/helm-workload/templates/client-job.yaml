@@ -31,7 +31,7 @@ spec:
             - "-t"
             - "client"
             - "-w"
-            - "{{.Values.experiment}}/workloads/{{.Values.workload}}"
+            - "{{.Values.experiment}}/workloads/{{.Values.workload}}.txt"
             - "-o"
             - "{{.Values.experiment}}-{{.Values.workload}}-results-{{- if $.Values.speculative }}speculative{{- end }}.csv"
           image: tianyuli96/faster:latest

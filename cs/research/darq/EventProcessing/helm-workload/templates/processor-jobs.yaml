@@ -4,17 +4,12 @@ kind: Job
 metadata:
   labels:
     type: processor
-    service: {{ .name }}
   name: {{ .name }}
 spec:
-  selector:
-    matchLabels:
-      service: {{ .name }}
   template:
     metadata:
       labels:
         type: processor
-        service: {{ .name }}
     spec:
       priorityClassName: high-priority
       serviceAccountName: deployment-watcher

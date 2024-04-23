@@ -89,10 +89,11 @@ public class PubsubDarqProducer : IDarqProducer
             {
                 await client.EnqueueEventsAsync(entry.Item1, session);
                 foreach (var callback in entry.Item2) callback(true);
+                requestPool.Return(entry.Item1);
+                callbackPool.Return(entry.Item2);
             });
         }
         currentRequest.Clear();
-        
     }
 }
 

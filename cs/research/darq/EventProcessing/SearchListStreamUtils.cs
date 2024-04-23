@@ -193,7 +193,7 @@ public class SearchListDataLoader
 
     public async Task Run()
     {
-        var semaphore = new SemaphoreSlim(32, 32);
+        var semaphore = new SemaphoreSlim(64, 64);
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
@@ -226,7 +226,7 @@ public class SearchListDataLoader
             }
             batched.SequenceNum = i;
             batched.Events.Add(rawJsons[i]);
-            if (batched.Events.Count >= 1024)
+            if (batched.Events.Count >= 64)
             {
                 await semaphore.WaitAsync();
                 var batched1 = batched;

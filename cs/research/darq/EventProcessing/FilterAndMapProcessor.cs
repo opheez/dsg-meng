@@ -12,7 +12,7 @@ public class FilterAndMapEventProcessor : SpPubSubEventHandler
     private pubsub.StepRequest currentBatch;
     private int batchSize, numBatchedSteps = 0;
 
-    public FilterAndMapEventProcessor(int outputTopic, int batchSize = 128)
+    public FilterAndMapEventProcessor(int outputTopic, int batchSize = 32)
     {
         this.outputTopic = outputTopic;
         this.batchSize = batchSize;
@@ -25,6 +25,7 @@ public class FilterAndMapEventProcessor : SpPubSubEventHandler
         if (ev.Data.Equals("termination"))
         {
             // Forward termination signal
+            numBatchedSteps++;
             currentBatch.ConsumedMessageOffsets.Add(ev.Offset);
             currentBatch.OutMessages.Add(new OutMessage
             {
@@ -41,12 +42,10 @@ public class FilterAndMapEventProcessor : SpPubSubEventHandler
         currentBatch.ConsumedMessageOffsets.Add(ev.Offset);
         if (searchListItem.SearchTerm.Contains(SearchListStreamUtils.relevantSearchTerm))
         {
-            var outputMessage =
-                $"{SearchListStreamUtils.relevantSearchTerm} : {SearchListStreamUtils.GetRegionCode(searchListItem.IP)} : {searchListItem.Timestamp}";
             currentBatch.OutMessages.Add(new OutMessage
             {
                 TopicId = outputTopic,
-                Event = outputMessage
+                Event = $"{SearchListStreamUtils.relevantSearchTerm} : {SearchListStreamUtils.GetRegionCode(searchListItem.IP)} : {searchListItem.Timestamp}"
             });
         }
 

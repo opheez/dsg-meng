@@ -10,7 +10,7 @@ metadata:
   name: deployment-reader
   namespace: dse
 rules:
-  - apiGroups: [ "apps" ]
+  - apiGroups: [ "apps", "batch" ]
     resources: [ "deployments", "pods" ]
     verbs: [ "get", "list", "watch"]
 ---

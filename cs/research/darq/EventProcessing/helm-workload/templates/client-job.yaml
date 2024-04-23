@@ -13,6 +13,7 @@ spec:
           command: [ "sh", "-c" ]
           args:
             - >
+              sleep 10
               while true; do
                 # Check if all deployments have at least one ready replica
                 notReadyCount=$(kubectl get jobs -l type=processor -n dse | grep -c "0/1")

@@ -31,9 +31,9 @@ spec:
             - "-t"
             - "client"
             - "-w"
-            - "EventProcessing-latency/workloads/{{.Values.workload}}"
+            - "{{.Values.experiment}}/workloads/{{.Values.workload}}"
             - "-o"
-            - "{{.Values.workload}}-results.csv"
+            - "{{.Values.experiment}}-{{.Values.workload}}-results-{{- if $.Values.speculative }}speculative{{- end }}.csv"
           image: tianyuli96/faster:latest
           name: client
           ports:

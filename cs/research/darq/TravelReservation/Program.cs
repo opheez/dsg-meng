@@ -52,6 +52,7 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
+        ThreadPool.SetMinThreads(1024, 1024);
         // var environment = new LocalDebugEnvironment();
         var environment = new KubernetesLocalStorageEnvironment(true);
 
@@ -76,11 +77,11 @@ public class Program
             case "generate":
                 new WorkloadGenerator()
                     .SetNumClients(1)
-                    .SetNumServices(10)
-                    .SetNumWorkflowsPerSecond(10)
+                    .SetNumServices(3)
+                    .SetNumWorkflowsPerSecond(100)
                     .SetNumSeconds(120)
                     .SetNumOfferings(10000)
-                    .SetBaseFileName("C:\\Users\\tianyu\\Desktop\\workloads\\TravelReservation-latency\\workloads\\workload-10service")
+                    .SetBaseFileName("C:\\Users\\tianyu\\Desktop\\workloads\\test")
                     .GenerateWorkloadTrace(new Random());
                 break;
             default:
@@ -160,6 +161,7 @@ public class Program
         {
             serverOptions.Listen(IPAddress.Any, environment.GetOrchestratorPort(options),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
+            serverOptions.Limits.MinRequestBodyDataRate = null;
         });
         
         var checkpointManager = environment.GetOrchestratorCheckpointManager(options);
@@ -185,7 +187,8 @@ public class Program
             morselSize = 512,
             batchSize = 16,
             // Workflow orchestrator DARQs never produce out messages
-            producerFactory = null
+            producerFactory = null,
+            speculative = true
         });
 
         var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
@@ -224,6 +227,7 @@ public class Program
         {
             serverOptions.Listen(IPAddress.Any, environment.GetDprFinderPort(),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
+            serverOptions.Limits.MinRequestBodyDataRate = null;
         });
         using var dprFinderServiceDevice = environment.GetDprFinderDevice();
         builder.Services.AddSingleton(dprFinderServiceDevice);
@@ -251,6 +255,7 @@ public class Program
         {
             serverOptions.Listen(IPAddress.Any, environment.GetServicePort(options),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
+            serverOptions.Limits.MinRequestBodyDataRate = null;
         });
         var checkpointManager = environment.GetServiceCheckpointManager(options);
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>

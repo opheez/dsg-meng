@@ -226,6 +226,7 @@ namespace FASTER.libdpr
 
         private bool BeginCheckpoint(long targetVersion = -1)
         {
+            if (versionScheme.CurrentState().Phase != VersionSchemeState.REST) return false;
             if (versionScheme.TryExecuteStateMachine(new CheckpointStateMachine(this, targetVersion)) ==
                 StateMachineExecutionStatus.OK)
             {

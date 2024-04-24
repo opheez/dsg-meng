@@ -11,7 +11,7 @@ public interface IEnvironment
 
     public int GetOrchestratorPort(Options options);
 
-    public DeviceLogCommitCheckpointManager GetOrchestratorCheckpointManager(Options options);
+    public FileBasedCheckpointManager GetOrchestratorCheckpointManager(Options options);
 
     public IDevice GetOrchestratorDevice(Options options);
 
@@ -19,7 +19,7 @@ public interface IEnvironment
 
     public int GetServicePort(Options options);
 
-    public DeviceLogCommitCheckpointManager GetServiceCheckpointManager(Options options);
+    public FileBasedCheckpointManager GetServiceCheckpointManager(Options options);
 
     public IDevice GetServiceDevice(Options options);
 
@@ -46,9 +46,9 @@ public class LocalDebugEnvironment : IEnvironment
         return options.WorkerName + 15721;
     }
 
-    public DeviceLogCommitCheckpointManager GetOrchestratorCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetOrchestratorCheckpointManager(Options options)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\orchestrators{options.WorkerName}"), removeOutdated: false);
         result.PurgeAll();
@@ -68,9 +68,9 @@ public class LocalDebugEnvironment : IEnvironment
         return 15721 + options.WorkerName;
     }
 
-    public DeviceLogCommitCheckpointManager GetServiceCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetServiceCheckpointManager(Options options)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\service{options.WorkerName}"), removeOutdated: false);
         result.PurgeAll();
@@ -115,9 +115,9 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public int GetOrchestratorPort(Options options) => 15721;
 
-    public DeviceLogCommitCheckpointManager GetOrchestratorCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetOrchestratorCheckpointManager(Options options)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"/mnt/plrs/orchestrators{options.WorkerName}"), removeOutdated: false);
         if (cleanStart)
@@ -136,9 +136,9 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public int GetServicePort(Options options) => 15721;
 
-    public DeviceLogCommitCheckpointManager GetServiceCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetServiceCheckpointManager(Options options)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"/mnt/plrs/service{options.WorkerName}"), removeOutdated: false);
         if (cleanStart)
@@ -196,9 +196,9 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
 
     public int GetOrchestratorPort(Options options) => 15721;
 
-    public DeviceLogCommitCheckpointManager GetOrchestratorCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetOrchestratorCheckpointManager(Options options)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new AzureStorageNamedDeviceFactory(Environment.GetEnvironmentVariable("AZURE_CONN_STRING")),
             new DefaultCheckpointNamingScheme($"orchestrators/{options.WorkerName}/checkpoints"),
             removeOutdated: false);
@@ -220,9 +220,9 @@ public class KubernetesCloudStorageEnvironment : IEnvironment
 
     public int GetServicePort(Options options) => 15721;
 
-    public DeviceLogCommitCheckpointManager GetServiceCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetServiceCheckpointManager(Options options)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new AzureStorageNamedDeviceFactory(Environment.GetEnvironmentVariable("AZURE_CONN_STRING")),
             new DefaultCheckpointNamingScheme($"services/{options.WorkerName}/checkpoints"), removeOutdated: false);
         if (cleanStart)

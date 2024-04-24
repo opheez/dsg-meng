@@ -40,7 +40,7 @@ public class Options
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
-    [Option('i', "issue-window", Required = false, Default = 16,
+    [Option('i', "issue-window", Required = false, Default = 128,
         HelpText = "how many requests can be concurrently in-flight")]
     public int IssueWindow { get; set; }
 }
@@ -52,7 +52,6 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        ThreadPool.SetMinThreads(1024, 1024);
         // var environment = new LocalDebugEnvironment();
         var environment = new KubernetesLocalStorageEnvironment(true);
 

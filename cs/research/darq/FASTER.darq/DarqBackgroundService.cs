@@ -165,7 +165,7 @@ namespace FASTER.client
 
             if (completionTracker.GetTruncateHead() > darq.log.BeginAddress)
             {
-                logger.LogInformation($"Truncating log until {completionTracker.GetTruncateHead()}");
+                // logger.LogInformation($"Truncating log until {completionTracker.GetTruncateHead()}");
                 darq.StartLocalAction();
                 darq.TruncateUntil(completionTracker.GetTruncateHead());
                 darq.EndAction();

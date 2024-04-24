@@ -107,11 +107,14 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                 index = 0
             });
             requestBuilder.MarkMessageConsumed(m.GetLsn());
+            m.Dispose();
 
             // Will always be completed synchronously
-            capabilities.Step(requestBuilder.FinishStep()).GetAwaiter().GetResult();
-            m.Dispose();
-            stepRequestPool.Return(stepRequest);
+            Task.Run(async () =>
+            {
+                await capabilities.Step(requestBuilder.FinishStep());
+                stepRequestPool.Return(stepRequest);
+            });
             return;
         }
 
@@ -131,7 +134,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         if (index == toExecute.Count)
         {
-            logger.LogInformation($"Workflow with id {workflowId} completed successfully");
+            // logger.LogInformation($"Workflow with id {workflowId} completed successfully");
             // We are done and there are no more reservations to make
             tcs.SetResult(true);
             return;
@@ -147,9 +150,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                     channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
                 : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
-            logger.LogInformation($"Workflow with id {workflowId} is starting reservation number {index}");
+            // logger.LogInformation($"Workflow with id {workflowId} is starting reservation number {index}");
             var result = await client.MakeReservationAsync(toExecute[index]);
-            logger.LogInformation($"Workflow with id {workflowId} has completed reservation number {index}");
+            // logger.LogInformation($"Workflow with id {workflowId} has completed reservation number {index}");
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
@@ -172,7 +175,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         if (index == -1)
         {
-            logger.LogInformation($"Workflow with id {workflowId} completed with rollback");
+            // logger.LogInformation($"Workflow with id {workflowId} completed with rollback");
             // We are done and there are no more reservations to make
             tcs.SetResult(false);
             return;
@@ -187,9 +190,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                     channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
                 : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
-            logger.LogInformation($"Workflow with id {workflowId} is cancelling reservation number {index}");
+            // logger.LogInformation($"Workflow with id {workflowId} is cancelling reservation number {index}");
             await client.CancelReservationAsync(toExecute[index]);
-            logger.LogInformation($"Workflow with id {workflowId} has cancelled reservation number {index}");
+            // logger.LogInformation($"Workflow with id {workflowId} has cancelled reservation number {index}");
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);

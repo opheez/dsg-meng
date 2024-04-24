@@ -17,8 +17,8 @@ public class WorkflowOrchestratorService : WorkflowOrchestrator.WorkflowOrchestr
     public override Task<ExecuteWorkflowResult> ExecuteWorkflow(ExecuteWorkflowRequest request,
         ServerCallContext context)
     {
-        logger.LogInformation(
-            $"Received execute workflow request, id of {request.WorkflowId}, class id of {request.WorkflowClassId}, request string of {Encoding.UTF8.GetString(request.Input.Span)}");
+        // logger.LogInformation(
+            // $"Received execute workflow request, id of {request.WorkflowId}, class id of {request.WorkflowClassId}, request string of {Encoding.UTF8.GetString(request.Input.Span)}");
         return backend.CreateWorkflow(request);
     }
 }

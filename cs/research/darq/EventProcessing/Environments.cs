@@ -12,7 +12,7 @@ public interface IEnvironment
     
     int GetPubsubServicePort(int hostId);
 
-    public DeviceLogCommitCheckpointManager GetDarqCheckpointManager(int topicId);
+    public FileBasedCheckpointManager GetDarqCheckpointManager(int topicId);
 
     public IDevice GetDarqDevice(int topicId);
 
@@ -44,9 +44,9 @@ public class LocalDebugEnvironment : IEnvironment
         return 15721;
     }
 
-    public DeviceLogCommitCheckpointManager GetDarqCheckpointManager(int topicId)
+    public FileBasedCheckpointManager GetDarqCheckpointManager(int topicId)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\darq{topicId}"), removeOutdated: false);
         result.PurgeAll();
@@ -106,9 +106,9 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
         return 15721;
     }
 
-    public DeviceLogCommitCheckpointManager GetDarqCheckpointManager(int topicId)
+    public FileBasedCheckpointManager GetDarqCheckpointManager(int topicId)
     {
-        var result = new DeviceLogCommitCheckpointManager(
+        var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"/mnt/plrs/darq{topicId}"), removeOutdated: false);
         if (cleanStart)

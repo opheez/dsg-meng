@@ -60,7 +60,7 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
             requestBuilder.AddSelfMessage(request.WorkflowId, Span<byte>.Empty);
             var success = backend.Enqueue(requestBuilder.FinishStep(), -1, 0);
             Debug.Assert(success);
-            logger.LogInformation($"Workflow {request.WorkflowId} started");
+            // logger.LogInformation($"Workflow {request.WorkflowId} started");
             stepRequestPool.Return(stepRequest);
         }
         return await GetWorkflowResultAsync(request.WorkflowId, actualHandler);

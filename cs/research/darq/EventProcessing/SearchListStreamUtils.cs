@@ -215,7 +215,7 @@ public class SearchListDataLoader
                     {
                         await client.EnqueueEventsAsync(batched1);
                         semaphore.Release();
-                        Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
+                        // Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
                     });
                     batched = new EnqueueRequest
                     {
@@ -236,7 +236,7 @@ public class SearchListDataLoader
                 {
                     await client.EnqueueEventsAsync(batched1);
                     semaphore.Release();
-                    Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
+                    // Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
                 });
                 batched = new EnqueueRequest
                 {

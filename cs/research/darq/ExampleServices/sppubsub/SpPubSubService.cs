@@ -234,7 +234,8 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                     request.ProducerId, request.SequenceNum)
             };
             topic.EndAction();
-            await topic.NextCommit();
+            if (!request.FireAndForget)
+                await topic.NextCommit();
             return result;
         }
     }
@@ -301,7 +302,8 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             };
             topic.EndAction(epochContext);
             stepRequestPool.Return(requestObject);
-            await topic.NextCommit();
+            if (!request.FireAndForget)
+                await topic.NextCommit();
             return result;
         }
     }

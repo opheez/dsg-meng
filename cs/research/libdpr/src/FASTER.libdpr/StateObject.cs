@@ -379,7 +379,7 @@ namespace FASTER.libdpr
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
                     core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
-                    await Task.Yield();
+                    Thread.Yield();
                 }
                 rateLimiter.Release();
             }
@@ -393,7 +393,6 @@ namespace FASTER.libdpr
                 versionScheme.Leave(context);
                 // TODO(Tianyu): Should provide version that does not rollback on the spot?
                 await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
-                await Task.Yield();
                 versionScheme.Enter(context);
             }
 
@@ -423,7 +422,7 @@ namespace FASTER.libdpr
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
                     core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
-                    await Task.Yield();
+                    Thread.Yield();
                 }
                 rateLimiter.Release();
             }
@@ -437,7 +436,6 @@ namespace FASTER.libdpr
                 versionScheme.Leave(context);
                 // TODO(Tianyu): Should provide version that does not rollback on the spot?
                 await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
-                await Task.Yield();
                 versionScheme.Enter(context);
             }
 
@@ -522,7 +520,7 @@ namespace FASTER.libdpr
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
                     core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
-                    await Task.Yield();
+                    Thread.Yield();
                 }
                 rateLimiter.Release();
             }

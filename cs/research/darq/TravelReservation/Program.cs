@@ -156,6 +156,7 @@ public class Program
         var builder = WebApplication.CreateBuilder();
         
         builder.Logging.AddConsole();
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, environment.GetOrchestratorPort(options),
@@ -222,6 +223,7 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, environment.GetDprFinderPort(),
@@ -250,6 +252,8 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, environment.GetServicePort(options),

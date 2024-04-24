@@ -34,6 +34,7 @@ message StepRequest {
   repeated int64 consumedMessageOffsets = 4;
   repeated OutMessage outMessages = 5;
   repeated bytes recoveryMessages = 6;
+  bool fireAndForget = 7;
 }
 
 enum DarqStepStatus {
@@ -53,6 +54,7 @@ message EnqueueRequest {
   int64 sequenceNum = 3;
   int32 topicId = 4;
   repeated string events = 5;
+  bool fireAndForget = 6;
 }
 
 message EnqueueResult {

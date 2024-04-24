@@ -192,12 +192,13 @@ public class SearchListDataLoader
 
     public async Task Run()
     {
-        var semaphore = new SemaphoreSlim(512, 512);
+        var semaphore = new SemaphoreSlim(128, 128);
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
             ProducerId = 0,
-            TopicId = topicName
+            TopicId = topicName,
+            FireAndForget = true
         };
         for (var i = 0; i < parsedJsons.Count; i++)
         {
@@ -220,7 +221,8 @@ public class SearchListDataLoader
                     batched = new EnqueueRequest
                     {
                         ProducerId = 0,
-                        TopicId = topicName
+                        TopicId = topicName,
+                        FireAndForget = true
                     };
                 }
                 await Task.Yield();
@@ -241,7 +243,8 @@ public class SearchListDataLoader
                 batched = new EnqueueRequest
                 {
                     ProducerId = 0,
-                    TopicId = topicName
+                    TopicId = topicName,
+                    FireAndForget = true
                 };
             }
         }

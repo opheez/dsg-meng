@@ -21,10 +21,11 @@ public class PubsubCapabilities
     internal long incarnationId;
     internal int topicId;
 
-    public Task<DarqStepStatus> Step(pubsub.StepRequest request)
+    public Task Step(pubsub.StepRequest request)
     {
         request.IncarnationId = incarnationId;
         request.TopicId = topicId;
+        request.FireAndForget = true;
         return client.StepAsync(request, session);
     }
 }
@@ -52,7 +53,7 @@ public class SpPubSubProcessorClient
             {
                 client = client,
                 // To ensure that step returns quickly, make the return speculative even if processing is not 
-                session = speculative ? session : new DprSession(),
+                session = session,
                 incarnationId = incarnationId,
                 topicId = topicId
             });

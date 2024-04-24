@@ -2,74 +2,15 @@
 // Licensed under the MIT license.
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using FASTER.common;
 
 namespace FASTER.core
 {
-    // internal class DedicatedThreadTaskScheduler : TaskScheduler, IDisposable
-    // {
-    //     private Thread ioThread;
-    //     private ConcurrentQueue<Task> tasks = new();
-    //     private ManualResetEventSlim termination = new();
-    //
-    //     public DedicatedThreadTaskScheduler()
-    //     {
-    //         ioThread = new Thread(Execute);
-    //         ioThread.Start();
-    //
-    //     }
-    //
-    //     public void Dispose()
-    //     {
-    //         termination.Set();
-    //         ioThread.Join();
-    //     } 
-    //
-    //     private void Execute()
-    //     {
-    //         while (!termination.IsSet)
-    //         {
-    //             while (tasks.TryDequeue(out var task))
-    //                 TryExecuteTask(task);
-    //             Thread.Yield();
-    //         }
-    //     }
-    //
-    //     protected override IEnumerable<Task> GetScheduledTasks()
-    //     {
-    //         return tasks;
-    //     }
-    //
-    //     protected override void QueueTask(Task task)
-    //     {
-    //         tasks.Enqueue(task);
-    //     }
-    //
-    //     protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued)
-    //     {
-    //         // Only execute tasks on the dedicated thread
-    //         if (Thread.CurrentThread == ioThread)
-    //         {
-    //             return TryExecuteTask(task);
-    //         }
-    //         return false;
-    //     }
-    //
-    //     protected override bool TryDequeue(Task task)
-    //     {
-    //         return false;
-    //     }
-    //
-    //     public override int MaximumConcurrencyLevel => 2;
-    // }
-    
     /// <summary>
     /// Managed device using .NET streams
     /// </summary>
@@ -81,10 +22,6 @@ namespace FASTER.core
         private readonly bool osReadBuffering;
         private readonly SafeConcurrentDictionary<int, (AsyncPool<Stream>, AsyncPool<Stream>)> logHandles;
         private readonly SectorAlignedBufferPool pool;
-        // private static SimpleObjectPool<DedicatedThreadTaskScheduler> reusableSchedulers = new(() => new DedicatedThreadTaskScheduler(), 4, s => s.Dispose());
-        // TODO(Tianyu): This is a hack for experiments
-        // private static int instanceCount;
-        // private DedicatedThreadTaskScheduler scheduler;
 
         
         /// <summary>
@@ -120,8 +57,6 @@ namespace FASTER.core
             this.disableFileBuffering = disableFileBuffering;
             this.osReadBuffering = osReadBuffering;
             logHandles = new();
-            // Interlocked.Increment(ref instanceCount);
-            // scheduler = reusableSchedulers.Checkout();
             if (recoverDevice)
                 RecoverFiles();
         }

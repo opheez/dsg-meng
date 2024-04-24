@@ -91,8 +91,8 @@ public class RwLatchVersionScheme : VersionSchemeBase
         machineLocal.OnEnteringState(oldState, nextState);
         var success = MakeTransition(VersionSchemeState.MakeIntermediate(oldState), nextState);
         Debug.Assert(success);
-        rwLatch.ExitWriteLock();
         machineLocal.AfterEnteringState(nextState);
+        rwLatch.ExitWriteLock();
         TryStepStateMachine(machineLocal);
     }
 

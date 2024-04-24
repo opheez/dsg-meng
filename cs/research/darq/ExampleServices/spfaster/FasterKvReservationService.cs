@@ -241,7 +241,6 @@ public class FasterKvReservationBackgroundService : BackgroundService
 
     private ILogger<FasterKvReservationBackgroundService> logger;
     private FasterKvReservationStartFile file;
-
     public FasterKvReservationBackgroundService(FasterKvReservationStateObject backend,
         FasterKvReservationStartFile file, ILogger<FasterKvReservationBackgroundService> logger)
     {

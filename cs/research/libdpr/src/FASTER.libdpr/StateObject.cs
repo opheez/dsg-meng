@@ -40,10 +40,10 @@ namespace FASTER.libdpr
         private bool connected;
 
         private long largestRequestedCheckpointVersion = -1;
-
+        private SemaphoreSlim rateLimiter = new SemaphoreSlim(Environment.ProcessorCount, Environment.ProcessorCount);
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {
-            private const byte IN_PROG = 1;
+            internal const byte IN_PROG = 1;
             private bool checkpointComplete = false;
             private StateObject so;
 
@@ -363,7 +363,7 @@ namespace FASTER.libdpr
         }
         
 
-        public async Task<bool> TryReceiveAndStartActionAsync(byte[] headerBytes, LightEpoch.EpochContext context = null)
+        public async ValueTask<bool> TryReceiveAndStartActionAsync(byte[] headerBytes, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -371,12 +371,17 @@ namespace FASTER.libdpr
             var (wl, v) = GetWorldLineAndVersion(headerBytes);
 
             // Apply the commit ordering rule, taking checkpoints if necessary.
-            while (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version)
             {
-                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                BeginCheckpoint(largestRequestedCheckpointVersion);
-                await Task.Yield();
+                await rateLimiter.WaitAsync();
+                while (v > versionScheme.CurrentState().Version)
+                {
+                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                    BeginCheckpoint(largestRequestedCheckpointVersion);
+                    await Task.Yield();
+                }
+                rateLimiter.Release();
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
@@ -410,15 +415,19 @@ namespace FASTER.libdpr
 
             var (wl, v) = GetWorldLineAndVersion(headerBytes.Span);
 
-            // Apply the commit ordering rule, taking checkpoints if necessary.
-            while (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version)
             {
-                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                BeginCheckpoint(largestRequestedCheckpointVersion);
-                await Task.Yield();
+                await rateLimiter.WaitAsync();
+                while (v > versionScheme.CurrentState().Version)
+                {
+                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                    BeginCheckpoint(largestRequestedCheckpointVersion);
+                    await Task.Yield();
+                }
+                rateLimiter.Release();
             }
-
+            
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
             versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
@@ -505,13 +514,17 @@ namespace FASTER.libdpr
             var wl = session.WorldLine;
             var v = session.version;
 
-            // Apply the commit ordering rule, taking checkpoints if necessary.
-            while (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version)
             {
-                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                BeginCheckpoint(largestRequestedCheckpointVersion);
-                await Task.Yield();
+                await rateLimiter.WaitAsync();
+                while (v > versionScheme.CurrentState().Version)
+                {
+                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                    BeginCheckpoint(largestRequestedCheckpointVersion);
+                    await Task.Yield();
+                }
+                rateLimiter.Release();
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
@@ -523,7 +536,6 @@ namespace FASTER.libdpr
                 versionScheme.Leave(context);
                 // TODO(Tianyu): Should provide version that does not rollback on the spot?
                 await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
-                await Task.Yield();
                 versionScheme.Enter(context);
             }
 

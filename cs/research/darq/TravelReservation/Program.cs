@@ -124,12 +124,12 @@ public class Program
             var channel = channelPool[i % channelPool.Count];
             var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
             await rateLimiter.WaitAsync();
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
-                Console.WriteLine($"Issuing request to start workflow id:{request.Item2.WorkflowId}, request content: {request.Item2.Input.ToString(Encoding.UTF8)}");
+                // Console.WriteLine($"Issuing request to start workflow id:{request.Item2.WorkflowId}, request content: {request.Item2.Input.ToString(Encoding.UTF8)}");
                 await client.ExecuteWorkflowAsync(request.Item2);
                 var endTime = stopwatch.ElapsedMilliseconds;
-                Console.WriteLine($"workflow id:{request.Item2.WorkflowId} has completed in {endTime - request.Item1} milliseconds");
+                // Console.WriteLine($"workflow id:{request.Item2.WorkflowId} has completed in {endTime - request.Item1} milliseconds");
                 measurements.Add(endTime - request.Item1);
                 rateLimiter.Release();
             });

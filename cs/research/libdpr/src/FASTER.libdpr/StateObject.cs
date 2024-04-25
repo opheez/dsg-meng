@@ -41,6 +41,7 @@ namespace FASTER.libdpr
 
         private long largestRequestedCheckpointVersion = -1;
         private SemaphoreSlim rateLimiter = new SemaphoreSlim(Environment.ProcessorCount, Environment.ProcessorCount);
+
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {
             internal const byte IN_PROG = 1;
@@ -66,6 +67,7 @@ namespace FASTER.libdpr
                         throw new NotImplementedException();
                 }
             }
+
             public override void OnEnteringState(VersionSchemeState fromState, VersionSchemeState toState)
             {
                 if (fromState.Phase == VersionSchemeState.REST)
@@ -122,7 +124,7 @@ namespace FASTER.libdpr
             {
             }
         }
-        
+
         /// <summary>
         /// Creates a new DprServer.
         /// </summary>
@@ -313,7 +315,8 @@ namespace FASTER.libdpr
             {
                 // TODO(Tianyu): Should avoid unnecessarily performing a checkpoint when underlying state object has not changed
                 // TODO(Tianyu): Study when to fast-forward a version by more than one
-                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, versionScheme.CurrentState().Version + 1, out _);
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
+                    versionScheme.CurrentState().Version + 1, out _);
                 BeginCheckpoint(largestRequestedCheckpointVersion);
             }
 
@@ -327,7 +330,49 @@ namespace FASTER.libdpr
             }
 
             for (var i = lastCommitted; i < newCommitted; i++)
-                if (i != 0) PruneVersion(i);
+                if (i != 0)
+                    PruneVersion(i);
+        }
+
+        public async Task RefreshAsync()
+        {
+            var currentTime = sw.ElapsedMilliseconds;
+            var lastCommitted = CommittedVersion();
+
+            if (options.DprFinder != null && lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
+            {
+                // A false return indicates that the DPR finder does not have a cut available, this is usually due to
+                // restart from crash, at which point we should resend the graph 
+                options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
+                core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
+                if (worldLine != options.DprFinder.SystemWorldLine())
+                    await BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
+            }
+
+            if (lastCheckpointMilli + options.CheckpointPeriodMilli <= currentTime)
+            {
+                // TODO(Tianyu): Should avoid unnecessarily performing a checkpoint when underlying state object has not changed
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
+                    versionScheme.CurrentState().Version + 1, out _);
+                BeginCheckpoint(largestRequestedCheckpointVersion);
+            }
+
+            // Can prune dependency information of committed versions
+            var newCommitted = CommittedVersion();
+            if (lastCommitted != newCommitted)
+            {
+                var oldTask = nextCommit;
+                nextCommit = new TaskCompletionSource<long>();
+                oldTask.SetResult(newCommitted);
+            }
+
+            for (var i = lastCommitted; i < newCommitted; i++)
+                if (i != 0)
+                    PruneVersion(i);
+
+            // So we don't busy wait and not do anything
+            await Task.Delay((int) Math.Min(lastRefreshMilli + options.RefreshPeriodMilli - currentTime,
+                lastCheckpointMilli + options.CheckpointPeriodMilli - currentTime));
         }
 
         private unsafe void UpdateDeps(ReadOnlySpan<byte> headerBytes)
@@ -361,9 +406,10 @@ namespace FASTER.libdpr
                 ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headerBytes));
             return (header.WorldLine, header.Version);
         }
-        
 
-        public async ValueTask<bool> TryReceiveAndStartActionAsync(byte[] headerBytes, LightEpoch.EpochContext context = null)
+
+        public async ValueTask<bool> TryReceiveAndStartActionAsync(byte[] headerBytes,
+            LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -381,6 +427,7 @@ namespace FASTER.libdpr
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
             }
 
@@ -406,8 +453,9 @@ namespace FASTER.libdpr
             UpdateDeps(headerBytes);
             return true;
         }
-        
-        public async ValueTask<bool> TryReceiveAndStartActionAsync(ByteString headerBytes, LightEpoch.EpochContext context = null)
+
+        public async ValueTask<bool> TryReceiveAndStartActionAsync(ByteString headerBytes,
+            LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -424,9 +472,10 @@ namespace FASTER.libdpr
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
             }
-            
+
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
             versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
@@ -489,7 +538,7 @@ namespace FASTER.libdpr
             UpdateDeps(headerBytes);
             return true;
         }
-        
+
         public unsafe bool TakeOnDependencyAndStartAction(DprSession session, LightEpoch.EpochContext context = null)
         {
             // Should not be interacting with DPR-related things if speculation is disabled
@@ -503,8 +552,9 @@ namespace FASTER.libdpr
                 throw new NotImplementedException();
             return TryReceiveAndStartAction(header, context);
         }
-        
-        public async ValueTask<bool> TakeOnDependencyAndStartActionAsync(DprSession session, LightEpoch.EpochContext context = null)
+
+        public async ValueTask<bool> TakeOnDependencyAndStartActionAsync(DprSession session,
+            LightEpoch.EpochContext context = null)
         {
 // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
@@ -522,6 +572,7 @@ namespace FASTER.libdpr
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
             }
 
@@ -626,7 +677,7 @@ namespace FASTER.libdpr
         /// </summary>
         /// <param name="targetVersion"> the version to jump to after the checkpoint, or -1 for the immediate next version</param>
         public void ForceCheckpoint(long targetVersion = -1)
-        { 
+        {
             core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
             BeginCheckpoint(targetVersion);
         }

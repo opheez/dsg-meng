@@ -31,13 +31,18 @@ public class Options
         HelpText = "Name of output file")]
     public string OutputName { get; set; }
 
-    [Option('h', "hostid", Required = false,
+    [Option('h', "host-id", Required = false,
         HelpText = "identifier of the service to launch")]
     public int HostId { get; set; }
     
     [Option('s', "speculative", Required = false, Default = false,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
+    
+    
+    [Option('i', "checkpoint-interval", Required = false, Default = 10,
+        HelpText = "checkpoint interval")]
+    public int CheckpointInterval { get; set; }
 }
 
 public class Program
@@ -133,9 +138,9 @@ public class Program
                 LogDevice = environment.GetDarqDevice(id),
                 LogCommitManager = environment.GetDarqCheckpointManager(id),
                 PageSize = 1L << 22,
-                MemorySize = 1L << 28,
+                MemorySize = 1L << 30,
                 SegmentSize = 1L << 30,
-                CheckpointPeriodMilli = 10,
+                CheckpointPeriodMilli = options.CheckpointInterval,
                 RefreshPeriodMilli = 5,
                 FastCommitMode = true
             }, new RwLatchVersionScheme()),

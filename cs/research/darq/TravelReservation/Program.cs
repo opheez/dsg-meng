@@ -120,7 +120,7 @@ public class Program
         {
             var request = timedRequests[i];
             while (stopwatch.ElapsedMilliseconds <= request.Item1)
-                await Task.Yield();
+                await Task.Delay((int)(request.Item1 - stopwatch.ElapsedMilliseconds));
             var channel = channelPool[i % channelPool.Count];
             var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
             await rateLimiter.WaitAsync();
@@ -263,7 +263,7 @@ public class Program
         var checkpointManager = environment.GetServiceCheckpointManager(options);
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
-            IndexSize = 1 << 24,
+            IndexSize = 1 << 25,
             LogDevice = environment.GetServiceDevice(options),
             PageSize = 1 << 25,
             SegmentSize = 1 << 30,

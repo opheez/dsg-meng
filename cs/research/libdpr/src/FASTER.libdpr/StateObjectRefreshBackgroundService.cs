@@ -45,8 +45,7 @@ namespace FASTER.libdpr
                 {
                     // Must not begin refreshing before the state object is connected
                     if (toRegister.ConnectedToCluster())
-                        toRegister.Refresh();
-                    await Task.Yield();
+                        await toRegister.RefreshAsync();
                 }
 
                 Interlocked.Decrement(ref dispatchedTasks);

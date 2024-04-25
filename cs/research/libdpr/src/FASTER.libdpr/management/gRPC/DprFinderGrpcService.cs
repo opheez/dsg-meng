@@ -60,13 +60,15 @@ namespace FASTER.libdpr
         }
         
         
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 backend.Process();
-                await Task.Yield();
+                Thread.Yield();
             }
+
+            return Task.CompletedTask;
         }
 
         public Task<AddWorkerResponse> AddWorker(AddWorkerRequest request)

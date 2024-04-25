@@ -32,6 +32,8 @@ spec:
             - "worker"
             - "-h"
             - "{{ .num }}"
+            - "-i"
+            - "{{ $.Values.checkpoint_interval }}"
           image: tianyuli96/faster:latest
           name: pubsub{{ .num }}
           ports:

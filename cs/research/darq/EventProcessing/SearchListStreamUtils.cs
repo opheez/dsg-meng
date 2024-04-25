@@ -225,7 +225,8 @@ public class SearchListDataLoader
                         FireAndForget = true
                     };
                 }
-                await Task.Yield();
+
+                await Task.Delay((int)(json.Timestamp - currentTime));
             }
             batched.SequenceNum = i;
             batched.Events.Add(rawJsons[i]);

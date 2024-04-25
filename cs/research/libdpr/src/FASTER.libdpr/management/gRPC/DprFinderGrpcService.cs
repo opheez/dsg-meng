@@ -51,6 +51,7 @@ namespace FASTER.libdpr
     {
         private readonly GraphDprFinderBackend backend;
         private GrpcPrecomputedSyncResponse response;
+        private Thread processingThread; 
         
         public DprFinderGrpcBackgroundService(GraphDprFinderBackend backend)
         {
@@ -59,16 +60,19 @@ namespace FASTER.libdpr
             backend.AddResponseObjectToPrecompute(response);
         }
         
-        
-        protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested)
+            processingThread = new Thread(() =>
             {
-                backend.Process();
-                Thread.Yield();
-            }
-
-            return Task.CompletedTask;
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    backend.Process();
+                    Thread.Yield(); 
+                }
+            });
+            processingThread.Start();
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+            processingThread.Join();
         }
 
         public Task<AddWorkerResponse> AddWorker(AddWorkerRequest request)

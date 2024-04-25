@@ -334,47 +334,6 @@ namespace FASTER.libdpr
                     PruneVersion(i);
         }
 
-        public async Task RefreshAsync()
-        {
-            var currentTime = sw.ElapsedMilliseconds;
-            var lastCommitted = CommittedVersion();
-
-            if (options.DprFinder != null && lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
-            {
-                // A false return indicates that the DPR finder does not have a cut available, this is usually due to
-                // restart from crash, at which point we should resend the graph 
-                options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
-                core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
-                if (worldLine != options.DprFinder.SystemWorldLine())
-                    await BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
-            }
-
-            if (lastCheckpointMilli + options.CheckpointPeriodMilli <= currentTime)
-            {
-                // TODO(Tianyu): Should avoid unnecessarily performing a checkpoint when underlying state object has not changed
-                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
-                    versionScheme.CurrentState().Version + 1, out _);
-                BeginCheckpoint(largestRequestedCheckpointVersion);
-            }
-
-            // Can prune dependency information of committed versions
-            var newCommitted = CommittedVersion();
-            if (lastCommitted != newCommitted)
-            {
-                var oldTask = nextCommit;
-                nextCommit = new TaskCompletionSource<long>();
-                oldTask.SetResult(newCommitted);
-            }
-
-            for (var i = lastCommitted; i < newCommitted; i++)
-                if (i != 0)
-                    PruneVersion(i);
-
-            // So we don't busy wait and not do anything
-            await Task.Delay((int) Math.Min(lastRefreshMilli + options.RefreshPeriodMilli - currentTime,
-                lastCheckpointMilli + options.CheckpointPeriodMilli - currentTime));
-        }
-
         private unsafe void UpdateDeps(ReadOnlySpan<byte> headerBytes)
         {
             ref var header =

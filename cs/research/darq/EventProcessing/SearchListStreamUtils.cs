@@ -206,7 +206,6 @@ public class SearchListDataLoader
             var currentTime = stopwatch.ElapsedMilliseconds;
             while (currentTime < json.Timestamp)
             {
-                currentTime = stopwatch.ElapsedMilliseconds;
                 if (batched.Events.Count != 0)
                 {
                     var batched1 = batched;
@@ -225,8 +224,8 @@ public class SearchListDataLoader
                         FireAndForget = true
                     };
                 }
-
-                await Task.Delay((int)(json.Timestamp - currentTime));
+                Thread.Yield();
+                currentTime = stopwatch.ElapsedMilliseconds;
             }
             batched.SequenceNum = i;
             batched.Events.Add(rawJsons[i]);

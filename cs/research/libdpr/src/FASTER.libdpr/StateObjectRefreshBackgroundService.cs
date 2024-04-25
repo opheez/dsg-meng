@@ -1,4 +1,4 @@
-using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -10,46 +10,50 @@ namespace FASTER.libdpr
     {
         private ILogger<StateObjectRefreshBackgroundService> logger;
         private CancellationToken stoppingToken;
-        private int dispatchedTasks;
-        private StateObject defaultStateObject;
+        private Thread refreshThread;
+        private List<StateObject> stateObjects = new List<StateObject>();
 
         public StateObjectRefreshBackgroundService(ILogger<StateObjectRefreshBackgroundService> logger,
             StateObject defaultObject = null)
         {
             this.logger = logger;
-            this.defaultStateObject = defaultObject;
+            if (defaultObject != null) stateObjects.Add(defaultObject);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             logger.LogInformation("Refresh background service is starting");
-            this.stoppingToken = stoppingToken;
-            if (defaultStateObject != null)
-                RegisterRefreshTask(defaultStateObject);
+            refreshThread = new Thread(() =>
+            {
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    lock (stateObjects)
+                    {
+                        foreach (var so in stateObjects)
+                        {
+                            // Must not begin refreshing before the state object is connected
+                            if (so.ConnectedToCluster())
+                                so.Refresh();
+                        }
+                    }
+
+                    Thread.Yield();
+                }
+
+            });
+            refreshThread.Start();
             await Task.Delay(Timeout.Infinite, this.stoppingToken);
-            while (dispatchedTasks != 0)
-                await Task.Yield();
             logger.LogInformation("Refresh background service is winding down");
+            refreshThread.Join();
         }
 
         public void RegisterRefreshTask(StateObject toRegister)
         {
-            if (defaultStateObject != null && toRegister != defaultStateObject)
-                throw new InvalidOperationException(
-                    "Runtime creation if refresh task is only allowed if no singleton default state object is configured");
-            if (stoppingToken.IsCancellationRequested) throw new TaskCanceledException();
-            Interlocked.Increment(ref dispatchedTasks);
-            Task.Run(async () =>
+            lock (stateObjects)
             {
-                while (!stoppingToken.IsCancellationRequested)
-                {
-                    // Must not begin refreshing before the state object is connected
-                    if (toRegister.ConnectedToCluster())
-                        await toRegister.RefreshAsync();
-                }
-
-                Interlocked.Decrement(ref dispatchedTasks);
-            });
+                if (stoppingToken.IsCancellationRequested) throw new TaskCanceledException();
+                stateObjects.Add(toRegister);
+            }
         }
     }
 }

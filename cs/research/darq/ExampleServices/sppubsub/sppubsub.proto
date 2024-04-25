@@ -67,6 +67,14 @@ message ReadEventsRequest {
   int32 topicId = 2;
 }
 
+message GetNumBytesWrittenRequest{
+  int32 topicId = 1;
+}
+
+message GetNumBytesWrittenResult {
+  int64 numBytes = 1;
+}
+
 service SpPubSub {
   rpc EnqueueEvents(EnqueueRequest) returns (EnqueueResult);
   
@@ -75,4 +83,6 @@ service SpPubSub {
   rpc RegisterProcessor(RegisterProcessorRequest) returns (RegisterProcessorResult);
 
   rpc Step(StepRequest) returns (StepResult);
+  
+  rpc GetNumBytesWritten(GetNumBytesWrittenRequest) returns (GetNumBytesWrittenResult);
 }

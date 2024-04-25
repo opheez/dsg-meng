@@ -89,16 +89,18 @@ public class Program
         var client = new SpPubSubServiceClient(environment.GetClusterMap());
         var stopwatch = new Stopwatch();
         var loader = new SearchListDataLoader(options.WorkloadTrace, client, 0, stopwatch);
-        loader.LoadData();
+        var numRecords = loader.LoadData();
         _ = Task.Run(loader.Run);
         var processingClient = new SpPubSubProcessorClient(3, client);
-        var measurementProcessor = new SearchListLatencyMeasurementProcessor(stopwatch);
+        var measurementProcessor = new SearchListLatencyMeasurementProcessor(stopwatch, client);
         _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, false));
         await measurementProcessor.workloadTerminationed.Task;
-        await WriteResults(options, environment, measurementProcessor);
+        var throughput = numRecords * 1000.0 / stopwatch.ElapsedMilliseconds;
+        await WriteLatencyResults(options, environment, measurementProcessor);
+        await WriteOtherResults(options, environment, throughput, measurementProcessor.totalBytesWritten);
     }
 
-    private static async Task WriteResults(Options options, IEnvironment environment, SearchListLatencyMeasurementProcessor processor)
+    private static async Task WriteLatencyResults(Options options, IEnvironment environment, SearchListLatencyMeasurementProcessor processor)
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
@@ -107,7 +109,19 @@ public class Program
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
         
-        await environment.PublishResultsAsync(options.OutputName, memoryStream);
+        await environment.PublishResultsAsync($"{options.OutputName}-lat.csv", memoryStream);
+    }
+    
+    private static async Task WriteOtherResults(Options options, IEnvironment environment, double throughput, long bytesWritten)
+    {
+        using var memoryStream = new MemoryStream();
+        await using var streamWriter = new StreamWriter(memoryStream);
+        streamWriter.WriteLine($"Throughput: {throughput}");
+        streamWriter.WriteLine($"BytesWritten: {bytesWritten}");
+        await streamWriter.FlushAsync();
+        memoryStream.Position = 0;
+        
+        await environment.PublishResultsAsync($"{options.OutputName}-stats.csv", memoryStream);
     }
 
     public static Task LaunchPubsubService(Options options, IEnvironment environment)

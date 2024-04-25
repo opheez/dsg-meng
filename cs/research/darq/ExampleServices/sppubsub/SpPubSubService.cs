@@ -392,4 +392,13 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             IncarnationId = result
         };
     }
+
+    public override async Task<GetNumBytesWrittenResult> GetNumBytesWritten(GetNumBytesWrittenRequest request, ServerCallContext context)
+    {
+        var topic = await backend.GetTopic(request.TopicId);
+        return new GetNumBytesWrittenResult
+        {
+            NumBytes = topic.BytesWritten
+        };
+    }
 }

@@ -86,6 +86,8 @@ namespace FASTER.darq
         private WorkQueueLIFO<StepRequestHandle> stepQueue;
         private ThreadLocalObjectPool<StepRequestHandle> stepRequestPool;
 
+        public long BytesWritten => log.BytesWritten;
+
         /// <summary>
         /// Initialize DARQ with the given identity and parameters
         /// </summary>

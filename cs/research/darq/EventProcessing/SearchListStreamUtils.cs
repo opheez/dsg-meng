@@ -255,7 +255,7 @@ public class SearchListDataLoader
             SequenceNum = parsedJsons.Count,
             TopicId = topicName
         };
-        termination.Events.Add("termination");
+        termination.Events.Add($"termination");
         await client.EnqueueEventsAsync(termination);
     }
 }

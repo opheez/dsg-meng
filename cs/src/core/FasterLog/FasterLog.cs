@@ -45,6 +45,7 @@ namespace FASTER.core
 
         readonly LogCommitPolicy commitPolicy;
 
+        public long BytesWritten => allocator.BytesWritten;
         /// <summary>
         /// Beginning address of log
         /// </summary>

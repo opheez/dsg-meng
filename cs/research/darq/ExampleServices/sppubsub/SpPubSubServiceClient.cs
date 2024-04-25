@@ -72,6 +72,16 @@ public class SpPubSubServiceClient
         });
         return result.IncarnationId;
     }
+
+    public async Task<GetNumBytesWrittenResult> GetNumBytesWritten(int topicId)
+    {
+        var channel = await GetOrCreateConnection(topicId);
+        var client = new SpPubSub.SpPubSubClient(channel);
+        return await client.GetNumBytesWrittenAsync(new GetNumBytesWrittenRequest
+        {
+            TopicId = topicId
+        });
+    }
     
     public async Task<DarqStepStatus> StepAsync(StepRequest request, DprSession session = null)
     {

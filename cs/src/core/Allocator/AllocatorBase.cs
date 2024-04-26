@@ -2035,7 +2035,6 @@ namespace FASTER.core
             }
         }
 
-        public long BytesWritten = 0;
         /// <summary>
         /// Flush page range to disk
         /// Called when all threads have agreed that a page range is sealed.
@@ -2045,7 +2044,6 @@ namespace FASTER.core
         /// <param name="noFlush"></param>
         public void AsyncFlushPages(long fromAddress, long untilAddress, bool noFlush = false)
         {
-            Interlocked.Add(ref BytesWritten, untilAddress - fromAddress);
             long startPage = fromAddress >> LogPageSizeBits;
             long endPage = untilAddress >> LogPageSizeBits;
             int numPages = (int)(endPage - startPage);
@@ -2102,6 +2100,7 @@ namespace FASTER.core
                     ShiftFlushedUntilAddress();
                     continue;
                 }
+                
 
                 // Partial page starting point, need to wait until the
                 // ongoing adjacent flush is completed to ensure correctness
@@ -2125,7 +2124,9 @@ namespace FASTER.core
                     }
                 }
                 else
+                {
                     WriteAsync(flushPage, AsyncFlushPageCallback, asyncResult);
+                }
             }
         }
 

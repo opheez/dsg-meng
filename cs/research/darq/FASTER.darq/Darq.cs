@@ -86,7 +86,8 @@ namespace FASTER.darq
         private WorkQueueLIFO<StepRequestHandle> stepQueue;
         private ThreadLocalObjectPool<StepRequestHandle> stepRequestPool;
 
-        public long BytesWritten => log.BytesWritten;
+        public long BytesWritten => bytesWritten;
+        private long bytesWritten = 0, lastCommitted = 0;
 
         /// <summary>
         /// Initialize DARQ with the given identity and parameters
@@ -300,7 +301,6 @@ namespace FASTER.darq
         /// <param name="lsn">truncation point</param>
         public void TruncateUntil(long lsn)
         {
-            Console.WriteLine($"Truncating until {lsn}");
             log.TruncateUntil(lsn);
         }
 
@@ -331,7 +331,9 @@ namespace FASTER.darq
         public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
         {
             var commitCookie = metadata.ToArray();
-            log.CommitStrongly(out var tail, out _, false, commitCookie, version, onPersist);
+            log.CommitStrongly(out var tail, out _, false, commitCookie, version, onPersist);            
+            bytesWritten += tail - Math.Max(lastCommitted, log.BeginAddress);
+            lastCommitted = tail;
         }
 
         public override void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)

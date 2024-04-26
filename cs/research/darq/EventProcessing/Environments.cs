@@ -41,7 +41,7 @@ public class LocalDebugEnvironment : IEnvironment
 
     public int GetPubsubServicePort(int hostId)
     {
-        return 15721;
+        return 15721 + hostId;
     }
 
     public FileBasedCheckpointManager GetDarqCheckpointManager(int topicId)

@@ -130,10 +130,10 @@ namespace FASTER.libdpr
                         iterator.UnsafeRelease();
                         continue;
                     case DarqMessageType.OUT:
-                        break;
-                    // Should not be seen by DARQ consumer as it's an internal detail
-                    case DarqMessageType.RECOVERY:
                     case DarqMessageType.COMPLETION:
+                        break;
+                    // Should not be seen by DARQ consumer as it should only be replayed on crash
+                    case DarqMessageType.RECOVERY:
                         iterator.UnsafeRelease();
                         continue;
                     default:

@@ -30,14 +30,14 @@ namespace FASTER.core
         {
             IDevice logDevice;
 
-            // if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            // {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
                 logDevice = new ManagedLocalStorageDevice(logPath, preallocateFile, deleteOnClose, disableFileBuffering, capacity, recoverDevice);
-            // }
-            // else
-            // {
-                // logDevice = new LocalStorageDevice(logPath, preallocateFile, deleteOnClose, disableFileBuffering, capacity, recoverDevice, useIoCompletionPort);
-            // }
+            }
+            else
+            {
+                logDevice = new LocalStorageDevice(logPath, preallocateFile, deleteOnClose, disableFileBuffering, capacity, recoverDevice, useIoCompletionPort);
+            }
             return logDevice;
         }
     }

@@ -36,7 +36,7 @@ namespace FASTER.libdpr
         private int maxSectorRangeBits;
         private int truncationInProgress;
 
-        public DarqCompletionTracker(int maxSectorRangeBits = 18)
+        public DarqCompletionTracker(int maxSectorRangeBits = 15)
         {
             bucketPool = new SimpleObjectPool<DarqEntryBucket>(() => new DarqEntryBucket());
             outstandingBuckets = new ConcurrentDictionary<long, DarqEntryBucket>();

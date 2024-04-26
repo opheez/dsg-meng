@@ -300,6 +300,7 @@ namespace FASTER.darq
         /// <param name="lsn">truncation point</param>
         public void TruncateUntil(long lsn)
         {
+            Console.WriteLine($"Truncating until {lsn}");
             log.TruncateUntil(lsn);
         }
 

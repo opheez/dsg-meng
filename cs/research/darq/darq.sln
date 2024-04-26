@@ -28,7 +28,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EventProcessing", "EventPro
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StateObjectMicrobench", "StateObjectMicrobench\StateObjectMicrobench.csproj", "{6005BD11-340A-4757-9F28-0CC1BA0C95D9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FasterMicrobench", "FasterMicrobench\FasterMicrobench.csproj", "{F9FAE014-CE56-4A15-B334-CB492FF818DF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpFasterMicrobench", "SpFasterMicrobench\SpFasterMicrobench.csproj", "{F9FAE014-CE56-4A15-B334-CB492FF818DF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

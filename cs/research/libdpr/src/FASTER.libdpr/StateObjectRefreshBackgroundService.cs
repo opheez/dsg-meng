@@ -22,7 +22,7 @@ namespace FASTER.libdpr
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            logger.LogInformation("Refresh background service is starting");
+            logger?.LogInformation("Refresh background service is starting");
             refreshThread = new Thread(() =>
             {
                 while (!stoppingToken.IsCancellationRequested)
@@ -43,7 +43,7 @@ namespace FASTER.libdpr
             });
             refreshThread.Start();
             await Task.Delay(Timeout.Infinite, this.stoppingToken);
-            logger.LogInformation("Refresh background service is winding down");
+            logger?.LogInformation("Refresh background service is winding down");
             refreshThread.Join();
         }
 

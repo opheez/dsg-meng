@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+option csharp_namespace = "FASTER.libdpr.proto";
+
+message ReportResultsMessage {
+  repeated int64 latencies = 1;
+}
+
+message ReportResultsResponse {
+  
+}
+
+service StatsAggregationService {
+  rpc ReportResults(ReportResultsMessage) returns (ReportResultsMessage);
+}

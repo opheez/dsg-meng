@@ -15,15 +15,16 @@ namespace FASTER.libdpr
         private bool disposed = false;
         private byte[] reusedReadBuffer;
         private GCHandle? handle = null;
-        
-        internal DarqScanIterator(FasterLog log, long replayEnd, bool speculative, bool replay = true)
+        private bool hideRecoveryMessages;
+
+        internal DarqScanIterator(FasterLog log, long replayEnd, bool speculative, bool hideRecoveryMessages = true)
         {
             iterator = log.Scan(0, long.MaxValue, scanUncommitted: speculative);
             recoveryMessages = new Queue<(long, long, byte[])>();
             replayMessages = new Dictionary<long, long>();
             this.replayEnd = replayEnd;
-            if (replay)
-                ScanOnRecovery();
+            this.hideRecoveryMessages = hideRecoveryMessages;
+            ScanOnRecovery();
         }
 
         /// <inheritdoc/>>
@@ -118,7 +119,6 @@ namespace FASTER.libdpr
                 if (!iterator.UnsafeGetNext(out entry, out entryLength, out currentAddress, out nextAddress))
                     return false;
                 
-
                 type = (DarqMessageType) (*entry);
                 switch (type)
                 {
@@ -132,8 +132,9 @@ namespace FASTER.libdpr
                     case DarqMessageType.OUT:
                     case DarqMessageType.COMPLETION:
                         break;
-                    // Should not be seen by DARQ consumer as it should only be replayed on crash
+                    // Should be seen by DARQ consumer only if requested and not replayed
                     case DarqMessageType.RECOVERY:
+                        if (!hideRecoveryMessages && currentAddress > replayEnd) break;
                         iterator.UnsafeRelease();
                         continue;
                     default:

@@ -502,20 +502,53 @@ namespace FASTER.libdpr
         {
             // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
-            // TODO(Tianyu): optimize if necessary
-            var headerBytes = stackalloc byte[120];
-            var header = new Span<byte>(headerBytes, 120);
-            var len = session.TagMessage(header);
-            if (len < 0)
-                // TODO(Tianyu): handle case where we run out of space
-                throw new NotImplementedException();
-            return TryReceiveAndStartAction(header, context);
+
+            var wl = session.WorldLine;
+            var v = session.version;
+
+            if (v > versionScheme.CurrentState().Version)
+            {
+                while (v > versionScheme.CurrentState().Version)
+                {
+                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                    BeginCheckpoint(largestRequestedCheckpointVersion);
+                    Thread.Yield();
+                }
+            }
+
+            // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
+            versionScheme.Enter(context);
+            // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
+            // so client operation is not lost in a rollback that the client has already observed.
+            while (wl > worldLine)
+            {
+                versionScheme.Leave(context);
+                // TODO(Tianyu): Should provide version that does not rollback on the spot?
+                BeginRestore(wl, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
+                versionScheme.Enter(context);
+            }
+
+            // If the worker world-line is newer, the request must be dropped. 
+            if (wl != 0 && wl < worldLine)
+            {
+                versionScheme.Leave();
+                return false;
+            }
+
+            // Update batch dependencies to the current worker-version. This is an over-approximation, as the batch
+            // could get processed at a future version instead due to thread timing. However, this is not a correctness
+            // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
+            var deps = versions[versionScheme.CurrentState().Version];
+            foreach (var wv in session.deps)
+                deps.Update(wv.DprWorkerId, wv.Version);
+            return true;
         }
 
         public async ValueTask<bool> TakeOnDependencyAndStartActionAsync(DprSession session,
             LightEpoch.EpochContext context = null)
         {
-// Should not be interacting with DPR-related things if speculation is disabled
+            // Should not be interacting with DPR-related things if speculation is disabled
             if (options.DprFinder == null) throw new InvalidOperationException();
 
             var wl = session.WorldLine;
@@ -611,17 +644,9 @@ namespace FASTER.libdpr
 
         public unsafe bool TryMergeAndStartAction(DprSession detachedSession, LightEpoch.EpochContext context = null)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-            var headerBytes = stackalloc byte[120];
-            var header = new Span<byte>(headerBytes, 120);
-            var len = detachedSession.TagMessage(header);
-            if (len < 0)
-                // TODO(Tianyu): handle case where we run out of space
-                throw new NotImplementedException();
+            var result = TakeOnDependencyAndStartAction(detachedSession, context);
             sessionPool.Return(detachedSession);
-            // TODO(Tianyu): optimize if necessary
-            return TryReceiveAndStartAction(header, context);
+            return result;
         }
 
 

@@ -1,8 +1,11 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license.
+
+using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FASTER.core
 {
@@ -28,11 +31,10 @@ namespace FASTER.core
         /// <returns> the underlying epoch framework </returns>
         public LightEpoch GetUnderlyingEpoch() => epoch;
         
-        public override void SignalStepAvailable()
+        public override void SignalStepAvailable(LightEpoch.EpochContext context = null)
         {
-            TryStepStateMachine();
+            TryStepStateMachine(null, context);
         }
-
 
         
         /// <summary>
@@ -43,7 +45,7 @@ namespace FASTER.core
         public override VersionSchemeState Enter(LightEpoch.EpochContext context = null)
         {
             epoch.Resume(context);
-            TryStepStateMachine();
+            TryStepStateMachine(null, context);
 
             VersionSchemeState result;
             while (true)
@@ -66,7 +68,7 @@ namespace FASTER.core
         {
             epoch.ProtectAndDrain(context);
             VersionSchemeState result = default;
-            TryStepStateMachine();
+            TryStepStateMachine(null, context);
 
             while (true)
             {
@@ -97,7 +99,7 @@ namespace FASTER.core
             return true;
         }
 
-        protected override void TryStepStateMachine(VersionSchemeStateMachine expectedMachine = null)
+        protected override void TryStepStateMachine(VersionSchemeStateMachine expectedMachine, LightEpoch.EpochContext context)
         {
             var machineLocal = currentMachine;
             var oldState = state;
@@ -125,17 +127,17 @@ namespace FASTER.core
             if (!MakeTransition(oldState, intermediate)) return;
 
             // Avoid upfront memory allocation by going to a function
-            StepMachineHeavy(machineLocal, oldState, nextState);
+            StepMachineHeavy(machineLocal, oldState, nextState, context);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void StepMachineHeavy(VersionSchemeStateMachine machineLocal, VersionSchemeState old, VersionSchemeState next)
+        private void StepMachineHeavy(VersionSchemeStateMachine machineLocal, VersionSchemeState old, VersionSchemeState next, LightEpoch.EpochContext context)
         {
             // // Resume epoch to ensure that state machine is able to make progress
             // if this thread is the only active thread. Also, StepMachineHeavy calls BumpCurrentEpoch, which requires a protected thread.
-            bool isProtected = epoch.ThisInstanceProtected();
+            bool isProtected = epoch.ThisInstanceProtected(context);
             if (!isProtected)
-                epoch.Resume();
+                epoch.Resume(context);
             try
             {
                 epoch.BumpCurrentEpoch(() =>
@@ -144,13 +146,13 @@ namespace FASTER.core
                     var success = MakeTransition(VersionSchemeState.MakeIntermediate(old), next);
                     machineLocal.AfterEnteringState(next);
                     Debug.Assert(success);
-                    TryStepStateMachine(machineLocal);
-                });
+                    TryStepStateMachine(machineLocal, context);
+                }, context);
             }
             finally
             {
                 if (!isProtected)
-                    epoch.Suspend();
+                    epoch.Suspend(context);
             }
         }
     }

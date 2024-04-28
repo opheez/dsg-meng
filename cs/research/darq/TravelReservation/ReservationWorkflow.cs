@@ -150,9 +150,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                     channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
                 : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
-            // logger.LogInformation($"Workflow with id {workflowId} is starting reservation number {index}");
+            logger.LogInformation($"Workflow with id {workflowId} is starting reservation number {index}");
             var result = await client.MakeReservationAsync(toExecute[index]);
-            // logger.LogInformation($"Workflow with id {workflowId} has completed reservation number {index}");
+            logger.LogInformation($"Workflow with id {workflowId} has completed reservation number {index}");
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
@@ -190,9 +190,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                     channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
                 : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
-            // logger.LogInformation($"Workflow with id {workflowId} is cancelling reservation number {index}");
+            logger.LogInformation($"Workflow with id {workflowId} is cancelling reservation number {index}");
             await client.CancelReservationAsync(toExecute[index]);
-            // logger.LogInformation($"Workflow with id {workflowId} has cancelled reservation number {index}");
+            logger.LogInformation($"Workflow with id {workflowId} has cancelled reservation number {index}");
             var stepRequest = stepRequestPool.Checkout();
             var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);

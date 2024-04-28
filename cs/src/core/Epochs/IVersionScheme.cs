@@ -270,7 +270,7 @@ public interface IVersionScheme
     /// state machine can make progress even without active threads entering and leaving the system. There is no
     /// need to invoke this method if steps are always available. 
     /// </summary>
-    public void SignalStepAvailable();
+    public void SignalStepAvailable(LightEpoch.EpochContext context = null);
 
     /// <summary>
     /// Attempt to start executing the given state machine.
@@ -321,7 +321,7 @@ public abstract class VersionSchemeBase : IVersionScheme
     protected VersionSchemeState state = VersionSchemeState.Make(VersionSchemeState.REST, 1);
     protected VersionSchemeStateMachine currentMachine = null;
 
-    protected abstract void TryStepStateMachine(VersionSchemeStateMachine expectedMachine = null);
+    protected abstract void TryStepStateMachine(VersionSchemeStateMachine expectedMachine = null, LightEpoch.EpochContext context = null);
 
     public VersionSchemeState CurrentState() => state;
 
@@ -331,7 +331,7 @@ public abstract class VersionSchemeBase : IVersionScheme
 
     public abstract void Leave(LightEpoch.EpochContext context = null);
 
-    public abstract void SignalStepAvailable();
+    public abstract void SignalStepAvailable(LightEpoch.EpochContext context = null);
     
     public StateMachineExecutionStatus TryExecuteStateMachine(VersionSchemeStateMachine stateMachine)
     {

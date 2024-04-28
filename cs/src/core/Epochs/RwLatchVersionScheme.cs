@@ -44,7 +44,7 @@ public class RwLatchVersionScheme : VersionSchemeBase
 {
     private NonThreadBasedReaderWriterLatch rwLatch = new();
     
-    public override void SignalStepAvailable()
+    public override void SignalStepAvailable(LightEpoch.EpochContext context = null)
     {
         if (!rwLatch.HasActiveThreads())
             TryStepStateMachine();
@@ -60,7 +60,7 @@ public class RwLatchVersionScheme : VersionSchemeBase
         return true;
     }
     
-    protected override void TryStepStateMachine(VersionSchemeStateMachine expectedMachine = null)
+    protected override void TryStepStateMachine(VersionSchemeStateMachine expectedMachine = null, LightEpoch.EpochContext context = null)
     {
         var machineLocal = currentMachine;
         var oldState = state;

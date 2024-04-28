@@ -10,7 +10,7 @@ namespace FASTER.libdpr
     public abstract class PrecomputedSyncResponseBase
     {
         public ReaderWriterLockSlim rwLatch = new ReaderWriterLockSlim();
-        
+
         public abstract void ResetClusterState(ClusterState clusterState);
 
         public abstract void UpdateCut(Dictionary<DprWorkerId, long> newCut);
@@ -55,7 +55,7 @@ namespace FASTER.libdpr
             currentWorldLine = BitConverter.ToInt64(buf, offset);
             return RespUtil.ReadDictionaryFromBytes(buf, offset + sizeof(long), worldLinePrefix);
         }
-        
+
         public byte[] SerializeToBytes()
         {
             // Reserve space for world-line + prefix as a minimum
@@ -65,7 +65,7 @@ namespace FASTER.libdpr
             return result;
         }
     }
-    
+
     /// <summary>
     ///     Backend logic for the RespGraphDprFinderServer.
     ///     The implementation relies on state objects to persist dependencies and avoids incurring additional storage
@@ -76,30 +76,33 @@ namespace FASTER.libdpr
         // Used to send add/delete worker requests to processing thread
         private readonly ConcurrentQueue<(DprWorkerId, Action<(long, long)>)> addQueue =
             new ConcurrentQueue<(DprWorkerId, Action<(long, long)>)>();
-        private readonly ConcurrentQueue<(DprWorkerId, Action)> deleteQueue = new ConcurrentQueue<(DprWorkerId, Action)>();
+
+        private readonly ConcurrentQueue<(DprWorkerId, Action)> deleteQueue =
+            new ConcurrentQueue<(DprWorkerId, Action)>();
 
         private readonly ConcurrentDictionary<WorkerVersion, List<WorkerVersion>> precedenceGraph =
             new ConcurrentDictionary<WorkerVersion, List<WorkerVersion>>();
+
         private readonly SimpleObjectPool<List<WorkerVersion>> objectPool =
             new SimpleObjectPool<List<WorkerVersion>>(() => new List<WorkerVersion>());
-        
+
         private readonly PingPongDevice persistentStorage;
 
         private readonly ReaderWriterLockSlim clusterChangeLatch = new ReaderWriterLockSlim();
         private readonly Dictionary<DprWorkerId, long> currentCut = new Dictionary<DprWorkerId, long>();
         private readonly ClusterState volatileClusterState;
-        
+
         private bool cutChanged;
         private readonly Queue<WorkerVersion> frontier = new Queue<WorkerVersion>();
         private readonly ConcurrentQueue<WorkerVersion> outstandingWvs = new ConcurrentQueue<WorkerVersion>();
         private readonly HashSet<WorkerVersion> visited = new HashSet<WorkerVersion>();
-        
+
         // Only used during DprFinder recovery
         private readonly RecoveryState recoveryState;
 
 
         private List<PrecomputedSyncResponseBase> precomputedResponses;
-        
+
 
         /// <summary>
         ///     Create a new EnhancedDprFinderBackend backed by the given storage. If the storage holds a valid persisted
@@ -128,7 +131,7 @@ namespace FASTER.libdpr
             obj.ResetClusterState(volatileClusterState);
             precomputedResponses.Add(obj);
         }
-        
+
 
         // Try to commit a single worker version by chasing through its dependencies
         // The worker version supplied in the argument must already be reported as persistent
@@ -137,54 +140,58 @@ namespace FASTER.libdpr
             // Because wv is already persistent, if it's not in the graph that means it was pruned as part of a commit.
             // Ok to return as committed, but no need to mark the cut as changed
             if (!precedenceGraph.ContainsKey(wv)) return true;
-           
 
-                // If version is in the graph but somehow already committed, remove it and reclaim associated resources
-                if (wv.Version <= currentCut.GetValueOrDefault(wv.DprWorkerId, 0))
+
+            // If version is in the graph but somehow already committed, remove it and reclaim associated resources
+            if (wv.Version <= currentCut.GetValueOrDefault(wv.DprWorkerId, 0))
+            {
+                // already committed. Remove but do not signal changes to the cut
+                if (precedenceGraph.TryRemove(wv, out var list))
+                    objectPool.Return(list);
+                return true;
+            }
+
+            // Prepare traversal data structures
+            visited.Clear();
+            frontier.Clear();
+            frontier.Enqueue(wv);
+
+            // Breadth first search to find all dependencies
+            while (frontier.Count != 0)
+            {
+                var node = frontier.Dequeue();
+                if (visited.Contains(node)) continue;
+                // If node is committed as determined by the cut, ok to continue
+                if (currentCut.GetValueOrDefault(node.DprWorkerId, 0) >= node.Version) continue;
+                // Otherwise, need to check if it is persistent (and therefore present in the graph)
+                if (!precedenceGraph.TryGetValue(node, out var val)) return false;
+
+                visited.Add(node);
+                foreach (var dep in val)
                 {
-                    // already committed. Remove but do not signal changes to the cut
-                    if (precedenceGraph.TryRemove(wv, out var list))
-                        objectPool.Return(list);
-                    return true;
-                }
-
-                // Prepare traversal data structures
-                visited.Clear();
-                frontier.Clear();
-                frontier.Enqueue(wv);
-
-                // Breadth first search to find all dependencies
-                while (frontier.Count != 0)
-                {
-                    var node = frontier.Dequeue();
-                    if (visited.Contains(node)) continue;
-                    // If node is committed as determined by the cut, ok to continue
-                    if (currentCut.GetValueOrDefault(node.DprWorkerId, 0) >= node.Version) continue;
-                    // Otherwise, need to check if it is persistent (and therefore present in the graph)
-                    if (!precedenceGraph.TryGetValue(node, out var val)) return false;
-
-                    visited.Add(node);
-                    foreach (var dep in val)
+                    // No need to add self-dependencies
+                    if (dep.DprWorkerId != node.DprWorkerId)
                         frontier.Enqueue(dep);
                 }
+            }
 
-                // If all dependencies are present, we should commit them all
-                // This will appear atomic without special protection as we serialize out the cut for sync calls in
-                // the same thread later on. Other calls reading the cut involve cluster changes and cannot
-                // interleave with this code
-                foreach (var committed in visited)
-                {
-                    // Mark cut as changed so we know to serialize the new cut later on
-                    cutChanged = true;
-                    var version = currentCut.GetValueOrDefault(committed.DprWorkerId, 0);
-                    // Update cut if necessary
-                    if (version < committed.Version)
-                        currentCut[committed.DprWorkerId] = committed.Version;
-                    if (precedenceGraph.TryRemove(committed, out var list))
-                        objectPool.Return(list);
-                }
+            // If all dependencies are present, we should commit them all
+            // This will appear atomic without special protection as we serialize out the cut for sync calls in
+            // the same thread later on. Other calls reading the cut involve cluster changes and cannot
+            // interleave with this code
+            foreach (var committed in visited)
+            {
+                // Mark cut as changed so we know to serialize the new cut later on
+                cutChanged = true;
+                var version = currentCut.GetValueOrDefault(committed.DprWorkerId, 0);
+                // Update cut if necessary
+                if (version < committed.Version)
+                    currentCut[committed.DprWorkerId] = committed.Version;
+                if (precedenceGraph.TryRemove(committed, out var list))
+                    objectPool.Return(list);
+            }
 
-                return true;
+            return true;
         }
 
         /// <summary>
@@ -227,6 +234,7 @@ namespace FASTER.libdpr
                     response.ResetClusterState(volatileClusterState);
                     response.UpdateCut(currentCut);
                 }
+
                 clusterChangeLatch.ExitWriteLock();
 
                 foreach (var callback in callbacks)
@@ -236,6 +244,7 @@ namespace FASTER.libdpr
             // Traverse the graph to try and commit versions
             TryCommitVersions();
         }
+
         private void TryCommitVersions(bool tryCommitAll = false)
         {
             // Perform graph traversal in mutual exclusion with cluster change, but it is ok for traversal to be 
@@ -258,13 +267,15 @@ namespace FASTER.libdpr
                 // No need to protect against concurrent changes to the cluster because this method is either called
                 // on the process thread or during recovery. No cluster change can interleave.
                 // TODO(Tianyu): Maybe call latches here instead of inside UpdateCut method
-                foreach (var response in precomputedResponses) {
+                foreach (var response in precomputedResponses)
+                {
                     response.UpdateCut(currentCut);
                 }
+
                 cutChanged = false;
             }
-            clusterChangeLatch.ExitReadLock();
 
+            clusterChangeLatch.ExitReadLock();
         }
 
         /// <summary>
@@ -292,7 +303,7 @@ namespace FASTER.libdpr
 
                 // This may be a duplicate
                 if (currentCut[wv.DprWorkerId] >= wv.Version) return;
-                
+
                 var list = objectPool.Checkout();
                 list.Clear();
                 list.AddRange(deps);
@@ -317,6 +328,7 @@ namespace FASTER.libdpr
             {
                 Debug.Assert(currentCut.ContainsKey(dprWorkerId));
             }
+
             recoveryState.MarkWorkerAccountedFor(dprWorkerId);
         }
 

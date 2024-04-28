@@ -24,7 +24,6 @@ namespace FASTER.libdpr
         }
     }
 
-
     public class DarqCompletionTracker
     {
         private SimpleObjectPool<DarqEntryBucket> bucketPool;

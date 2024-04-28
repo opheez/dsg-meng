@@ -1,6 +1,7 @@
-using FASTER.libdpr;
 
-namespace microbench;
+using System.Collections.Generic;
+
+namespace FASTER.libdpr;
 
 public class LocalStubDprFinder : IDprFinder
 {

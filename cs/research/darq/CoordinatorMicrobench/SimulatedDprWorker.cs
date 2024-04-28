@@ -47,10 +47,11 @@ namespace microbench;
             while (stopwatch.ElapsedMilliseconds < runSeconds * 1000)
             {
                 var elapsed = stopwatch.ElapsedMilliseconds;
+                var currentTime = stopwatch.ElapsedTicks;
                 dprFinder.RefreshStateless();
                 var currentSafeVersion = dprFinder.SafeVersion(me);
                 for (var i = safeVersion + 1; i <= currentSafeVersion; i++)
-                    versionRecoverable.Add(i, elapsed);
+                    versionRecoverable.Add(i, currentTime);
 
                 safeVersion = currentSafeVersion;
                 
@@ -58,7 +59,7 @@ namespace microbench;
                 if (expectedVersion > currentVersion)
                 {
                     var deps = generator.GenerateDependenciesOneRun(workers, me, currentVersion);
-                    versionPersistent.Add(currentVersion, elapsed);
+                    versionPersistent.Add(currentVersion, currentTime);
                     dprFinder.ReportNewPersistentVersion(1, new WorkerVersion(me, currentVersion), deps);
                     currentVersion = expectedVersion;
                 }

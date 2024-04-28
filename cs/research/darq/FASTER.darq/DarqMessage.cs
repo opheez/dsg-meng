@@ -449,18 +449,21 @@ namespace FASTER.libdpr
                    sizeof(DarqMessageType) + sizeof(long) * request.consumedMessages.Count)
                 request.Grow();
 
-            request.offsets.Add(request.size);
-            fixed (byte* b = request.serializationBuffer)
+            if (request.consumedMessages.Count != 0)
             {
-                var head = b + request.size;
-                *(DarqMessageType*)head++ = DarqMessageType.COMPLETION;
-                foreach (var lsn in request.consumedMessages)
+                request.offsets.Add(request.size);
+                fixed (byte* b = request.serializationBuffer)
                 {
-                    *(long*)head = lsn;
-                    head += sizeof(long);
-                }
+                    var head = b + request.size;
+                    *(DarqMessageType*)head++ = DarqMessageType.COMPLETION;
+                    foreach (var lsn in request.consumedMessages)
+                    {
+                        *(long*)head = lsn;
+                        head += sizeof(long);
+                    }
 
-                request.size = (int)(head - b);
+                    request.size = (int)(head - b);
+                }
             }
 
             return request;

@@ -1,4 +1,4 @@
-{{- range .Values.clients }}
+{{- range .Values.workers }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -27,20 +27,18 @@ spec:
               done;
       containers:
         - command:
-            - "TravelReservation/TravelReservation"
+            - "CoordinatorMicrobench/CoordinatorMicrobench"
           args:
             - "-t"
-            - "client"
-            - "-w"
-            - "{{ $.Values.experiment }}/workloads/{{ $.Values.workload }}-client-{{ .num }}.csv"
-            - "-n"
-            - "{{ .num }}"
-            - "-o"
-            - "{{ $.Values.workload }}-result-{{ .num }}-{{- if $.Values.speculative }}speculative{{- end }}.txt"
+            - "worker"
             - "-i"
-            - "{{ $.Values.window }}"
+            - "{{ .num }}"
+            - "-n"
+            - "{{ $.Values.num_workers }}"
+            - "-d"
+            - "{{ $.Values.dep_prob}}"
           image: tianyuli96/faster:latest
-          name: client{{ .num }}
+          name: "client{{ .num }}""
           ports:
             - containerPort: 15721
           envFrom:

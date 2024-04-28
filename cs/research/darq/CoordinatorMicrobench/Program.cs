@@ -1,6 +1,7 @@
 ﻿
 using System.Diagnostics;
 using System.Net;
+using Azure.Storage.Blobs;
 using CommandLine;
 using FASTER.core;
 using FASTER.libdpr;
@@ -25,7 +26,7 @@ public class Options
         HelpText = "Name of file to output")]
     public string OutputFile { get; set; }
 
-    [Option('n', "num-workers", Required = false, Default = 4,
+    [Option('n', "num-workers", Required = false, Default = 1,
         HelpText = "number of workers to simulate in total in a pod")]
     public int NumWorkers { get; set; }
     
@@ -33,7 +34,7 @@ public class Options
         HelpText = "id of the client being launched")]
     public int PodId { get; set; }
     
-    [Option('p', "num-pods", Required = false, Default = 4,
+    [Option('p', "num-pods", Required = false, Default = 8,
         HelpText = "number of pods")]
     public int NumPods { get; set; }
     
@@ -110,7 +111,7 @@ public class Program
             var i1 = i;
             threads.Add(new Thread(() =>
             {
-                var channel = GrpcChannel.ForAddress("http://127.0.0.1:15721");
+                var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
                 var finder = new GrpcDprFinder(channel);
                 var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, new DprWorkerId(i1));
                 worker.RunContinuously(30, options.CheckpointInterval);
@@ -151,22 +152,22 @@ public class Program
         builder.Services.AddSingleton<DprFinderGrpcService>();
         var aggregation = new StatsAggregationServiceImpl(options.NumWorkers,  measurements =>
         {
-            foreach (var line in measurements)
-                Console.WriteLine(line);
-            // using var memoryStream = new MemoryStream(); 
-            // using var streamWriter = new StreamWriter(memoryStream);
             // foreach (var line in measurements)
-            //     streamWriter.WriteLine(line);
-            // streamWriter.Flush();
-            // memoryStream.Position = 0;
-            //
-            // var connString = Environment.GetEnvironmentVariable("AZURE_RESULTS_CONN_STRING");
-            // var blobServiceClient = new BlobServiceClient(connString);
-            // var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
-            //
-            // blobContainerClient.CreateIfNotExists();
-            // var blobClient = blobContainerClient.GetBlobClient(options.OutputFile);
-            // blobClient.Upload(memoryStream, overwrite: true);
+                // Console.WriteLine(line * 1000.0 / Stopwatch.Frequency);
+            using var memoryStream = new MemoryStream(); 
+            using var streamWriter = new StreamWriter(memoryStream);
+            foreach (var line in measurements)
+                streamWriter.WriteLine(line);
+            streamWriter.Flush();
+            memoryStream.Position = 0;
+            
+            var connString = Environment.GetEnvironmentVariable("AZURE_RESULTS_CONN_STRING");
+            var blobServiceClient = new BlobServiceClient(connString);
+            var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
+            
+            blobContainerClient.CreateIfNotExists();
+            var blobClient = blobContainerClient.GetBlobClient(options.OutputFile);
+            blobClient.Upload(memoryStream, overwrite: true);
         });
         
         builder.Services.AddSingleton(aggregation);

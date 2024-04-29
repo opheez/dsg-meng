@@ -63,7 +63,7 @@ namespace microbench;
                     dprFinder.ReportNewPersistentVersion(1, new WorkerVersion(me, currentVersion), deps);
                     currentVersion = expectedVersion;
                 }
-                Thread.Yield();
+                Thread.Sleep(5);
             }
 
             stopwatch.Stop();

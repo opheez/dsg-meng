@@ -53,9 +53,10 @@ public class StatsAggregationServiceImpl : StatsAggregationService.StatsAggregat
     private TaskCompletionSource completionTcs = new(), synchronizationTcs = new();
     private List<long> measurements = new();
     private Action<List<long>> outputAction;
-    public StatsAggregationServiceImpl(int numPods, Action<List<long>> outputAction)
+    public StatsAggregationServiceImpl(int numPods, int numTotalWorkers, Action<List<long>> outputAction)
     {
-        toReport = toSynchronize = numPods;
+        toReport = numPods;
+        toSynchronize = numTotalWorkers;
         this.outputAction = outputAction;
     }
     
@@ -158,7 +159,7 @@ public class Program
         builder.Services.AddSingleton<GraphDprFinderBackend>();
         builder.Services.AddSingleton<DprFinderGrpcBackgroundService>();
         builder.Services.AddSingleton<DprFinderGrpcService>();
-        var aggregation = new StatsAggregationServiceImpl(options.NumWorkers,  measurements =>
+        var aggregation = new StatsAggregationServiceImpl(options.NumPods,  options.NumWorkers * options.NumPods, measurements =>
         {
             // foreach (var line in measurements)
                 // Console.WriteLine(line * 1000.0 / Stopwatch.Frequency);

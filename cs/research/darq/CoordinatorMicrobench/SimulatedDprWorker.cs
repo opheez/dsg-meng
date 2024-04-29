@@ -43,7 +43,7 @@ public class SimulatedDprWorker
         var safeVersions = new Dictionary<DprWorkerId, long>();
         foreach (var w in toSimulate)
             safeVersions[w] = 0;
-        stopwatch.Start();
+        stopwatch = Stopwatch.StartNew();
         while (stopwatch.ElapsedMilliseconds < runSeconds * 1000)
         {
             var elapsed = stopwatch.ElapsedMilliseconds;

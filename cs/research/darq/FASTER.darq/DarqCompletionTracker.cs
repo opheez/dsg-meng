@@ -67,9 +67,7 @@ namespace FASTER.libdpr
         {
             var ret = outstandingBuckets.TryGetValue(start >> maxSectorRangeBits, out var bucket);
             if (!ret)
-            {
                 throw new FasterException("removing nonexistent entries from tracking");
-            }
             
             if (Interlocked.Decrement(ref bucket.numIncompleteEntries) == 0 && bucket.isSealed)
                 return TryUpdateTruncateHead();

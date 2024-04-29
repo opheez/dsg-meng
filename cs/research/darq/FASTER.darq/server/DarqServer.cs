@@ -110,7 +110,7 @@ namespace FASTER.server
                         responseQueue.TryDequeue(out _);
                     }
 
-                    await darq.NextCommit();
+                    // await darq.NextCommit();
                 }
 
                 terminationComplete.Signal();

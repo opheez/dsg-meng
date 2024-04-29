@@ -144,10 +144,17 @@ namespace FASTER.libdpr
         }
 
         public IDprFinder GetDprFinder() => options.DprFinder;
-
+        
         /// <summary></summary>
         /// <returns> A task that completes when the next commit is recoverable</returns>
-        public Task<long> NextCommit() => nextCommit.Task;
+        public async Task DprCommit(long worldLine, long version)
+        {
+            while (CommittedVersion() < version)
+            {
+                if (worldLine != WorldLine()) throw new DprSessionRolledBackException(WorldLine());
+                await nextCommit.Task;
+            }
+        }
 
         /// <summary>
         /// Add the given attachment to the DprWorker. Should only be invoked before connecting to the cluster.
@@ -177,7 +184,7 @@ namespace FASTER.libdpr
         {
             var tcs = new TaskCompletionSource<object>();
             // Restoration to this particular worldline has already been completed
-            if (worldLine >= newWorldLine) return Task.CompletedTask;
+            if (worldLine >= newWorldLine && options.DprFinder != null) return Task.CompletedTask;
 
             versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
             {
@@ -292,7 +299,7 @@ namespace FASTER.libdpr
         /// <returns> Get the largest version number that is considered committed (will be recovered to) of this DPR Worker</returns>
         public long CommittedVersion()
         {
-            return options.DprFinder?.SafeVersion(Me()) ?? Version() - 1;
+            return options.DprFinder?.SafeVersion(Me()) ?? Version() - 2;
         }
 
         public void Refresh()

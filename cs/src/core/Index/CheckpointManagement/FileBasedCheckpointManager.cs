@@ -84,7 +84,7 @@ public class FileBasedCheckpointManager : ILogCommitManager, ICheckpointManager
         var result = new byte[size];
         for (var read = 0; read < size; )
         {
-            var bytesReceived = reader.Read(result, sizeof(int) + read, size - read);
+            var bytesReceived = reader.Read(result, read, size - read);
             if (bytesReceived == 0) throw new IOException("unexpected end of file");
             read += bytesReceived;
         }

@@ -151,7 +151,8 @@ namespace FASTER.client
                         fixed (byte* h = body)
                         {
                             for (var completed = (long*)h; completed < h + body.Length; completed++)
-                                completionTracker.RemoveEntry(*completed);
+                                if (*completed >= darq.Head)
+                                    completionTracker.RemoveEntry(*completed);
                         }
                     }
 
@@ -180,6 +181,8 @@ namespace FASTER.client
 
             while (!stoppingToken.IsCancellationRequested)
             {
+                while (!darq.ConnectedToCluster())
+                    await Task.Delay(10, stoppingToken);
                 try
                 {
                     for (var i = 0; i < settings.morselSize; i++)

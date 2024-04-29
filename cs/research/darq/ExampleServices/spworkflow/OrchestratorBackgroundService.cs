@@ -30,7 +30,7 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
     public delegate IWorkflowStateMachine WorkflowFactory(ReadOnlySpan<byte> input, ILogger logger);
 
     
-     public OrchestratorBackgroundProcessingService(Darq darq, OrchestartorBackgroundProcessingServiceSettings settings, ILogger<OrchestratorBackgroundProcessingService> logger)
+    public OrchestratorBackgroundProcessingService(Darq darq, OrchestartorBackgroundProcessingServiceSettings settings, ILogger<OrchestratorBackgroundProcessingService> logger)
     {
         backend = darq;
         processorClient = new ColocatedDarqProcessorClient(backend, settings.speculative);

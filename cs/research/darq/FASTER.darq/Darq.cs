@@ -163,6 +163,8 @@ namespace FASTER.darq
 
         public long Tail => log.TailAddress;
 
+        public long Head => log.BeginAddress;
+
         /// <inheritdoc/>
         public override void Dispose()
         {

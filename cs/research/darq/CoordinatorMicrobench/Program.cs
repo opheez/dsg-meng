@@ -106,9 +106,9 @@ public class Program
         for (var i = 0; i < options.NumPods * options.NumWorkers; i++)
             workers.Add(new DprWorkerId(i));
         
-        for (var i = options.PodId; i < options.NumWorkers; i += options.NumPods)
+        for (var i = 0; i < options.NumWorkers; i++)
         {
-            var i1 = i;
+            var i1 = i * options.NumPods + options.PodId;
             threads.Add(new Thread(() =>
             {
                 var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");

@@ -3,66 +3,72 @@ using FASTER.libdpr;
 
 namespace microbench;
 
- public class SimulatedDprWorker
-    {
-        private IDprFinder dprFinder;
-        private IWorkloadGenerator generator;
-        private IList<DprWorkerId> workers;
-        private DprWorkerId me;
+public class SimulatedDprWorker
+{
+    private IDprFinder dprFinder;
+    private IWorkloadGenerator generator;
+    private List<DprWorkerId> workers;
+    private List<DprWorkerId> toSimulate;
 
-        private Dictionary<long, long> versionPersistent, versionRecoverable;
-        private Stopwatch stopwatch;
-        
-        public SimulatedDprWorker(IDprFinder dprFinder, IWorkloadGenerator generator, 
-            IList<DprWorkerId> workers, DprWorkerId me, Stopwatch stopwatch)
+    private Dictionary<WorkerVersion, long> versionPersistent = new(), versionRecoverable = new();
+    private Stopwatch stopwatch;
+
+    public SimulatedDprWorker(IDprFinder dprFinder, IWorkloadGenerator generator,
+        List<DprWorkerId> workers, List<DprWorkerId> toSimulate)
+    {
+        foreach (var w in toSimulate)
+            dprFinder.AddWorker(w, Enumerable.Empty<Memory<byte>>);
+        this.dprFinder = dprFinder;
+        this.generator = generator;
+        this.workers = workers;
+    }
+
+    public List<long> ComputeVersionCommitLatencies()
+    {
+        var result = new List<long>(versionRecoverable.Count);
+
+        foreach (var entry in versionRecoverable)
         {
-            dprFinder.AddWorker(me, Enumerable.Empty<Memory<byte>>);
-            this.dprFinder = dprFinder;
-            this.generator = generator;
-            this.workers = workers;
-            this.me = me;
-            this.stopwatch = stopwatch;
+            if (!versionPersistent.TryGetValue(entry.Key, out var startTime)) continue;
+            result.Add(entry.Value - startTime);
         }
 
-        public List<long> ComputeVersionCommitLatencies()
-        {
-            var result = new List<long>(versionRecoverable.Count);
+        return result;
+    }
 
-            foreach (var entry in versionRecoverable)
+    public void RunContinuously(int runSeconds, int checkpointMilli)
+    {
+        var currentVersion = 1L;
+        var safeVersions = new Dictionary<DprWorkerId, long>();
+        foreach (var w in toSimulate)
+            safeVersions[w] = 0;
+        stopwatch.Start();
+        while (stopwatch.ElapsedMilliseconds < runSeconds * 1000)
+        {
+            var elapsed = stopwatch.ElapsedMilliseconds;
+            var currentTime = stopwatch.ElapsedTicks;
+            dprFinder.RefreshStateless();
+            foreach (var w in toSimulate)
             {
-                if (!versionPersistent.TryGetValue(entry.Key, out var startTime)) continue;
-                result.Add(entry.Value - startTime);
+                var currentSafeVersion = dprFinder.SafeVersion(w);
+                for (var i = safeVersions[w] + 1; i <= currentSafeVersion; i++)
+                    versionRecoverable.Add(new WorkerVersion(w, i), currentTime);
+                safeVersions[w] = currentSafeVersion;
             }
 
-            return result;
-        }
-
-        public void RunContinuously(int runSeconds, int checkpointMilli)
-        {
-            versionPersistent = new Dictionary<long, long>();
-            versionRecoverable = new Dictionary<long, long>();
-            var currentVersion = 1L;
-            var safeVersion = 0L;
-            while (stopwatch.ElapsedMilliseconds < runSeconds * 1000)
+            var expectedVersion = 1 + elapsed / checkpointMilli;
+            if (expectedVersion > currentVersion)
             {
-                var elapsed = stopwatch.ElapsedMilliseconds;
-                var currentTime = stopwatch.ElapsedTicks;
-                dprFinder.RefreshStateless();
-                var currentSafeVersion = dprFinder.SafeVersion(me);
-                for (var i = safeVersion + 1; i <= currentSafeVersion; i++)
-                    versionRecoverable.Add(i, currentTime);
-
-                safeVersion = currentSafeVersion;
-                
-                var expectedVersion = 1 + elapsed / checkpointMilli;
-                if (expectedVersion > currentVersion)
+                foreach (var w in toSimulate)
                 {
-                    var deps = generator.GenerateDependenciesOneRun(workers, me, currentVersion);
-                    versionPersistent.Add(currentVersion, currentTime);
-                    dprFinder.ReportNewPersistentVersion(1, new WorkerVersion(me, currentVersion), deps);
-                    currentVersion = expectedVersion;
+                    var wv = new WorkerVersion(w, currentVersion);
+                    var deps = generator.GenerateDependenciesOneRun(workers, w, currentVersion);
+                    versionPersistent.Add(wv, currentTime);
+                    Task.Run(() => dprFinder.ReportNewPersistentVersion(1, wv, deps));
                 }
-                Thread.Sleep(5);
+
+                currentVersion = expectedVersion;
             }
         }
     }
+}

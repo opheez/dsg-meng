@@ -109,35 +109,23 @@ public class Program
 
     private static Task LaunchBenchmarkClient(Options options)
     {
-        var threads = new List<Thread>();
         var workers = new List<DprWorkerId>();
         for (var i = 0; i < options.NumPods * options.NumWorkers; i++)
             workers.Add(new DprWorkerId(i));
 
-        var stopwatch = new Stopwatch();
+        var toSimulate = new List<DprWorkerId>();
         for (var i = 0; i < options.NumWorkers; i++)
-        {
-            var i1 = i * options.NumPods + options.PodId;
-            threads.Add(new Thread(() =>
-            {
-                var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
-                var finder = new GrpcDprFinder(channel);
-                var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, new DprWorkerId(i1), stopwatch);
-                var client = new StatsAggregationService.StatsAggregationServiceClient(channel);
-                client.Synchronize(new SynchronizeRequest());
-                lock (stopwatch)
-                    if (!stopwatch.IsRunning) stopwatch.Start();
-                worker.RunContinuously(30, options.CheckpointInterval);
-                var results = new ReportResultsMessage();
-                results.Latencies.AddRange(worker.ComputeVersionCommitLatencies());
-                client.ReportResults(results);
-            }));
-        }
-        foreach (var thread in threads)
-            thread.Start();
-        
-        foreach (var thread in threads)
-            thread.Join();
+            toSimulate.Add(new DprWorkerId(i * options.NumPods + options.PodId));
+
+        var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
+        var finder = new GrpcDprFinder(channel);
+        var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, toSimulate);
+        var client = new StatsAggregationService.StatsAggregationServiceClient(channel);
+        client.Synchronize(new SynchronizeRequest());
+        worker.RunContinuously(30, options.CheckpointInterval);
+        var results = new ReportResultsMessage();
+        results.Latencies.AddRange(worker.ComputeVersionCommitLatencies());
+        client.ReportResults(results);
         
         return Task.CompletedTask;
     }

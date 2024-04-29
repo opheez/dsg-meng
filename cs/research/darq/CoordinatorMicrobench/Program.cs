@@ -157,7 +157,7 @@ public class Program
             using var memoryStream = new MemoryStream(); 
             using var streamWriter = new StreamWriter(memoryStream);
             foreach (var line in measurements)
-                streamWriter.WriteLine(line);
+                streamWriter.WriteLine(line * 1000.0 / Stopwatch.Frequency);
             streamWriter.Flush();
             memoryStream.Position = 0;
             

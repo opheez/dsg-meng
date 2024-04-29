@@ -23,7 +23,7 @@ spec:
             - "-t"
             - "dprfinder"
             - "-o"
-            - "coordinator-microbench-result-n{{ .Values.num_workers }}-d{{ .Values.dep_prob}}}.csv"
+            - "coordinator-microbench-result-n{{ .Values.num_workers }}-d{{ .Values.dep_prob}}.csv"
           image: tianyuli96/faster:latest
           name: dprfinder
           ports:

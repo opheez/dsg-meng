@@ -38,7 +38,7 @@ spec:
             - "-d"
             - "{{ $.Values.dep_prob}}"
           image: tianyuli96/faster:latest
-          name: "client{{ .num }}""
+          name: "client{{ .num }}"
           ports:
             - containerPort: 15721
           envFrom:

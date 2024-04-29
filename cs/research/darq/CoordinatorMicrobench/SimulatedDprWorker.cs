@@ -21,6 +21,7 @@ public class SimulatedDprWorker
         this.dprFinder = dprFinder;
         this.generator = generator;
         this.workers = workers;
+        this.toSimulate = toSimulate;
     }
 
     public List<long> ComputeVersionCommitLatencies()

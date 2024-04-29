@@ -10,6 +10,16 @@ message ReportResultsResponse {
   
 }
 
+message SynchronizeRequest {
+  
+}
+
+message SynchronizeResponse {
+  
+}
+
 service StatsAggregationService {
   rpc ReportResults(ReportResultsMessage) returns (ReportResultsMessage);
+  rpc Synchronize(SynchronizeRequest) returns (SynchronizeResponse);
+
 }

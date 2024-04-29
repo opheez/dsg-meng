@@ -49,14 +49,13 @@ public class Options
 
 public class StatsAggregationServiceImpl : StatsAggregationService.StatsAggregationServiceBase
 {
-    private int numPods;
-    private TaskCompletionSource tcs = new();
+    private int toReport, toSynchronize;
+    private TaskCompletionSource completionTcs = new(), synchronizationTcs = new();
     private List<long> measurements = new();
     private Action<List<long>> outputAction;
-    
     public StatsAggregationServiceImpl(int numPods, Action<List<long>> outputAction)
     {
-        this.numPods = numPods;
+        toReport = toSynchronize = numPods;
         this.outputAction = outputAction;
     }
     
@@ -65,15 +64,23 @@ public class StatsAggregationServiceImpl : StatsAggregationService.StatsAggregat
         lock (this)
         {
             measurements.AddRange(request.Latencies);
-            if (--numPods == 0)
+            if (--toReport == 0)
             {
                 outputAction(measurements);
-                tcs.SetResult();
+                completionTcs.SetResult();
             }
         }
 
-        await tcs.Task;
+        await completionTcs.Task;
         return new ReportResultsMessage();
+    }
+
+    public override async Task<SynchronizeResponse> Synchronize(SynchronizeRequest request, ServerCallContext context)
+    {
+        if (Interlocked.Decrement(ref toSynchronize) == 0)
+            synchronizationTcs.SetResult();
+        await synchronizationTcs.Task;
+        return new SynchronizeResponse();
     }
 }
 
@@ -114,8 +121,9 @@ public class Program
                 var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
                 var finder = new GrpcDprFinder(channel);
                 var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, new DprWorkerId(i1));
-                worker.RunContinuously(30, options.CheckpointInterval);
                 var client = new StatsAggregationService.StatsAggregationServiceClient(channel);
+                client.Synchronize(new SynchronizeRequest());
+                worker.RunContinuously(30, options.CheckpointInterval);
                 var results = new ReportResultsMessage();
                 results.Latencies.AddRange(worker.ComputeVersionCommitLatencies());
                 client.ReportResults(results);

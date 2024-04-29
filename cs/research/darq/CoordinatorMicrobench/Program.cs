@@ -115,8 +115,8 @@ public class Program
         for (var i = 0; i < options.NumWorkers; i++)
             toSimulate.Add(new DprWorkerId(i * options.NumPods + options.PodId));
 
-        // var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
-        var channel = GrpcChannel.ForAddress("http://127.0.0.1:15721");
+        var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
+        // var channel = GrpcChannel.ForAddress("http://127.0.0.1:15721");
 
         var finder = new GrpcDprFinder(channel);
         var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, toSimulate);
@@ -152,22 +152,22 @@ public class Program
         builder.Services.AddSingleton<DprFinderGrpcService>();
         var aggregation = new StatsAggregationServiceImpl(options.NumPods, measurements =>
         {
-            foreach (var line in measurements)
-                Console.WriteLine(line * 1000.0 / Stopwatch.Frequency);
-            // using var memoryStream = new MemoryStream(); 
-            // using var streamWriter = new StreamWriter(memoryStream);
             // foreach (var line in measurements)
-            //     streamWriter.WriteLine(line * 1000.0 / Stopwatch.Frequency);
-            // streamWriter.Flush();
-            // memoryStream.Position = 0;
-            //
-            // var connString = Environment.GetEnvironmentVariable("AZURE_RESULTS_CONN_STRING");
-            // var blobServiceClient = new BlobServiceClient(connString);
-            // var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
-            //
-            // blobContainerClient.CreateIfNotExists();
-            // var blobClient = blobContainerClient.GetBlobClient(options.OutputFile);
-            // blobClient.Upload(memoryStream, overwrite: true);
+                // Console.WriteLine(line * 1000.0 / Stopwatch.Frequency);
+            using var memoryStream = new MemoryStream(); 
+            using var streamWriter = new StreamWriter(memoryStream);
+            foreach (var line in measurements)
+                streamWriter.WriteLine(line * 1000.0 / Stopwatch.Frequency);
+            streamWriter.Flush();
+            memoryStream.Position = 0;
+            
+            var connString = Environment.GetEnvironmentVariable("AZURE_RESULTS_CONN_STRING");
+            var blobServiceClient = new BlobServiceClient(connString);
+            var blobContainerClient = blobServiceClient.GetBlobContainerClient("results");
+            
+            blobContainerClient.CreateIfNotExists();
+            var blobClient = blobContainerClient.GetBlobClient(options.OutputFile);
+            blobClient.Upload(memoryStream, overwrite: true);
         });
         
         builder.Services.AddSingleton(aggregation);

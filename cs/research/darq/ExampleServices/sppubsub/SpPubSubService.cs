@@ -228,6 +228,8 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         else
         {
             topic.StartLocalAction();
+            var wl = topic.WorldLine();
+            var v = topic.Version();
             var result = new EnqueueResult
             {
                 Ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
@@ -235,7 +237,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             };
             topic.EndAction();
             if (!request.FireAndForget)
-                await topic.NextCommit();
+                await topic.DprCommit(wl, v);
             return result;
         }
     }
@@ -287,6 +289,8 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         else
         {
             topic.StartLocalAction(epochContext);
+            var wl = topic.WorldLine();
+            var v = topic.Version();
             var status = topic.Step(request.IncarnationId, requestBuilder.FinishStep());
             var result = new StepResult
             {
@@ -303,7 +307,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             topic.EndAction(epochContext);
             stepRequestPool.Return(requestObject);
             if (!request.FireAndForget)
-                await topic.NextCommit();
+                await topic.DprCommit(wl, v);
             return result;
         }
     }
@@ -371,7 +375,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                 {
                     // Avoid repeatedly wait for the newest commit
                     lastCommitted = topic.Tail;
-                    await topic.NextCommit();
+                    await topic.DprCommit(worldLine, topic.Version());
                 }
                 await responseStream.WriteAsync(ev);
             }

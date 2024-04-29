@@ -180,11 +180,9 @@ namespace FASTER.libdpr
 
         public bool ConnectedToCluster() => connected;
 
-        private Task BeginRestore(long newWorldLine, long version)
+        private Task ActuallyRestore(long newWorldLine, long version)
         {
             var tcs = new TaskCompletionSource<object>();
-            // Restoration to this particular worldline has already been completed
-            if (worldLine >= newWorldLine && options.DprFinder != null) return Task.CompletedTask;
 
             versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
             {
@@ -221,8 +219,25 @@ namespace FASTER.libdpr
                 tcs.SetResult(null);
                 worldLine = newWorldLine;
             }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
-
             return tcs.Task;
+        }
+
+        private Task BeginRestore(long newWorldLine, long version)
+        {
+            // Restoration to this particular worldline has already been completed
+            if (worldLine >= newWorldLine) return Task.CompletedTask;
+
+            if (version > Version()) return ActuallyRestore(newWorldLine, version);
+
+            for (var i = version + 1; i < Version(); i++)
+            {
+                if (!versions.TryGetValue(i, out var deps)) continue;
+                foreach (var dep in deps)
+                    if (dep.Version > options.DprFinder.SafeVersion(dep.DprWorkerId))
+                        return ActuallyRestore(newWorldLine, version);
+            }
+                 
+            return Task.CompletedTask;
         }
 
         internal int MetadataSize(ReadOnlySpan<byte> deps)

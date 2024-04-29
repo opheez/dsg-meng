@@ -28,9 +28,9 @@ public class LocalDebugEnvironment : IEnvironment
     private readonly Dictionary<int, (int, string)> clusterMap = new()
     {
         { 0, (0, "http://127.0.0.1:15721") },
-        { 1, (0, "http://127.0.0.1:15721") },
+        { 1, (1, "http://127.0.0.1:15722") },
         { 2, (0, "http://127.0.0.1:15721") },
-        { 3, (0, "http://127.0.0.1:15721") }
+        { 3, (1, "http://127.0.0.1:15722") }
     };
 
     public Dictionary<int, (int, string)> GetClusterMap()

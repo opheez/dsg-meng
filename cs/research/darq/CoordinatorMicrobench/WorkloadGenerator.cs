@@ -4,12 +4,11 @@ namespace microbench;
 
 public interface IWorkloadGenerator
 {
-    List<WorkerVersion> GenerateDependenciesOneRun(IList<DprWorkerId> workers, DprWorkerId me, long currentVersion);
+    void GenerateDependenciesOneRun(IList<DprWorkerId> workers, DprWorkerId me, long currentVersion, List<WorkerVersion> output);
 }
 
 public class UniformWorkloadGenerator : IWorkloadGenerator
 {
-    private List<WorkerVersion> dependecies = new();
     private Random rand = new();
     private double depProb;
 
@@ -18,20 +17,18 @@ public class UniformWorkloadGenerator : IWorkloadGenerator
         this.depProb = depProb;
     }
 
-    public List<WorkerVersion> GenerateDependenciesOneRun(IList<DprWorkerId> workers, DprWorkerId me,
-        long currentVersion)
+    public void GenerateDependenciesOneRun(IList<DprWorkerId> workers, DprWorkerId me,
+        long currentVersion, List<WorkerVersion> output)
     {
-        dependecies.Clear();
+        output.Clear();
         if (currentVersion != 1)
-            dependecies.Add(new WorkerVersion(me, currentVersion - 1));
+            output.Add(new WorkerVersion(me, currentVersion - 1));
         foreach (var worker in workers)
         {
             if (worker.Equals(me)) continue;
 
             if (rand.NextDouble() < depProb)
-                dependecies.Add(new WorkerVersion(worker, currentVersion));
+                output.Add(new WorkerVersion(worker, currentVersion));
         }
-
-        return dependecies;
     }
 }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using FASTER.common;
 using FASTER.libdpr;
 
 namespace microbench;
@@ -9,6 +10,8 @@ public class SimulatedDprWorker
     private IWorkloadGenerator generator;
     private List<DprWorkerId> workers;
     private List<DprWorkerId> toSimulate;
+
+    private SimpleObjectPool<List<WorkerVersion>> pool = new(() => new List<WorkerVersion>(10));
 
     private Dictionary<WorkerVersion, long> versionPersistent = new(), versionRecoverable = new();
     private Stopwatch stopwatch;
@@ -63,9 +66,14 @@ public class SimulatedDprWorker
                 foreach (var w in toSimulate)
                 {
                     var wv = new WorkerVersion(w, currentVersion);
-                    var deps = generator.GenerateDependenciesOneRun(workers, w, currentVersion);
+                    var deps = pool.Checkout();
+                    generator.GenerateDependenciesOneRun(workers, w, currentVersion, deps);
                     versionPersistent.Add(wv, currentTime);
-                    Task.Run(() => dprFinder.ReportNewPersistentVersion(1, wv, deps));
+                    Task.Run(() =>
+                    {
+                        dprFinder.ReportNewPersistentVersion(1, wv, deps);
+                        pool.Return(deps);
+                    });
                 }
 
                 currentVersion = expectedVersion;

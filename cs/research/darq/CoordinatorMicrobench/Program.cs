@@ -113,7 +113,8 @@ public class Program
         var workers = new List<DprWorkerId>();
         for (var i = 0; i < options.NumPods * options.NumWorkers; i++)
             workers.Add(new DprWorkerId(i));
-        
+
+        var stopwatch = new Stopwatch();
         for (var i = 0; i < options.NumWorkers; i++)
         {
             var i1 = i * options.NumPods + options.PodId;
@@ -121,9 +122,11 @@ public class Program
             {
                 var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
                 var finder = new GrpcDprFinder(channel);
-                var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, new DprWorkerId(i1));
+                var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, new DprWorkerId(i1), stopwatch);
                 var client = new StatsAggregationService.StatsAggregationServiceClient(channel);
                 client.Synchronize(new SynchronizeRequest());
+                lock (stopwatch)
+                    if (!stopwatch.IsRunning) stopwatch.Start();
                 worker.RunContinuously(30, options.CheckpointInterval);
                 var results = new ReportResultsMessage();
                 results.Latencies.AddRange(worker.ComputeVersionCommitLatencies());

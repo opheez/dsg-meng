@@ -14,13 +14,14 @@ namespace microbench;
         private Stopwatch stopwatch;
         
         public SimulatedDprWorker(IDprFinder dprFinder, IWorkloadGenerator generator, 
-            IList<DprWorkerId> workers, DprWorkerId me)
+            IList<DprWorkerId> workers, DprWorkerId me, Stopwatch stopwatch)
         {
             dprFinder.AddWorker(me, Enumerable.Empty<Memory<byte>>);
             this.dprFinder = dprFinder;
             this.generator = generator;
             this.workers = workers;
             this.me = me;
+            this.stopwatch = stopwatch;
         }
 
         public List<long> ComputeVersionCommitLatencies()
@@ -40,8 +41,6 @@ namespace microbench;
         {
             versionPersistent = new Dictionary<long, long>();
             versionRecoverable = new Dictionary<long, long>();
-            stopwatch = new Stopwatch();
-            stopwatch.Start();
             var currentVersion = 1L;
             var safeVersion = 0L;
             while (stopwatch.ElapsedMilliseconds < runSeconds * 1000)
@@ -65,7 +64,5 @@ namespace microbench;
                 }
                 Thread.Sleep(5);
             }
-
-            stopwatch.Stop();
         }
     }

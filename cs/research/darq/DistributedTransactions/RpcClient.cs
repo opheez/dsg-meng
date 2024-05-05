@@ -22,7 +22,7 @@ public abstract class RpcClient {
     public ReadOnlySpan<byte> Read(PrimaryKey key, TransactionContext ctx){
         var channel = GetServerChannel(key);
         var client = new TransactionProcessor.TransactionProcessorClient(channel);
-        PbPrimaryKey pk = new PbPrimaryKey { Keys = {key.Keys}, Table = key.Table};
+        PbPrimaryKey pk = new PbPrimaryKey { Keys = {key.Key1, key.Key2, key.Key3, key.Key4, key.Key5, key.Key6}, Table = key.Table};
 
         var reply = client.Read(new ReadRequest { Key = pk, Tid = ctx.tid, PartitionId = partitionId});
         
@@ -41,7 +41,7 @@ public abstract class RpcClient {
                 PartitionId = partitionId
             }
         );
-        return (reply.Value.ToByteArray(), new PrimaryKey(tempPk.Table, reply.Key.Keys.ToArray()));
+        return (reply.Value.ToByteArray(), new PrimaryKey(tempPk.Table, reply.Key.Keys.ToArray()[0], reply.Key.Keys.ToArray()[1], reply.Key.Keys.ToArray()[2], reply.Key.Keys.ToArray()[3], reply.Key.Keys.ToArray()[4], reply.Key.Keys.ToArray()[5]));
     }
 
     public void PopulateTables(BenchmarkConfig cfg, TpccConfig tpccCfg){
@@ -105,9 +105,9 @@ public class TpccRpcClient : RpcClient
     }
 
     public override long HashKeyToDarqId(PrimaryKey key){
-        return partitionId;
+        // return partitionId;
         if (key.Table == (int)TableType.Item) return partitionId;
-        // return (key.Keys[0] - 1) / 12;
+        return (key.Key1 - 1) / 4; // TODO: make it / partitionsPerThread * threadCount
     }
 }
 

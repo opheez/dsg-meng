@@ -52,7 +52,7 @@ public struct Query {
     public int c_d_id;
     public int c_w_id;
     public float h_amount;
-    public string c_last;
+    public byte[] c_last;
     public int o_ol_cnt;
     public int[] ol_i_ids;
     public int[] ol_supply_w_id;
@@ -70,7 +70,7 @@ public struct Query {
         this.ol_quantity = ol_quantity;
     }
 
-    public Query(int w_id, int d_id, int c_id, int c_d_id, int c_w_id, float h_amount, string c_last) {
+    public Query(int w_id, int d_id, int c_id, int c_d_id, int c_w_id, float h_amount, byte[] c_last) {
         isNewOrder = false;
         this.w_id = w_id;
         this.d_id = d_id;
@@ -82,6 +82,126 @@ public struct Query {
     }
 }
 
+// public struct NewOrderQuery : Query {
+//     public int w_id;
+//     public int d_id;
+//     public int c_id;
+//     public int o_ol_cnt;
+//     public int[] ol_i_ids;
+//     public int[] ol_supply_w_id;
+//     public int[] ol_quantity;
+//     public NewOrderQuery(int w_id, int d_id, int c_id, int o_ol_cnt, int[] ol_i_ids, int[] ol_supply_w_id, int[] ol_quantity){
+//         this.w_id = w_id;
+//         this.d_id = d_id;
+//         this.c_id = c_id;
+//         this.o_ol_cnt = o_ol_cnt;
+//         this.ol_i_ids = ol_i_ids;
+//         this.ol_supply_w_id = ol_supply_w_id;
+//         this.ol_quantity = ol_quantity;
+//     }
+
+//     public unsafe byte[] ToBytes(){
+//         byte[] bytes = new byte[4 + 4 + 4 + 4 + 4 + 4 + 4 * ol_i_ids.Length + 4 * ol_supply_w_id.Length + 4 * ol_quantity.Length];
+//         fixed (byte* b = bytes){
+//             *(int*)b = w_id;
+//             *(int*)(b + 4) = d_id;
+//             *(int*)(b + 8) = c_id;
+//             *(int*)(b + 12) = o_ol_cnt;
+//             *(int*)(b + 16) = ol_i_ids.Length;
+//             for (int i = 0; i < ol_i_ids.Length; i++){
+//                 *(int*)(b + 20 + i * 4) = ol_i_ids[i];
+//             }
+//             *(int*)(b + 20 + ol_i_ids.Length * 4) = ol_supply_w_id.Length;
+//             for (int i = 0; i < ol_supply_w_id.Length; i++){
+//                 *(int*)(b + 24 + ol_i_ids.Length * 4 + i * 4) = ol_supply_w_id[i];
+//             }
+//             *(int*)(b + 24 + ol_i_ids.Length * 4 + ol_supply_w_id.Length * 4) = ol_quantity.Length;
+//             for (int i = 0; i < ol_quantity.Length; i++){
+//                 *(int*)(b + 28 + ol_i_ids.Length * 4 + ol_supply_w_id.Length * 4 + i * 4) = ol_quantity[i];
+//             }
+//         }
+//         return bytes;
+//     }
+
+//     public static unsafe NewOrderQuery FromBytes(byte[] bytes){
+//         int w_id, d_id, c_id, o_ol_cnt;
+//         int[] ol_i_ids, ol_supply_w_id, ol_quantity;
+//         fixed (byte* b = bytes){
+//             w_id = *(int*)b;
+//             d_id = *(int*)(b + 4);
+//             c_id = *(int*)(b + 8);
+//             o_ol_cnt = *(int*)(b + 12);
+//             int ol_i_ids_len = *(int*)(b + 16);
+//             ol_i_ids = new int[ol_i_ids_len];
+//             for (int i = 0; i < ol_i_ids_len; i++){
+//                 ol_i_ids[i] = *(int*)(b + 20 + i * 4);
+//             }
+//             int ol_supply_w_id_len = *(int*)(b + 20 + ol_i_ids_len * 4);
+//             ol_supply_w_id = new int[ol_supply_w_id_len];
+//             for (int i = 0; i < ol_supply_w_id_len; i++){
+//                 ol_supply_w_id[i] = *(int*)(b + 24 + ol_i_ids_len * 4 + i * 4);
+//             }
+//             int ol_quantity_len = *(int*)(b + 24 + ol_i_ids_len * 4 + ol_supply_w_id_len * 4);
+//             ol_quantity = new int[ol_quantity_len];
+//             for (int i = 0; i < ol_quantity_len; i++){
+//                 ol_quantity[i] = *(int*)(b + 28 + ol_i_ids_len * 4 + ol_supply_w_id_len * 4 + i * 4);
+//             }
+//         }
+//         return new NewOrderQuery(w_id, d_id, c_id, o_ol_cnt, ol_i_ids, ol_supply_w_id, ol_quantity);
+//     }
+// }
+
+// public struct PaymentQuery {
+//     public int w_id;
+//     public int d_id;
+//     public int c_id;
+//     public int c_d_id;
+//     public int c_w_id;
+//     public float h_amount;
+//     public string c_last;
+//     public static int Size = 4 + 4 + 4 + 4 + 4 + 4 + 16;
+//     public PaymentQuery(int w_id, int d_id, int c_id, int c_d_id, int c_w_id, float h_amount, string c_last){
+//         this.w_id = w_id;
+//         this.d_id = d_id;
+//         this.c_id = c_id;
+//         this.c_d_id = c_d_id;
+//         this.c_w_id = c_w_id;
+//         this.h_amount = h_amount;
+//         this.c_last = c_last;
+//     }
+
+//     // public unsafe byte[] ToBytes(){
+//     //     byte[] bytes = new byte[Size];
+//     //     fixed (byte* b = bytes){
+//     //         *(int*)b = w_id;
+//     //         *(int*)(b + 4) = d_id;
+//     //         *(int*)(b + 8) = c_id;
+//     //         *(int*)(b + 12) = c_d_id;
+//     //         *(int*)(b + 16) = c_w_id;
+//     //         *(float*)(b + 20) = h_amount;
+//     //         Encoding.ASCII.GetBytes(c_last).CopyTo(bytes, 24);
+//     //     }
+//     //     return bytes;
+//     // }
+
+//     // public static unsafe PaymentQuery FromBytes(byte[] bytes){
+//     //     int w_id, d_id, c_id, c_d_id, c_w_id;
+//     //     float h_amount;
+//     //     string c_last;
+//     //     fixed (byte* b = bytes){
+//     //         w_id = *(int*)b;
+//     //         d_id = *(int*)(b + 4);
+//     //         c_id = *(int*)(b + 8);
+//     //         c_d_id = *(int*)(b + 12);
+//     //         c_w_id = *(int*)(b + 16);
+//     //         h_amount = *(float*)(b + 20);
+//     //         c_last = Encoding.ASCII.GetString(bytes, 24, 16);
+//     //     }
+//     //     return new PaymentQuery(w_id, d_id, c_id, c_d_id, c_w_id, h_amount, c_last);
+//     // }
+
+// }
+
 /// <summary>
 /// Adapted from https://github.com/SQLServerIO/TPCCBench/blob/master/TPCCDatabaseGenerator/TPCCGenData.cs
 /// and coco
@@ -92,8 +212,11 @@ public class TpccBenchmark : TableBenchmark {
     private static byte[] RandHold = Encoding.ASCII.GetBytes("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
     private static byte[] ZipRandHold = Encoding.ASCII.GetBytes("1234567890");
     private static byte SpaceAsByte = (byte)' ';
-    private static string[] LastNames = new string[] {
-        "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
+    private static byte[] ZeroAsBytes = BitConverter.GetBytes(0);
+    private static byte[] BcAsBytes = { (byte)'B', (byte)'C' };
+    private static byte[][] LastNames = new byte[][] {
+        Encoding.ASCII.GetBytes("BAR"), Encoding.ASCII.GetBytes("OUGHT"), Encoding.ASCII.GetBytes("ABLE"), Encoding.ASCII.GetBytes("PRI"), Encoding.ASCII.GetBytes("PRES"),
+        Encoding.ASCII.GetBytes("ESE"), Encoding.ASCII.GetBytes("ANTI"), Encoding.ASCII.GetBytes("CALLY"), Encoding.ASCII.GetBytes("ATION"), Encoding.ASCII.GetBytes("EING")
     };
 
     private static byte[] ORIGINAL = Encoding.ASCII.GetBytes("ORIGINAL");
@@ -126,15 +249,15 @@ public class TpccBenchmark : TableBenchmark {
     private static byte[] emptyByteArr = new byte[0];
 
     Dictionary<TableType, string> tableDataFiles = new Dictionary<TableType, string> {
-        {TableType.Warehouse, "warehouseData_{0}.bin"},
-        {TableType.District, "districtData_{0}.bin"},
-        {TableType.Customer, "customerData_{0}.bin"},
-        {TableType.History, "historyData_{0}.bin"},
-        {TableType.Order, "orderData_{0}.bin"},
-        {TableType.NewOrder, "newOrderData_{0}.bin"},
-        {TableType.Item, "itemData.bin"},
-        {TableType.OrderLine, "orderLineData_{0}.bin"},
-        {TableType.Stock, "stockData_{0}.bin"}
+        {TableType.Warehouse, "data/warehouseData_{0}.bin"},
+        {TableType.District, "data/districtData_{0}.bin"},
+        {TableType.Customer, "data/customerData_{0}.bin"},
+        {TableType.History, "data/historyData_{0}.bin"},
+        {TableType.Order, "data/orderData_{0}.bin"},
+        {TableType.NewOrder, "data/newOrderData_{0}.bin"},
+        {TableType.Item, "data/itemData.bin"},
+        {TableType.OrderLine, "data/orderLineData_{0}.bin"},
+        {TableType.Stock, "data/stockData_{0}.bin"}
     };
     private int[][] ol_cnts;
     private long[][] entry_ds;
@@ -150,7 +273,6 @@ public class TpccBenchmark : TableBenchmark {
     internal SimpleObjectPool<byte[]> orderLineBytePool;
     internal SimpleObjectPool<byte[]> customerBytePool;
     internal SimpleObjectPool<byte[]> historyBytePool;
-    internal SimpleObjectPool<byte[][]> newOrderOlBytePool;
     CountdownEvent cde;
     internal int[] successCounts;
     // internal int[] abortCounts;
@@ -171,12 +293,11 @@ public class TpccBenchmark : TableBenchmark {
         int customerByteSize = TpccSchema.fieldsToSchema[TableField.C_BALANCE].Item1 + TpccSchema.fieldsToSchema[TableField.C_YTD_PAYMENT].Item1 + TpccSchema.fieldsToSchema[TableField.C_PAYMENT_CNT].Item1 + TpccSchema.fieldsToSchema[TableField.C_DATA].Item1;
         customerBytePool = new SimpleObjectPool<byte[]>(() => new byte[customerByteSize]);
         historyBytePool = new SimpleObjectPool<byte[]>(() => new byte[tables[(int)TableType.History].rowSize]);
-        newOrderOlBytePool = new SimpleObjectPool<byte[][]>(() => new byte[15][]);
         cde = new CountdownEvent(cfg.threadCount * cfg.perThreadDataCount);
         successCounts = new int[cfg.threadCount];
         // abortCounts = new int[cfg.threadCount];
 
-        Debug.Assert(cfg.threadCount < tpcCfg.NumWh, "Thread count must be less than number of warehouses");
+        Debug.Assert(cfg.threadCount <= tpcCfg.NumWh, "Thread count must be less than number of warehouses");
         Debug.Assert(tpcCfg.PartitionsPerThread * cfg.threadCount == tpcCfg.NumWh, "Partitions per thread * thread count must equal number of warehouses");
 
         this.ol_cnts = new int[tpcCfg.NumDistrict][];
@@ -188,7 +309,7 @@ public class TpccBenchmark : TableBenchmark {
             entry_ds[i] = new long[tpcCfg.NumOrder];
         }
 
-        int numNewOrders = GenerateQueryData(PartitionId, "");
+        int numNewOrders = GenerateQueryData();
 
         stats = new BenchmarkStatistics($"TpccBenchmark", cfg, numNewOrders, cfg.datasetSize, tpcCfg);
         System.Console.WriteLine("Done init");
@@ -201,7 +322,8 @@ public class TpccBenchmark : TableBenchmark {
         int[] ol_supply_w_id = new int[o_ol_cnt];
         int[] ol_quantity = new int[o_ol_cnt];
         for (int j = 0; j < o_ol_cnt; j++){
-            ol_i_ids[j] = (i / cfg.perThreadDataCount) * (tpcCfg.NumItem / cfg.threadCount) + (i % (tpcCfg.NumItem / cfg.threadCount)) + 1;
+            // TODO: make not the same between machines
+            ol_i_ids[j] = (i / cfg.perThreadDataCount) * (tpcCfg.NumItem / cfg.threadCount) + ((i * o_ol_cnt + j) % (tpcCfg.NumItem / cfg.threadCount)) + 1;
             // bool retry;
             // do {
             //     retry = false;
@@ -255,7 +377,7 @@ public class TpccBenchmark : TableBenchmark {
         }
 
         int y = Frnd.Next(1, 100);
-        string c_last = "";
+        byte[] c_last;
         int c_id;
         if (y <= 60) {
             // c_last = RandLastName(0); // or testing small num
@@ -263,6 +385,7 @@ public class TpccBenchmark : TableBenchmark {
             c_id = 0;
         } else {
             c_id = NonUniformRandom(1023, 1, 3000);
+            c_last = null;
         }
         return new Query(
             w_id,
@@ -275,108 +398,118 @@ public class TpccBenchmark : TableBenchmark {
         );
     }
 
-    public int GenerateQueryData(int partitionId, string filename) {
+    public int GenerateQueryData() {
         this.queries = new Query[cfg.datasetSize];
         int numNewOrders = 0;
-            for (int i = 0; i < queries.Length; i++){
-                // randomly assign NewOrder vs Payment
-                // int w_id = Frnd.Next((partitionId * tpcCfg.PartitionsPerThread) + 1, (partitionId * tpcCfg.PartitionsPerThread) + 1 + tpcCfg.PartitionsPerThread);
-                int w_id = (i / cfg.perThreadDataCount) * tpcCfg.PartitionsPerThread + (i % tpcCfg.PartitionsPerThread) + 1;
-                if (Frnd.Next(1, 100) <= 50){
-                    numNewOrders++;
-                    queries[i] = GenerateNewOrderQuery(w_id, i);
-                } else {
-                    queries[i] = GeneratePaymentQuery(w_id, i);
-                }
+        int partitionsPerMachine = tpcCfg.PartitionsPerThread * cfg.threadCount;
+        for (int i = 0; i < queries.Length; i++){
+            int thread_idx = i / cfg.perThreadDataCount;
+            // int w_id = Frnd.Next((partitionId * tpcCfg.PartitionsPerThread) + 1, (partitionId * tpcCfg.PartitionsPerThread) + 1 + tpcCfg.PartitionsPerThread);
+            int w_id = (PartitionId * partitionsPerMachine) + thread_idx * tpcCfg.PartitionsPerThread + (i % tpcCfg.PartitionsPerThread) + 1;
+            // randomly assign NewOrder vs Payment
+            if (Frnd.Next(1, 100) <= 50){
+                numNewOrders++;
+                queries[i] = GenerateNewOrderQuery(w_id, i);
+            } else {
+                queries[i] = GeneratePaymentQuery(w_id, i);
             }
+        }
         return numNewOrders;
     }
 
-    public void NewOrder(Query query, Action<bool> callback){
+    public unsafe void NewOrder(Query query, Action<bool> callback){
         TransactionContext ctx = txnManager.Begin();
         ReadOnlySpan<byte> warehouseRow = tables[(int)TableType.Warehouse].Read(new PrimaryKey((int)TableType.Warehouse, query.w_id), tables[(int)TableType.Warehouse].GetSchema(), ctx);
         PrimaryKey districtPk = new PrimaryKey((int)TableType.District, query.w_id, query.d_id);
         ReadOnlySpan<byte> districtRow = tables[(int)TableType.District].Read(districtPk, tables[(int)TableType.District].GetSchema(), ctx);
         ReadOnlySpan<byte> customerRow = tables[(int)TableType.Customer].Read(new PrimaryKey((int)TableType.Customer, query.w_id, query.d_id, query.c_id), tables[(int)TableType.Customer].GetSchema(), ctx);
 
-        byte[][] itemRows = newOrderOlBytePool.Checkout();
-        byte[][] stockRows = newOrderOlBytePool.Checkout();
         bool allLocal = true;
         for (int i = 0; i < query.o_ol_cnt; i++)
         {
             if (query.ol_i_ids[i] == 0) {
                 txnManager.Abort(ctx, callback);
                 return;
-            }
-            itemRows[i] = tables[(int)TableType.Item].Read(new PrimaryKey((int)TableType.Item, query.ol_i_ids[i]), tables[(int)TableType.Item].GetSchema(), ctx).ToArray();
-            stockRows[i] = tables[(int)TableType.Stock].Read(new PrimaryKey((int)TableType.Stock, query.ol_supply_w_id[i], query.ol_i_ids[i]), tables[(int)TableType.Stock].GetSchema(), ctx).ToArray();
+            }            
             if (query.ol_supply_w_id[i] != query.w_id) allLocal = false;
         }
-
         // update district with increment D_NEXT_O_ID
         ReadOnlySpan<byte> old_d_next_o_id_bytes = ExtractField(TableType.District, TableField.D_NEXT_O_ID, districtRow);
         int old_d_next_o_id = BitConverter.ToInt32(old_d_next_o_id_bytes);
         int new_d_next_o_id = old_d_next_o_id + 1;
-        byte[] new_d_next_o_id_bytes = BitConverter.GetBytes(new_d_next_o_id);
-        tables[(int)TableType.District].Update(districtPk, updateDistrictNextOIdTds, new_d_next_o_id_bytes, ctx);
+        ReadOnlySpan<byte> new_d_next_o_id_bytes = new ReadOnlySpan<byte>(&new_d_next_o_id, sizeof(int));
+        tables[(int)TableType.District].Update(ref districtPk, updateDistrictNextOIdTds, new_d_next_o_id_bytes, ctx);
 
         // insert into order and new order
         PrimaryKey newOrderPk = new PrimaryKey((int)TableType.NewOrder, query.w_id, query.d_id, old_d_next_o_id);
         PrimaryKey orderPk = new PrimaryKey((int)TableType.Order, query.w_id, query.d_id, old_d_next_o_id);
         byte[] insertOrderData = orderBytePool.Checkout();
-        SetField(TableType.Order, TableField.O_C_ID, insertOrderData, BitConverter.GetBytes(query.c_id));
-        SetField(TableType.Order, TableField.O_ENTRY_D, insertOrderData, BitConverter.GetBytes(DateTime.Now.ToBinary()));
-        SetField(TableType.Order, TableField.O_CARRIER_ID, insertOrderData, BitConverter.GetBytes(0));
-        SetField(TableType.Order, TableField.O_OL_CNT, insertOrderData, BitConverter.GetBytes(query.o_ol_cnt));
-        SetField(TableType.Order, TableField.O_ALL_LOCAL, insertOrderData, BitConverter.GetBytes(allLocal));
-        bool success = tables[(int)TableType.Order].Insert(orderPk, tables[(int)TableType.Order].GetSchema(), insertOrderData, ctx);
+        SetField(TableType.Order, TableField.O_C_ID, insertOrderData, new ReadOnlySpan<byte>(&query.c_id, sizeof(int)));
+        long time = DateTime.Now.ToBinary();
+        SetField(TableType.Order, TableField.O_ENTRY_D, insertOrderData, new ReadOnlySpan<byte>(&time, sizeof(long)));
+        SetField(TableType.Order, TableField.O_CARRIER_ID, insertOrderData, ZeroAsBytes);
+        SetField(TableType.Order, TableField.O_OL_CNT, insertOrderData, new ReadOnlySpan<byte>(&query.o_ol_cnt, sizeof(int)));
+        SetField(TableType.Order, TableField.O_ALL_LOCAL, insertOrderData, new ReadOnlySpan<byte>(&allLocal, sizeof(bool)));
+        bool success = tables[(int)TableType.Order].Insert(ref orderPk, insertOrderData, ctx);
         if (!success) {
             txnManager.Abort(ctx, callback);
             return;
         }
-        success = tables[(int)TableType.NewOrder].Insert(newOrderPk, tables[(int)TableType.NewOrder].GetSchema(), emptyByteArr, ctx);
+        success = tables[(int)TableType.NewOrder].Insert(ref newOrderPk, emptyByteArr, ctx);
         if (!success) {
             txnManager.Abort(ctx, callback);
             return;
         }
+
         float total_amount = 0;
         for (int i = 0; i < query.o_ol_cnt; i++)
         {
+            ReadOnlySpan<byte> itemRow = tables[(int)TableType.Item].Read(new PrimaryKey((int)TableType.Item, query.ol_i_ids[i]), tables[(int)TableType.Item].GetSchema(), ctx);
+            ReadOnlySpan<byte> stockRow = tables[(int)TableType.Stock].Read(new PrimaryKey((int)TableType.Stock, query.ol_supply_w_id[i], query.ol_i_ids[i]), tables[(int)TableType.Stock].GetSchema(), ctx);
+
             // update stock
             byte[] updateStockData = stockBytePool.Checkout();
-            float i_price = BitConverter.ToSingle(ExtractField(TableType.Item, TableField.I_PRICE, itemRows[i]));
+            float i_price = BitConverter.ToSingle(ExtractField(TableType.Item, TableField.I_PRICE, itemRow));
 
-            int s_quantity = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_QUANTITY, stockRows[i]));
+            int s_quantity = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_QUANTITY, stockRow));
             if (s_quantity >= query.ol_quantity[i] + 10) s_quantity -= query.ol_quantity[i];
             else s_quantity += 91 - query.ol_quantity[i];
-            BitConverter.GetBytes(s_quantity).CopyTo(updateStockData, updateStockTds[0].Offset);
+            new ReadOnlySpan<byte>(&s_quantity, sizeof(int)).CopyTo(updateStockData.AsSpan(updateStockTds[0].Offset));
 
-            int s_ytd = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_YTD, stockRows[i])) + query.ol_quantity[i];
-            BitConverter.GetBytes(s_ytd).CopyTo(updateStockData, updateStockTds[1].Offset);
+            int s_ytd = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_YTD, stockRow)) + query.ol_quantity[i];
+            new ReadOnlySpan<byte>(&s_ytd, sizeof(int)).CopyTo(updateStockData.AsSpan(updateStockTds[1].Offset));
 
-            int s_order_cnt = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_ORDER_CNT, stockRows[i])) + 1;
-            BitConverter.GetBytes(s_order_cnt).CopyTo(updateStockData, updateStockTds[2].Offset);
+            int s_order_cnt = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_ORDER_CNT, stockRow)) + 1;
+            new ReadOnlySpan<byte>(&s_order_cnt, sizeof(int)).CopyTo(updateStockData.AsSpan(updateStockTds[2].Offset));
 
+            PrimaryKey stockPk = new PrimaryKey((int)TableType.Stock, query.ol_supply_w_id[i], query.ol_i_ids[i]);
             if (query.ol_supply_w_id[i] != query.w_id)
             {
-                int s_remote_cnt = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_REMOTE_CNT, stockRows[i])) + 1;
-                BitConverter.GetBytes(s_remote_cnt).CopyTo(updateStockData, updateStockTds[3].Offset);
-                tables[(int)TableType.Stock].Update(new PrimaryKey((int)TableType.Stock, query.ol_supply_w_id[i], query.ol_i_ids[i]), updateStockTds, updateStockData, ctx);
+                int s_remote_cnt = BitConverter.ToInt32(ExtractField(TableType.Stock, TableField.S_REMOTE_CNT, stockRow)) + 1;
+                new ReadOnlySpan<byte>(&s_remote_cnt, sizeof(int)).CopyTo(updateStockData.AsSpan(updateStockTds[3].Offset));
+                tables[(int)TableType.Stock].Update(ref stockPk, updateStockTds, updateStockData, ctx);
             } else {
-                tables[(int)TableType.Stock].Update(new PrimaryKey((int)TableType.Stock, query.ol_supply_w_id[i], query.ol_i_ids[i]), updateStockTds[0..3], updateStockData, ctx);
+                tables[(int)TableType.Stock].Update(ref stockPk, updateStockTds[0..3], updateStockData, ctx);
             }
 
             // insert into order line
             float ol_amount = i_price * query.ol_quantity[i];
             byte[] updateOrderLineData = orderLineBytePool.Checkout();
-            SetField(TableType.OrderLine, TableField.OL_I_ID, updateOrderLineData, BitConverter.GetBytes(query.ol_i_ids[i]));
-            SetField(TableType.OrderLine, TableField.OL_SUPPLY_W_ID, updateOrderLineData, BitConverter.GetBytes(query.ol_supply_w_id[i]));
-            SetField(TableType.OrderLine, TableField.OL_DELIVERY_D, updateOrderLineData, BitConverter.GetBytes(0));
-            SetField(TableType.OrderLine, TableField.OL_QUANTITY, updateOrderLineData, BitConverter.GetBytes(query.ol_quantity[i]));
-            SetField(TableType.OrderLine, TableField.OL_AMOUNT, updateOrderLineData, BitConverter.GetBytes(ol_amount));
-            string distInfo = Encoding.ASCII.GetString(ExtractField(TableType.Stock, TableField.S_DIST_01 + query.d_id - 1, stockRows[i]));
-            SetField(TableType.OrderLine, TableField.OL_DIST_INFO, updateOrderLineData, Encoding.ASCII.GetBytes(distInfo));
-            success = tables[(int)TableType.OrderLine].Insert(new PrimaryKey((int)TableType.OrderLine, query.w_id, query.d_id, new_d_next_o_id, i), tables[(int)TableType.OrderLine].GetSchema(), updateOrderLineData, ctx);
+            fixed (int* b = query.ol_i_ids){
+                SetField(TableType.OrderLine, TableField.OL_I_ID, updateOrderLineData, new ReadOnlySpan<byte>(&b[i], sizeof(int)));
+            }
+            fixed (int* b = query.ol_supply_w_id){
+                SetField(TableType.OrderLine, TableField.OL_SUPPLY_W_ID, updateOrderLineData, new ReadOnlySpan<byte>(&b[i], sizeof(int)));
+            }
+            SetField(TableType.OrderLine, TableField.OL_DELIVERY_D, updateOrderLineData, ZeroAsBytes);
+            fixed (int* b = query.ol_quantity){
+                SetField(TableType.OrderLine, TableField.OL_QUANTITY, updateOrderLineData, new ReadOnlySpan<byte>(&b[i], sizeof(int)));
+            }
+            SetField(TableType.OrderLine, TableField.OL_AMOUNT, updateOrderLineData, new ReadOnlySpan<byte>(&ol_amount, sizeof(float)));
+            ReadOnlySpan<byte> distInfo = ExtractField(TableType.Stock, TableField.S_DIST_01 + query.d_id - 1, stockRow);
+            SetField(TableType.OrderLine, TableField.OL_DIST_INFO, updateOrderLineData, distInfo);
+            PrimaryKey orderLinePk = new PrimaryKey((int)TableType.OrderLine, query.w_id, query.d_id, new_d_next_o_id, i);
+            success = tables[(int)TableType.OrderLine].Insert(ref orderLinePk, updateOrderLineData, ctx);
             if (!success) {
                 txnManager.Abort(ctx, callback);
                 return;
@@ -392,13 +525,11 @@ public class TpccBenchmark : TableBenchmark {
             orderLineBytePool.Return(updateOrderLineData);
         }
         txnManager.CommitWithCallback(ctx, callback);
-        newOrderOlBytePool.Return(itemRows);
-        newOrderOlBytePool.Return(stockRows);
         orderBytePool.Return(insertOrderData);
         return;
     }
 
-    public void Payment(Query query, Action<bool> callback){
+    public unsafe void Payment(Query query, Action<bool> callback){
         TransactionContext ctx = txnManager.Begin();
         PrimaryKey warehousePk = new PrimaryKey((int)TableType.Warehouse, query.w_id);
         ReadOnlySpan<byte> warehouseRow = tables[(int)TableType.Warehouse].Read(warehousePk, tables[(int)TableType.Warehouse].GetSchema(), ctx);
@@ -407,7 +538,11 @@ public class TpccBenchmark : TableBenchmark {
         PrimaryKey customerPk;
         ReadOnlySpan<byte> customerRow;
         if (query.c_id == 0) {
-            byte[] secondaryIndexKey = BitConverter.GetBytes(query.c_w_id).Concat(BitConverter.GetBytes(query.c_d_id)).Concat(Encoding.ASCII.GetBytes(query.c_last)).ToArray();
+            // TODO
+            byte[] secondaryIndexKey = new byte[4+4+16];
+            new ReadOnlySpan<byte>(&query.c_w_id, sizeof(int)).CopyTo(secondaryIndexKey);
+            new ReadOnlySpan<byte>(&query.c_d_id, sizeof(int)).CopyTo(secondaryIndexKey.AsSpan(sizeof(int)));
+            query.c_last.CopyTo(secondaryIndexKey.AsSpan(2 * sizeof(int)));
             (customerRow, customerPk) = tables[(int)TableType.Customer].ReadSecondary(secondaryIndexKey, tables[(int)TableType.Customer].GetSchema(), ctx);
         } else {
             customerPk = new PrimaryKey((int)TableType.Customer, query.c_w_id, query.c_d_id, query.c_id);
@@ -417,11 +552,11 @@ public class TpccBenchmark : TableBenchmark {
         // standard tpcc write to w_ytd
         // update warehouse with increment W_YTD
         float w_ytd = BitConverter.ToSingle(ExtractField(TableType.Warehouse, TableField.W_YTD, warehouseRow)) + query.h_amount;
-        tables[(int)TableType.Warehouse].Update(warehousePk, updateWarehouseTds, BitConverter.GetBytes(w_ytd), ctx);
+        tables[(int)TableType.Warehouse].Update(ref warehousePk, updateWarehouseTds, new ReadOnlySpan<byte>(&w_ytd, sizeof(float)), ctx);
 
         // update district with increment D_YTD
         float d_ytd = BitConverter.ToSingle(ExtractField(TableType.District, TableField.D_YTD, districtRow)) + query.h_amount;
-        tables[(int)TableType.District].Update(districtPk, updateDistrictYtdTds, BitConverter.GetBytes(d_ytd), ctx);
+        tables[(int)TableType.District].Update(ref districtPk, updateDistrictYtdTds, new ReadOnlySpan<byte>(&d_ytd, sizeof(float)), ctx);
 
         // update customer
         byte[] updateCustomerData = customerBytePool.Checkout();
@@ -429,27 +564,42 @@ public class TpccBenchmark : TableBenchmark {
         float c_balance = BitConverter.ToSingle(ExtractField(TableType.Customer, TableField.C_BALANCE, customerRow)) - query.h_amount;
         float c_ytd_payment = BitConverter.ToSingle(ExtractField(TableType.Customer, TableField.C_YTD_PAYMENT, customerRow)) + query.h_amount;
         int c_payment_cnt = BitConverter.ToInt32(ExtractField(TableType.Customer, TableField.C_PAYMENT_CNT, customerRow)) + 1;
-        BitConverter.GetBytes(c_balance).CopyTo(updateCustomerData, updateCustomerTds[0].Offset);
-        BitConverter.GetBytes(c_ytd_payment).CopyTo(updateCustomerData, updateCustomerTds[1].Offset);
-        BitConverter.GetBytes(c_payment_cnt).CopyTo(updateCustomerData, updateCustomerTds[2].Offset);
-        if (Encoding.ASCII.GetString(c_credit) == "BC")
+        new ReadOnlySpan<byte>(&c_balance, sizeof(float)).CopyTo(updateCustomerData.AsSpan(updateCustomerTds[0].Offset));
+        new ReadOnlySpan<byte>(&c_ytd_payment, sizeof(float)).CopyTo(updateCustomerData.AsSpan(updateCustomerTds[1].Offset));
+        new ReadOnlySpan<byte>(&c_payment_cnt, sizeof(int)).CopyTo(updateCustomerData.AsSpan(updateCustomerTds[2].Offset));
+        if (c_credit.SequenceEqual(BcAsBytes))
         {
-            string c_data_old = Encoding.ASCII.GetString(ExtractField(TableType.Customer, TableField.C_DATA, customerRow));
-            string c_data_new = query.c_id + " " + query.c_d_id + " " + query.c_w_id + " " + query.d_id + " " + query.w_id + " " + String.Format("{0:0.00}", query.h_amount) + " " + c_data_old;
-            c_data_new = c_data_new.Substring(0, Math.Min(c_data_new.Length, 500));
-            Encoding.ASCII.GetBytes(c_data_new).CopyTo(updateCustomerData, updateCustomerTds[3].Offset);
-            tables[(int)TableType.Customer].Update(customerPk, updateCustomerTds, updateCustomerData, ctx);
+            ReadOnlySpan<byte> c_data_old = ExtractField(TableType.Customer, TableField.C_DATA, customerRow);
+            int offset = updateCustomerTds[3].Offset;
+            // TODO: need spaces between each; not according to spec but not used?
+            new ReadOnlySpan<byte>(&query.c_id, sizeof(int)).CopyTo(updateCustomerData.AsSpan(offset));
+            offset += sizeof(int);
+            new ReadOnlySpan<byte>(&query.c_d_id, sizeof(int)).CopyTo(updateCustomerData.AsSpan(offset));
+            offset += sizeof(int);
+            new ReadOnlySpan<byte>(&query.c_w_id, sizeof(int)).CopyTo(updateCustomerData.AsSpan(offset));
+            offset += sizeof(int);
+            new ReadOnlySpan<byte>(&query.d_id, sizeof(int)).CopyTo(updateCustomerData.AsSpan(offset));
+            offset += sizeof(int);
+            new ReadOnlySpan<byte>(&query.w_id, sizeof(int)).CopyTo(updateCustomerData.AsSpan(offset));
+            offset += sizeof(int);
+            // TODO: need formatting; not according to spec but not used? 
+            new ReadOnlySpan<byte>(&query.h_amount, sizeof(float)).CopyTo(updateCustomerData.AsSpan(offset));
+            offset += sizeof(float); 
+            c_data_old.Slice(0, 500 - offset).CopyTo(updateCustomerData.AsSpan(offset));
+            tables[(int)TableType.Customer].Update(ref customerPk, updateCustomerTds, updateCustomerData, ctx);
         } else {
-            tables[(int)TableType.Customer].Update(customerPk, updateCustomerTds[0..3], updateCustomerData, ctx);
+            tables[(int)TableType.Customer].Update(ref customerPk, updateCustomerTds[0..3], updateCustomerData, ctx);
         }
 
         // insert into history
-        string h_data = Encoding.ASCII.GetString(ExtractField(TableType.Warehouse, TableField.W_NAME, warehouseRow)) + "    " + Encoding.ASCII.GetString(ExtractField(TableType.District, TableField.D_NAME, districtRow));
         PrimaryKey historyPk = new PrimaryKey((int)TableType.History, query.w_id, query.d_id, query.c_w_id, query.c_d_id, query.c_id, DateTime.Now.ToBinary());
         byte[] insertHistoryData = historyBytePool.Checkout();
-        SetField(TableType.History, TableField.H_AMOUNT, insertHistoryData, BitConverter.GetBytes(query.h_amount));
-        SetField(TableType.History, TableField.H_DATA, insertHistoryData, Encoding.ASCII.GetBytes(h_data));
-        bool success = tables[(int)TableType.History].Insert(historyPk, tables[(int)TableType.History].GetSchema(), insertHistoryData, ctx);
+        SetField(TableType.History, TableField.H_AMOUNT, insertHistoryData, new ReadOnlySpan<byte>(&query.h_amount, sizeof(float)));
+        // manually set field to avoid additional allocation
+        (int _, int h_offset) = tables[(int)TableType.History].GetAttrMetadata((long)TableField.H_DATA);
+        ExtractField(TableType.Warehouse, TableField.W_NAME, warehouseRow).CopyTo(insertHistoryData.AsSpan(h_offset, 10));
+        ExtractField(TableType.District, TableField.D_NAME, districtRow).CopyTo(insertHistoryData.AsSpan(h_offset + 10, 10));
+        bool success = tables[(int)TableType.History].Insert(ref historyPk, insertHistoryData, ctx);
         if (!success) {
             txnManager.Abort(ctx, callback);
             return;
@@ -461,13 +611,13 @@ public class TpccBenchmark : TableBenchmark {
 
     override public void RunTransactions(){
         for (int i = 0; i < cfg.iterationCount; i++){
-            txnManager.Reset();
-            txnManager.Run();
+            // txnManager.Reset();
+            // txnManager.Run();
 
             // new Thread(()=> rpcClient.PopulateTables(cfg, tpcCfg)).Start(); // populate tables in other machines
-            PopulateTables();
+            // PopulateTables();
             // PopulateItemTable(tables[6], txnManager, 1);
-            Console.WriteLine($"done inserting");
+            // Console.WriteLine($"done inserting");
             var opSw = Stopwatch.StartNew();
             // table and txnManager not used
             WorkloadMultiThreadedTransactions(tables[6], txnManager, cfg.ratio);
@@ -477,7 +627,7 @@ public class TpccBenchmark : TableBenchmark {
             Console.WriteLine($"abort count {txnAborts}");
             long opMs = opSw.ElapsedMilliseconds;
             stats?.AddTransactionalResult((0, opMs, 0, txnAborts));
-            txnManager.Terminate();
+            // txnManager.Terminate();
         }
 
         stats?.ShowAllStats();
@@ -526,7 +676,7 @@ public class TpccBenchmark : TableBenchmark {
             for (int j = 0; j < cfg.perTransactionCount; j++) {
                 int loc = i + j + (perThreadDataCount * thread_idx);
                 if (loc >= keys.Count()) break;
-                bool insertSuccess = table.Insert(keys[loc], table.GetSchema(), values[loc], ctx);
+                bool insertSuccess = table.Insert(ref keys[loc], values[loc], ctx);
                 if (!insertSuccess) throw new Exception($"Failed to insert record {loc} {keys[loc]} for table {table.GetId()}");
             }
             var success = txnManager.Commit(ctx);
@@ -539,8 +689,8 @@ public class TpccBenchmark : TableBenchmark {
 
     public void GenerateTables(){
         GenerateItemData();
-        for (int j = 0; j < tpcCfg.PartitionsPerThread * cfg.threadCount; j++) {
-            int w_id = (PartitionId * tpcCfg.PartitionsPerThread * cfg.threadCount) + 1 + j;
+        for (int j = 0; j < tpcCfg.NumWh; j++) {
+            int w_id = 1 + j;
             GenerateWarehouseData(w_id);
             GenerateCustomerData(w_id);
             GenerateDistrictData(w_id);
@@ -553,8 +703,9 @@ public class TpccBenchmark : TableBenchmark {
     }
 
     public void PopulateTables(){
-        for (int j = 0; j < tpcCfg.PartitionsPerThread * cfg.threadCount; j++) {
-            int w_id = (PartitionId * tpcCfg.PartitionsPerThread * cfg.threadCount) + 1 + j;
+        int partitionsPerMachine = tpcCfg.PartitionsPerThread * cfg.threadCount;
+        for (int j = 0; j < partitionsPerMachine; j++) {
+            int w_id = (PartitionId * partitionsPerMachine) + 1 + j;
             foreach (TableType tableType in Enum.GetValues(typeof(TableType)))
             {
                 Console.WriteLine($"Start with populating {tableType} for {w_id}");
@@ -600,7 +751,7 @@ public class TpccBenchmark : TableBenchmark {
                 byte[] data = reader.ReadBytes(table.rowSize);
                 PrimaryKey pk = PrimaryKey.FromBytes(pkBytes);
 
-                keys[i] = new PrimaryKey(pk.Table, w_id, pk.Keys[0]);
+                keys[i] = new PrimaryKey(pk.Table, w_id, pk.Key1);
                 values[i] = data;
             }
         }
@@ -724,7 +875,7 @@ public class TpccBenchmark : TableBenchmark {
             }
         }
     }
-    public void GenerateCustomerData(int w_id){
+    public unsafe void GenerateCustomerData(int w_id){
         ConcurrentDictionary<byte[], PrimaryKey> secondaryIndex = new ConcurrentDictionary<byte[], PrimaryKey>(new ByteArrayComparer());
         // group rows by new index attribute 
         Dictionary<byte[], List<(PrimaryKey, byte[])>> groupByAttr = new Dictionary<byte[], List<(PrimaryKey, byte[])>>();
@@ -743,7 +894,7 @@ public class TpccBenchmark : TableBenchmark {
                     offset += 16;
                     new byte[]{(byte)'O', (byte)'E'}.CopyTo(span.Slice(offset)); // C_MIDDLE
                     offset += 2;
-                    byte[] lastName = Encoding.ASCII.GetBytes(RandLastName(j <= 1000 ? j - 1 : NonUniformRandom(255, 0, 999)));
+                    byte[] lastName = RandLastName(j <= 1000 ? j - 1 : NonUniformRandom(255, 0, 999));
                     lastName.CopyTo(span.Slice(offset)); // C_LAST
                     offset += 16;
                     RandomByteString(10, 20).CopyTo(span.Slice(offset)); // C_STREET_1
@@ -1044,9 +1195,9 @@ public class TpccBenchmark : TableBenchmark {
         return row.Slice(offset, size);
     }
 
-    private void SetField(TableType tableType, TableField field, byte[] row, byte[] value) {
+    private void SetField(TableType tableType, TableField field, byte[] row, ReadOnlySpan<byte> value) {
         (int size, int offset) = tables[(int)tableType].GetAttrMetadata((long)field);
-        value.CopyTo(row, offset);
+        value.CopyTo(row.AsSpan(offset));
     }
 
     // private (byte[], TupleDesc[]) BuildUpdate(byte[] data, TupleDesc[] tds, TableType tableType, TableField field, byte[] value){
@@ -1127,8 +1278,13 @@ public class TpccBenchmark : TableBenchmark {
         return ((Frnd.Next(0, A) | Frnd.Next(min, max)) % (max - min + 1)) + min;
     }
 
-    private static string RandLastName(int n){
-        return LastNames[n / 100] + LastNames[(n / 10) % 10] + LastNames[n % 10];
+    private static byte[] RandLastName(int n){
+        // int len = LastNames[n / 100].Length + LastNames[(n / 10) % 10].Length + LastNames[n % 10].Length;
+        byte[] lastname = new byte[16];
+        LastNames[n / 100].CopyTo(lastname, 0);
+        LastNames[(n / 10) % 10].CopyTo(lastname, LastNames[n / 100].Length);
+        LastNames[n % 10].CopyTo(lastname, LastNames[n / 100].Length + LastNames[(n / 10) % 10].Length);
+        return lastname;
     }
 
 }

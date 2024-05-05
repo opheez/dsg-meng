@@ -1,14 +1,8 @@
-using System;
-using System.Text;
-using FASTER.client;
-using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
-using FASTER.server;
 using System.Diagnostics;
 using FASTER.common;
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
 
 
 namespace DB 
@@ -17,10 +11,10 @@ public interface IWriteAheadLog
 {
     public long RecordOk(long tid, long shard);
     public long Begin(long tid);
-    public long Write(long tid, KeyAttr keyAttr, byte[] val);
+    public long Write(long tid, ref PrimaryKey pk, TupleDesc[] tupleDescs, byte[] val);
     
     public long Finish(long tid, LogType type);
-    public long Prepare(Dictionary<long, List<(KeyAttr, byte[])>> shardToWriteset, long tid);
+    public long Prepare(Dictionary<long, List<(PrimaryKey, TupleDesc[], byte[])>> shardToWriteset, long tid);
     public long Finish2pc(long tid, LogType type, List<(long, long)> okLsnsToConsume);
     // public void SetCapabilities(IDarqProcessorClientCapabilities capabilities);
     public void Terminate();
@@ -56,8 +50,8 @@ public class DarqWal : IWriteAheadLog {
         return entry.lsn;
     }
      
-    public long Write(long tid, KeyAttr keyAttr, byte[] val){
-        LogEntry entry = new LogEntry(txnTbl[tid], tid, keyAttr, val);
+    public long Write(long tid, ref PrimaryKey pk, TupleDesc[] tupleDescs, byte[] val){
+        LogEntry entry = new LogEntry(txnTbl[tid], tid, pk, tupleDescs, val);
         StepRequestBuilder requestBuilder = requestBuilders[entry.tid]; // throw error if doesn't exist
         entry.lsn = GetNewLsn();
 
@@ -106,15 +100,19 @@ public class DarqWal : IWriteAheadLog {
     /// <param name="shardToWriteset"></param>
     /// <param name="tid"></param>
     /// <returns>lsn of prepare log</returns>
-    public long Prepare(Dictionary<long, List<(KeyAttr, byte[])>> shardToWriteset, long tid) {
-        StepRequestBuilder requestBuilder = new StepRequestBuilder(requestPool.Checkout());
+    public long Prepare(Dictionary<long, List<(PrimaryKey, TupleDesc[], byte[])>> shardToWriteset, long tid) {
+        StepRequestBuilder requestBuilder = requestBuilders[tid]; // throw error if doesn't exist
 
         // should be first 
         LogEntry entry = new LogEntry(GetNewLsn(), tid, LogType.Prepare);
         // TODO: make sure it is correct lsn/prevLsn values
         entry.lsn = entry.prevLsn;
-        entry.keyAttrs = shardToWriteset.SelectMany(x => x.Value.Select(y => y.Item1)).ToArray();
-        entry.vals = shardToWriteset.SelectMany(x => x.Value.Select(y => y.Item2)).ToArray();
+        entry.pks = new PrimaryKey[0];
+        entry.tupleDescs = new TupleDesc[0][];
+        entry.vals = new byte[0][];
+        // entry.pks = shardToWriteset.SelectMany(x => x.Value.Select(y => y.Item1)).ToArray();
+        // entry.tupleDescs = shardToWriteset.SelectMany(x => x.Value.Select(y => y.Item2)).ToArray();
+        // entry.vals = shardToWriteset.SelectMany(x => x.Value.Select(y => y.Item3)).ToArray();
         
         requestBuilder.AddRecoveryMessage(entry.ToBytes());
         txnTbl[tid] = entry.lsn;
@@ -122,8 +120,8 @@ public class DarqWal : IWriteAheadLog {
         // add out message to each shard
         foreach (var shard in shardToWriteset) {
             long darqId = shard.Key;
-            List<(KeyAttr, byte[])> writeset = shard.Value;
-            LogEntry outEntry = new LogEntry(0, entry.tid, writeset.Select(x => x.Item1).ToArray(),  writeset.Select(x => x.Item2).ToArray());
+            List<(PrimaryKey, TupleDesc[], byte[])> writeset = shard.Value;
+            LogEntry outEntry = new LogEntry(0, tid, writeset.Select(x => x.Item1).ToArray(), writeset.Select(x => x.Item2).ToArray(), writeset.Select(x => x.Item3).ToArray());
             // PrintDebug($"sending prepare msg to {darqId} with keys {string.Join(", ", writeset.Select(x => x.Item1))}");
             requestBuilder.AddOutMessage(new DarqId(darqId), outEntry.ToBytes());
         }

@@ -22,21 +22,24 @@ public struct LogEntry{
     public long prevLsn; // do we even need this if we are undoing? for Ack messages, this is original tid
     public long tid;
     public LogType type;
-    public KeyAttr[] keyAttrs;
+    public PrimaryKey[] pks;
+    public TupleDesc[][] tupleDescs;
     public byte[][] vals;
     public static readonly int MinSize = sizeof(long) * 3 + sizeof(int);
-    public LogEntry(long prevLsn, long tid, KeyAttr keyAttr, byte[] val){
+    public LogEntry(long prevLsn, long tid, PrimaryKey pk, TupleDesc[] tupleDesc, byte[] val){
         this.prevLsn = prevLsn;
         this.tid = tid;
         this.type = LogType.Write;
-        this.keyAttrs = new KeyAttr[1]{keyAttr};
+        this.pks = new PrimaryKey[]{pk};
+        this.tupleDescs = new TupleDesc[][]{tupleDesc};
         this.vals = new byte[][]{val};
     }
-    public LogEntry(long prevLsn, long tid, KeyAttr[] keyAttr, byte[][] val){
+    public LogEntry(long prevLsn, long tid, PrimaryKey[] pks, TupleDesc[][] tupleDesc, byte[][] val){
         this.prevLsn = prevLsn;
         this.tid = tid;
         this.type = LogType.Prepare;
-        this.keyAttrs = keyAttr;
+        this.pks = pks;
+        this.tupleDescs = tupleDesc;
         this.vals = val;
     }
 
@@ -51,8 +54,9 @@ public struct LogEntry{
     }
 
     public unsafe byte[] ToBytes(){
+        // Write and Prepare logs have pk, tupleDescs, and vals
         int totalSize = MinSize + (vals != null ? sizeof(int) : 0);
-        if (vals != null) for (int i = 0; i < vals.Length; i++) totalSize += vals[i].Length + sizeof(int) * 2 + keyAttrs[i].Size;
+        if (vals != null) for (int i = 0; i < vals.Length; i++) totalSize += vals[i].Length + sizeof(int) * 2 + tupleDescs[i].Length * TupleDesc.SizeOf + PrimaryKey.SizeOf;
 
         byte[] arr = new byte[totalSize];
 
@@ -67,14 +71,21 @@ public struct LogEntry{
             *(int*)head = (int)type;
             head += sizeof(int);
             if (type == LogType.Write || type == LogType.Prepare){
-                Debug.Assert(keyAttrs.Length == vals.Length);
-                *(int*)head = keyAttrs.Length;
+                Debug.Assert(tupleDescs.Length == vals.Length);
+                Debug.Assert(tupleDescs.Length == pks.Length);
+                *(int*)head = tupleDescs.Length;
                 head += sizeof(int);
-                for (int i = 0; i < keyAttrs.Length; i++){
-                    *(int*)head = keyAttrs[i].Size;
+                for (int i = 0; i < tupleDescs.Length; i++){
+                    pks[i].ToBytes().CopyTo(new Span<byte>(head, PrimaryKey.SizeOf));
+                    head += PrimaryKey.SizeOf;
+
+                    *(int*)head = tupleDescs[i].Length;
                     head += sizeof(int);
-                    keyAttrs[i].ToBytes().CopyTo(new Span<byte>(head, keyAttrs[i].Size));
-                    head += keyAttrs[i].Size;
+                    for (int j = 0; j < tupleDescs[i].Length; j++) {
+                        tupleDescs[i][j].ToBytes().CopyTo(new Span<byte>(head, TupleDesc.SizeOf));
+                        head += TupleDesc.SizeOf;
+                    }
+
                     *(int*)head = vals[i].Length;
                     head += sizeof(int);
                     vals[i].CopyTo(new Span<byte>(head, vals[i].Length));
@@ -105,19 +116,43 @@ public struct LogEntry{
             if (result.type == LogType.Write || result.type == LogType.Prepare){
                 int len = *(int*)head;
                 head += sizeof(int);
-                result.keyAttrs = new KeyAttr[len];
+                result.pks = new PrimaryKey[len];
+                result.tupleDescs = new TupleDesc[len][];
                 result.vals = new byte[len][];
                 for (int i = 0; i < len; i++){
-                    int keySize = *(int*)head;
+                    result.pks[i] = PrimaryKey.FromBytes(new Span<byte>(head, PrimaryKey.SizeOf).ToArray());
+                    head += PrimaryKey.SizeOf;
+
+                    int tupleLen = *(int*)head;
                     head += sizeof(int);
-                    result.keyAttrs[i] = KeyAttr.FromBytes(new Span<byte>(head, keySize).ToArray());
-                    head += keySize;
+                    result.tupleDescs[i] = new TupleDesc[tupleLen];
+                    for (int j = 0; j < tupleLen; j++){
+                        result.tupleDescs[i][j] = TupleDesc.FromBytes(new Span<byte>(head, TupleDesc.SizeOf).ToArray());
+                        head += TupleDesc.SizeOf;
+                    }
+                    
                     int valSize = *(int*)head;
                     head += sizeof(int);
                     result.vals[i] = new byte[valSize];
                     new Span<byte>(head, valSize).CopyTo(result.vals[i]);
                     head += valSize;
                 }
+
+                // int len = *(int*)head;
+                // head += sizeof(int);
+                // result.keyAttrs = new KeyAttr[len];
+                // result.vals = new byte[len][];
+                // for (int i = 0; i < len; i++){
+                //     int keySize = *(int*)head;
+                //     head += sizeof(int);
+                //     result.keyAttrs[i] = KeyAttr.FromBytes(new Span<byte>(head, keySize).ToArray());
+                //     head += keySize;
+                //     int valSize = *(int*)head;
+                //     head += sizeof(int);
+                //     result.vals[i] = new byte[valSize];
+                //     new Span<byte>(head, valSize).CopyTo(result.vals[i]);
+                //     head += valSize;
+                // }
             }
         }
 
@@ -132,14 +167,19 @@ public struct LogEntry{
         }
         LogEntry o = (LogEntry)obj;
         if (vals.Length != o.vals.Length) return false;
+        if (o.lsn != lsn || o.prevLsn != prevLsn || o.tid != tid || o.type != type) return false;
         for (int i = 0; i < vals.Length; i++){
             if (!vals[i].AsSpan().SequenceEqual(o.vals[i])) return false;
+            if (tupleDescs[i].Length != o.tupleDescs[i].Length) return false;
+            for (int j = 0; j < tupleDescs[i].Length; j++){
+                if (!tupleDescs[i][j].Equals(o.tupleDescs[i][j])) return false;
+            }
         }
-        return o.lsn == lsn && o.prevLsn == prevLsn && o.tid == tid && o.type == type && o.keyAttrs.SequenceEqual(keyAttrs);
+        return true;
     }
 
     public override readonly string ToString(){
-        return $"LogEntry(lsn={lsn}, prevLsn={prevLsn}, tid={tid}, type={type}, keyAttr={keyAttrs}, val={vals})";
+        return $"LogEntry(lsn={lsn}, prevLsn={prevLsn}, tid={tid}, type={type})";
     }
     
 }

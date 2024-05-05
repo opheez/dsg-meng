@@ -4,7 +4,7 @@ using System.Threading;
 using FASTER.common;
 using FASTER.darq;
 using FASTER.libdpr;
-using Microsoft.Extensions.Logging;
+using System.Runtime.InteropServices;
 
 namespace DB {
 public class TransactionManager {
@@ -50,7 +50,9 @@ public class TransactionManager {
     public TransactionContext Begin(){
         var ctx = ctxPool.Checkout();
         ctx.Init(startTxn: txnc, NewTransactionId());
-
+        if (wal != null) {
+            wal.Begin(ctx.tid);            
+        }
         return ctx;
     }
 
@@ -136,11 +138,10 @@ public class TransactionManager {
             // foreach (var x in tnumToCtx[i % pastTnumCircularBufferSize].GetWriteset()){
             //     Console.Write($"{x}, ");
             // }
-            foreach (var item in ctx.GetReadset()){
-                PrimaryKey tupleId = item.Item1;
+            foreach (ref var tupleId in CollectionsMarshal.AsSpan(ctx.GetReadsetKeys())){
                 // Console.WriteLine($"scanning for {keyAttr}");
                 // TODO: rename keyattr since tupleid is redundant
-                if (tnumToCtx[i & (pastTnumCircularBufferSize - 1)].InWriteSet(tupleId)){
+                if (tnumToCtx[i & (pastTnumCircularBufferSize - 1)].InWriteSet(ref tupleId)){
                     // Console.WriteLine($"1 ABORT for {ctx.tid} because conflict: {tupleId} in {tnumToCtx[i & (pastTnumCircularBufferSize - 1)].tid}");
                     return false;
                 }
@@ -148,9 +149,9 @@ public class TransactionManager {
         }
         
         foreach (TransactionContext pastTxn in finish_active){
-            foreach (var item in pastTxn.GetWriteset()){
-                PrimaryKey tupleId = item.Item1;
-                if (ctx.InReadSet(tupleId) || ctx.InWriteSet(tupleId)){
+            foreach (var item in pastTxn.GetWritesetKeys()){
+                PrimaryKey tupleId = item;
+                if (ctx.InReadSet(ref tupleId) || ctx.InWriteSet(ref tupleId)){
                     // Console.WriteLine($"2 ABORT for {ctx.tid} because conflict: {tupleId} in {pastTxn.tid}");
                     return false;
                 }
@@ -159,24 +160,16 @@ public class TransactionManager {
         return true;
     }
 
-    public void Write(TransactionContext ctx, Action<long, LogType> commit){
+    virtual public void Write(TransactionContext ctx, Action<long, LogType> commit){
         PrintDebug("Write phase", ctx);
         bool lockTaken = false; // signals if this thread was able to acquire lock
-        if (wal != null) {
-            wal.Begin(ctx.tid);            
-        }
-        foreach (var item in ctx.GetWriteset()){
-            PrimaryKey tupleId = item.Item1;
-            int start = 0;
-            foreach (TupleDesc td in item.Item2){
-                // TODO: should not throw exception here, but if it does, abort. 
-                // failure here means crashed before commit. would need to rollback
-                if (this.wal != null) {
-                    wal.Write(ctx.tid, new KeyAttr(tupleId, td.Attr), item.Item3.AsSpan(start, td.Size).ToArray());
-                }
-                tables[tupleId.Table].Write(new KeyAttr(tupleId, td.Attr), item.Item3.AsSpan(start, td.Size));
-                start += td.Size;
-            }
+        List<PrimaryKey> writesetKeys = ctx.GetWritesetKeys();
+        for(int i = 0; i < writesetKeys.Count; i++){
+            PrimaryKey tupleId = writesetKeys[i];
+            var item = ctx.GetFromWriteset(i);
+            // TODO: should not throw exception here, but if it does, abort. 
+            // failure here means crashed before commit. would need to rollback
+            tables[tupleId.Table].Write(ref tupleId, item.Item1, item.Item2);
         }
         // TODO: verify that should be logged before removing from active
         if (wal != null){
@@ -285,20 +278,17 @@ public class ShardedTransactionManager : TransactionManager {
 
         if (valid) {
             // split writeset into shards
-            Dictionary<long, List<(KeyAttr, byte[])>> shardToWriteset = new Dictionary<long, List<(KeyAttr, byte[])>>();
-            for (int i = 0; i < ctx.GetWriteset().Count; i++){
-                var item = ctx.GetWriteset()[i];
-                PrimaryKey tupleId = item.Item1;
-                TupleDesc[] tds = item.Item2;
+            Dictionary<long, List<(PrimaryKey, TupleDesc[], byte[])>> shardToWriteset = new Dictionary<long, List<(PrimaryKey, TupleDesc[], byte[])>>();
+            List<PrimaryKey> writesetKeys = ctx.GetWritesetKeys();
+            for (int i = 0; i < writesetKeys.Count; i++){
+                PrimaryKey tupleId = writesetKeys[i];
+                (TupleDesc[] td, byte[] val) = ctx.GetFromWriteset(i);
                 long shardDest = rpcClient.HashKeyToDarqId(tupleId);
                 if (!rpcClient.IsLocalKey(tupleId)){
-                    for (int j = 0; j < tds.Length; j++){
-                        KeyAttr keyAttr = new KeyAttr(tupleId, tds[j].Attr);
-                        if (!shardToWriteset.ContainsKey(shardDest)){
-                            shardToWriteset[shardDest] = new List<(KeyAttr, byte[])>();
-                        }
-                        shardToWriteset[shardDest].Add((keyAttr, item.Item3));
+                    if (!shardToWriteset.ContainsKey(shardDest)){
+                        shardToWriteset[shardDest] = new List<(PrimaryKey, TupleDesc[], byte[])>();
                     }
+                    shardToWriteset[shardDest].Add((tupleId, td, val));
                 }
             }
             if (shardToWriteset.Count > 0) {
@@ -322,6 +312,42 @@ public class ShardedTransactionManager : TransactionManager {
             ctx.status = TransactionStatus.Aborted;
         }
 
+    }
+
+    override public void Write(TransactionContext ctx, Action<long, LogType> commit){
+        PrintDebug("Write phase", ctx);
+        bool lockTaken = false; // signals if this thread was able to acquire lock
+        List<PrimaryKey> writesetKeys = ctx.GetWritesetKeys();
+        for(int i = 0; i < writesetKeys.Count; i++){
+            PrimaryKey tupleId = writesetKeys[i];
+            if (!rpcClient.IsLocalKey(tupleId)) continue;
+            var item = ctx.GetFromWriteset(i);
+            // TODO: should not throw exception here, but if it does, abort. 
+            // failure here means crashed before commit. would need to rollback
+            tables[tupleId.Table].Write(ref tupleId, item.Item1, item.Item2);
+        }
+        // TODO: verify that should be logged before removing from active
+        if (wal != null){
+            commit(ctx.tid, LogType.Commit);
+            // wal.Finish(new LogEntry(prevLsn, ctx.tid, LogType.Commit));
+        }
+        ctx.callback?.Invoke(true);
+        // assign num 
+        int finalTxnNum;
+        try {
+            sl.Enter(ref lockTaken);
+            txnc += 1; // TODO: deal with int overflow
+            finalTxnNum = txnc;
+            active.Remove(ctx);
+            if (tnumToCtx[finalTxnNum & (pastTnumCircularBufferSize - 1)] != null){ 
+                ctxPool.Return(tnumToCtx[finalTxnNum & (pastTnumCircularBufferSize - 1)]);
+            }
+            tnumToCtx[finalTxnNum & (pastTnumCircularBufferSize - 1)] = ctx;
+        } finally {
+            if (lockTaken) sl.Exit();
+            lockTaken = false;
+        }
+        // PrintDebug("Write phase done", ctx);
     }
 
     public RpcClient GetRpcClient(){

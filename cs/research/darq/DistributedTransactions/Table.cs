@@ -4,8 +4,9 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Runtime.CompilerServices;
-using Microsoft.Extensions.Logging;
+using FASTER.common;
 
 [assembly:InternalsVisibleTo("TableTests")]
 namespace DB { 
@@ -29,11 +30,13 @@ public unsafe class Table : IDisposable{
     protected ConcurrentDictionary<byte[], PrimaryKey> secondaryIndex;
 
     protected ILogger logger;
+    IWriteAheadLog? wal;
 
-    public Table(int id, (long, int)[] schema, ILogger logger = null){
+    public Table(int id, (long, int)[] schema, IWriteAheadLog? wal = null, ILogger logger = null){
         this.id = id;
         this.metadata = new Dictionary<long,(int, int)>();
         this.metadataOrder = new long[schema.Length];
+        this.wal = wal;
         this.logger = logger;
         this.secondaryIndex = new ConcurrentDictionary<byte[], PrimaryKey>(new ByteArrayComparer());
         
@@ -119,18 +122,23 @@ public unsafe class Table : IDisposable{
     }
 
     /// <summary>
-    /// Insert specified attributes into table. Non-specified attributes will be 0 
+    /// Insert entire row
     /// </summary>
     /// <param name="tupleDescs"></param>
     /// <param name="value"></param>
     /// <param name="ctx"></param>
     /// <returns></returns>
-    public PrimaryKey Insert(TupleDesc[] tupleDescs, ReadOnlySpan<byte> value, TransactionContext ctx){
-        Validate(tupleDescs, value, true);
+    public PrimaryKey Insert(ReadOnlySpan<byte> value, TransactionContext ctx){
+        if (value.Length != this.rowSize){
+            throw new ArgumentException($"Expected size {this.rowSize} for new record but instead got size {value.Length}");
+        }
 
         long id = NewRecordId(); // TODO: make sure this new record id falls within range of this partition in shardedBenchmark
         PrimaryKey tupleId = new PrimaryKey(this.id, id);
-        ctx.AddWriteSet(tupleId, tupleDescs, value);
+        ctx.AddWriteSet(ref tupleId, GetSchema(), value);
+        if (wal != null){
+            wal.Write(ctx.tid, ref tupleId, GetSchema(), value.ToArray());
+        }
 
         return tupleId;
     }
@@ -143,43 +151,65 @@ public unsafe class Table : IDisposable{
     /// <param name="ctx"></param>
     /// <exception cref="ArgumentException">Key already exists</exception>
     /// <returns>whether insert succeeded</returns>
-    public bool Insert(PrimaryKey id, TupleDesc[] tupleDescs, ReadOnlySpan<byte> value, TransactionContext ctx){
+    public bool Insert(ref PrimaryKey id, ReadOnlySpan<byte> value, TransactionContext ctx){
+        if (value.Length != this.rowSize){
+            throw new ArgumentException($"Expected size {this.rowSize} for new record but instead got size {value.Length}");
+        }
         // PrintDebug($"Inserting {id}", ctx);
         if (this.data.ContainsKey(id)){
             return false;
         }
-        Validate(tupleDescs, value, true);
-
-        ctx.AddWriteSet(id, tupleDescs, value);
+        if (wal != null){
+            wal.Write(ctx.tid, ref id, GetSchema(), value.ToArray());
+        }
+        ctx.AddWriteSet(ref id, GetSchema(), value);
 
         return true;
     }
 
-    public void Update(PrimaryKey tupleId, TupleDesc[] tupleDescs, ReadOnlySpan<byte> value, TransactionContext ctx){
+    /// <summary>
+    /// Update values described by tupleDescs
+    /// </summary>
+    /// <param name="tupleId"></param>
+    /// <param name="tupleDescs">Describes size and offset of what is in value</param>
+    /// <param name="value"></param>
+    /// <param name="ctx"></param>
+    /// <exception cref="ArgumentException"></exception>
+    public void Update(ref PrimaryKey tupleId, TupleDesc[] tupleDescs, ReadOnlySpan<byte> value, TransactionContext ctx){
+        // TODO: how to check it already exists in other shard? 
+        // if (!this.data.ContainsKey(tupleId) && !ctx.InWriteSet(ref tupleId)){
+        //     throw new ArgumentException($"Key {tupleId} does not exist");
+        // }
         Validate(tupleDescs, value, true);
 
-        ctx.AddWriteSet(tupleId, tupleDescs, value);
-
+        ctx.AddWriteSet(ref tupleId, tupleDescs, value);
+        if (wal != null){
+            wal.Write(ctx.tid, ref tupleId, tupleDescs, value.ToArray());
+        }
     }
 
     /// <summary>
-    /// Write value to specific attribute of key. If key does not exist yet, create empty row
-    /// </summary>
+    /// Write value to specific attribute of key. If key does not exist yet, this is an insert
+    /// /// </summary>
     /// <param name="keyAttr"></param>
     /// <param name="value"></param>
-    protected internal void Write(KeyAttr keyAttr, ReadOnlySpan<byte> value){
-        this.data.TryAdd(keyAttr.Key, new byte[rowSize]);
-        (int size, int offset) = this.metadata[keyAttr.Attr];
-        byte[] valueToWrite = value.ToArray(); //TODO: possibly optimize and not ToArray()
-        if (size == -1) {
-            IntPtr addr = Marshal.AllocHGlobal(value.Length);
-            Marshal.Copy(valueToWrite, 0, addr, valueToWrite.Length);
-            valueToWrite = new byte[IntPtr.Size * 2];
-            BitConverter.GetBytes(value.Length).CopyTo(valueToWrite, 0);
-            BitConverter.GetBytes(addr.ToInt64()).CopyTo(valueToWrite, IntPtr.Size);
-        }
-        for (int i = 0; i < valueToWrite.Length; i++) {
-            this.data[keyAttr.Key][offset+i] = valueToWrite[i];
+    protected internal void Write(ref PrimaryKey pk, TupleDesc[] tds, byte[] value){
+        // TODO: is it safe to assume if key exists in writeset, it is an update?
+        // this will receive pk over and over again with tds building 
+        if (!this.data.ContainsKey(pk)){
+            // insert
+            if (value.Length != this.rowSize){
+                throw new ArgumentException($"Expected size {this.rowSize} for new record {pk} but instead got size {value.Length}");
+            }
+            this.data[pk] = value;
+        } else {
+            // update 
+            int start = 0;
+            foreach (TupleDesc td in tds){
+                (int size, int offset) = this.metadata[td.Attr];
+                value.AsSpan(start,td.Size).CopyTo(this.data[pk].AsSpan(offset));
+                start += td.Size;
+            }
         }
     }
 
@@ -272,7 +302,7 @@ public class ShardedTable : Table {
     private RpcClient rpcClient;
     // extracts relevant values from secondary key to primary key for correct shard
     protected Func<byte[], PrimaryKey> buildTempPk;
-    public ShardedTable(int id, (long, int)[] schema, RpcClient rpcClient, ILogger logger = null) : base(id, schema, logger) {
+    public ShardedTable(int id, (long, int)[] schema, RpcClient rpcClient, IWriteAheadLog? wal = null, ILogger logger = null) : base(id, schema, wal, logger) {
         this.rpcClient = rpcClient;
     }
 
